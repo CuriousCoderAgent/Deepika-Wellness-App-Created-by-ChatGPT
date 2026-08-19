@@ -12,7 +12,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { readSessionToken, sessionCookieName } from "@/lib/auth";
 import {
   isConfigured,
@@ -28,7 +28,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 async function session() {
-  return readSessionToken(cookies().get(sessionCookieName)?.value);
+  const authorization = headers().get("authorization");
+  const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+  return readSessionToken(bearer ?? cookies().get(sessionCookieName)?.value);
 }
 
 export async function GET() {

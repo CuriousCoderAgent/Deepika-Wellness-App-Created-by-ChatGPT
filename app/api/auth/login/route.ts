@@ -12,7 +12,7 @@ import { encodeUserCookie, USER_COOKIE } from "@/lib/session-client";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  const { username, password } = await req.json().catch(() => ({}) as any);
+  const { username, password, client } = await req.json().catch(() => ({}) as any);
 
   if (typeof username !== "string" || typeof password !== "string") {
     return NextResponse.json({ error: "Missing credentials." }, { status: 400 });
@@ -39,8 +39,20 @@ export async function POST(req: Request) {
     );
   }
 
-  const res = NextResponse.json({ role: user.role });
-  res.cookies.set(sessionCookieName, await createSessionToken(user), {
+  if (client === "mobile" && user.role !== "member") {
+    return NextResponse.json(
+      { error: "The mobile app is for members. Please use the web coach console." },
+      { status: 403 }
+    );
+  }
+
+  const token = await createSessionToken(user);
+  const res = NextResponse.json({
+    role: user.role,
+    user: { id: user.sub, name: user.name },
+    ...(client === "mobile" ? { token } : {}),
+  });
+  res.cookies.set(sessionCookieName, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

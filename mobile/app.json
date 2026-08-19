@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Deepika Wellness",
+    "slug": "deepika-wellness",
+    "version": "1.0.0",
+    "icon": "./assets/icon.png",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "deepikawellness",
+    "android": {
+      "package": "com.deepikawellness.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#F7F2E8"
+      },
+      "permissions": []
+    },
+    "plugins": [
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": "Allow Deepika Wellness to protect your private wellness information."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "945e60dc-4eeb-47aa-9e85-105ad698bc69"
+      }
+    }
+  }
+}

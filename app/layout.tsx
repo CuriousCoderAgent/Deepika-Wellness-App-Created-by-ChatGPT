@@ -3,7 +3,7 @@ import "./globals.css";
 import { StoreProvider } from "@/lib/store";
 
 export const metadata: Metadata = {
-  title: "Deepika Wellness — V0 Vision Prototype",
+  title: "Deepika Wellness",
   description:
     "Coaching software for women in midlife. The coach provides the intelligence and the relationship; the product provides memory, structure and continuity.",
 };
