@@ -12,15 +12,16 @@
     "submit:android": "eas submit --platform android --profile production"
   },
   "dependencies": {
-    "expo": "~57.0.0",
+    "expo": "~57.0.9",
     "expo-secure-store": "~57.0.1",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
-    "react-native": "0.86.0",
-    "react-native-safe-area-context": "~5.9.1"
+    "react-native": "0.86.2",
+    "react-native-safe-area-context": "~5.7.0"
   },
   "devDependencies": {
+    "@types/node": "^24.10.0",
     "@types/react": "~19.2.0",
-    "typescript": "~5.9.2"
+    "typescript": "~6.0.3"
   }
 }
