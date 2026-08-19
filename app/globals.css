@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+    --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+
+    /* Design reference viewport — a modern 6.1–6.3" phone (iPhone 15 and
+       Pixel 8 are 393–412px CSS wide). The member shell is designed at this
+       width and stays fluid on either side of it: narrower phones get the
+       same layout in less space, they do not get a scaled-down copy of a
+       fixed canvas. */
+    --phone-reference: 412px;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Nothing in this product is a horizontally pannable canvas. Wide content
+       (week navigators, tables) scrolls inside its own container instead. */
+    overflow-x: clip;
+  }
+
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    font-feature-settings: "cv05" 1, "ss01" 1;
+    overflow-x: clip;
+    /* Stops a scroll inside the phone shell from chaining out to the page and
+       triggering pull-to-refresh or rubber-band bounce behind it. */
+    overscroll-behavior-y: none;
+  }
+
+  /* Removes the double-tap-to-zoom gesture and the 300ms tap delay that comes
+     with it, on tappable things only. Deliberate two-finger pinch is left
+     alone on purpose — see the note in app/layout.tsx. */
+  a,
+  button,
+  label,
+  summary,
+  [role="button"],
+  [role="switch"],
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+  }
+
+  /* Fraunces variable axes — soft, wonky, low-contrast optical sizing.
+     This is what keeps the display face humane rather than editorial. */
+  .font-display {
+    font-variation-settings: "SOFT" 60, "WONK" 1, "opsz" 36;
+    letter-spacing: -0.015em;
+  }
+
+  ::selection {
+    background: #e9f0ea;
+    color: #1c2b3a;
+  }
+
+  /* Visible keyboard focus everywhere. Non-negotiable for this audience. */
+  :focus-visible {
+    outline: 2px solid #3f6b57;
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl bg-paper-card shadow-card;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider;
+  }
+
+  .label {
+    @apply font-mono text-[10px] uppercase tracking-[0.14em] text-ink-faint;
+  }
+
+  /* Minimum tap target of 44px for the member surface. */
+  .tap {
+    @apply min-h-[44px] min-w-[44px];
+  }
+
+  /* Keeps the bottom navigation clear of the iPhone home indicator and of
+     Android gesture bars. Zero on hardware without an inset, so it costs
+     nothing elsewhere. */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .scroll-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scroll-hide {
+    scrollbar-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 16px floor on anything you can type into, on touch devices.         */
+/*                                                                     */
+/* iOS Safari zooms the entire page in whenever a form control smaller */
+/* than 16px receives focus, and it never zooms back out. That single  */
+/* behaviour — not pinch — is the usual reason a phone prototype ends  */
+/* up mysteriously zoomed with its layout distorted.                   */
+/*                                                                     */
+/* Sits outside @layer and carries enough specificity to beat a        */
+/* Tailwind text-[13px]/text-[14px] utility on purpose: small type is  */
+/* a legitimate choice for reading and never a legitimate one for an   */
+/* input. Adding text-[13px] to a new input will not defeat this, and  */
+/* should not.                                                         */
+/* ------------------------------------------------------------------ */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([disabled]),
+  textarea:not([disabled]),
+  select:not([disabled]) {
+    font-size: 16px;
+  }
+}
