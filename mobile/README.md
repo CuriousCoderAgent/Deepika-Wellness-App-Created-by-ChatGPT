@@ -1,4 +1,4 @@
-# Deepika Wellness mobile app
+# Bharosa Wellness mobile app
 
 Expo/React Native member application for Android and iOS. The coach console and API remain in the repository root.
 
@@ -28,4 +28,4 @@ eas build --platform android --profile production  # Play Store AAB
 eas submit --platform android --profile production # internal track draft
 ```
 
-The permanent Android application ID is `com.deepikawellness.app`. Changing it after the first Play Console upload creates a different app.
+The permanent Android application ID is `com.bharosawellness.app`. Changing it after the first Play Console upload creates a different app.

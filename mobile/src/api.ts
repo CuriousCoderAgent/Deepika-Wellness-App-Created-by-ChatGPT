@@ -1,7 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import type { MemberDoc } from "./types";
 
-const TOKEN_KEY = "deepika_wellness_session";
+const TOKEN_KEY = "bharosa_wellness_session";
 const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 function endpoint(path: string) {

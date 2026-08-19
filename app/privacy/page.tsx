@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata: Metadata = { title: "Privacy Policy — Deepika Wellness" };
+export const metadata: Metadata = { title: "Privacy Policy — Bharosa Wellness" };
 
 export default function PrivacyPolicy() {
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12 text-ink">
-      <p className="label text-effort-stretch">DEEPIKA WELLNESS</p>
+      <p className="label text-effort-stretch">BHAROSA WELLNESS</p>
       <h1 className="mt-3 font-display text-4xl">Privacy policy</h1>
       <p className="mt-2 text-sm text-ink-soft">Effective 19 August 2026</p>
 
@@ -14,7 +14,7 @@ export default function PrivacyPolicy() {
         <section>
           <h2 className="text-xl font-semibold text-ink">What this service is</h2>
           <p className="mt-2">
-            Deepika Wellness is a private wellness-coaching service. The app helps members follow
+            Bharosa Wellness is a private wellness-coaching service. The app helps members follow
             coach-assigned plans, record check-ins and activities, communicate with their coach,
             and review progress. It supports coaching and education; it does not diagnose or treat
             medical conditions or replace care from a qualified medical professional.
@@ -45,8 +45,8 @@ export default function PrivacyPolicy() {
         <section>
           <h2 className="text-xl font-semibold text-ink">Storage and access</h2>
           <p className="mt-2">
-            Production records are stored in access-controlled systems used to run Deepika
-            Wellness. A member can access her own record. Deepika and an authorised coach can
+            Production records are stored in access-controlled systems used to run Bharosa
+            Wellness. A member can access her own record. An authorised coach can
             access member records where needed to provide coaching. Service providers that host
             the application or database process information only to operate those services.
             Network traffic uses encryption in transit, and the mobile app keeps its session token

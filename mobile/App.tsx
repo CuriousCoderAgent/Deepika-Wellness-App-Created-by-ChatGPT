@@ -38,7 +38,7 @@ const tabs: { key: Tab; label: string; glyph: string }[] = [
   { key: "today", label: "Today", glyph: "●" },
   { key: "journey", label: "Journey", glyph: "◇" },
   { key: "progress", label: "Progress", glyph: "↗" },
-  { key: "coach", label: "Deepika", glyph: "♡" },
+  { key: "coach", label: "Coach", glyph: "♡" },
   { key: "profile", label: "You", glyph: "○" },
 ];
 
@@ -64,9 +64,9 @@ function Login({ onSuccess }: { onSuccess: (token: string) => void }) {
   return (
     <KeyboardAvoidingView style={s.loginPage} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={s.brandMark}><Text style={s.brandLetter}>D</Text></View>
-      <Text style={s.brand}>Deepika Wellness</Text>
+      <Text style={s.brand}>Bharosa Wellness</Text>
       <Text style={s.loginTitle}>Welcome back.</Text>
-      <Text style={s.loginCopy}>Your plan, your progress, and Deepika’s guidance—together in one private place.</Text>
+      <Text style={s.loginCopy}>Your plan, your progress, and your coach’s guidance—together in one private place.</Text>
       <View style={s.form}>
         <Text style={s.inputLabel}>Username</Text>
         <TextInput style={s.input} autoCapitalize="none" autoCorrect={false} value={username} onChangeText={setUsername} />
@@ -183,12 +183,12 @@ function Progress({ doc }: { doc: MemberDoc }) {
 function Coach({ doc }: { doc: MemberDoc }) {
   const messages = [...doc.messages].sort((a, b) => b.dayOffset - a.dayOffset);
   const next = [...doc.sessions].filter((x) => x.status === "scheduled" && x.dayOffset >= 0).sort((a, b) => a.dayOffset - b.dayOffset)[0];
-  return <><Text style={s.eyebrow}>YOUR COACH</Text><Text style={s.hero}>Deepika is here.</Text><Text style={s.heroCopy}>Questions, plan changes, and the human context behind your week.</Text>{next && <View style={s.session}><Text style={s.sessionLabel}>NEXT SESSION</Text><Text style={s.sessionTitle}>{next.type}</Text><Text style={s.sessionMeta}>{next.dayOffset === 0 ? "Today" : `In ${next.dayOffset} day${next.dayOffset === 1 ? "" : "s"}`} · {next.time}</Text></View>}<Text style={s.sectionTitle}>Messages</Text>{messages.length ? messages.slice(0, 8).map((m) => <Card key={m.id} style={m.from === "coach" ? s.coachMessage : undefined}><View style={s.rowBetween}><Text style={[s.messageFrom, m.from === "coach" && s.messageFromCoach]}>{m.from === "coach" ? "Deepika" : "You"}</Text><Text style={s.messageTime}>{m.time}</Text></View><Text style={s.messageBody}>{m.body}</Text></Card>) : <Card><Text style={s.empty}>No messages yet.</Text></Card>}</>;
+  return <><Text style={s.eyebrow}>YOUR COACH</Text><Text style={s.hero}>Your coach is here.</Text><Text style={s.heroCopy}>Questions, plan changes, and the human context behind your week.</Text>{next && <View style={s.session}><Text style={s.sessionLabel}>NEXT SESSION</Text><Text style={s.sessionTitle}>{next.type}</Text><Text style={s.sessionMeta}>{next.dayOffset === 0 ? "Today" : `In ${next.dayOffset} day${next.dayOffset === 1 ? "" : "s"}`} · {next.time}</Text></View>}<Text style={s.sectionTitle}>Messages</Text>{messages.length ? messages.slice(0, 8).map((m) => <Card key={m.id} style={m.from === "coach" ? s.coachMessage : undefined}><View style={s.rowBetween}><Text style={[s.messageFrom, m.from === "coach" && s.messageFromCoach]}>{m.from === "coach" ? "Coach" : "You"}</Text><Text style={s.messageTime}>{m.time}</Text></View><Text style={s.messageBody}>{m.body}</Text></Card>) : <Card><Text style={s.empty}>No messages yet.</Text></Card>}</>;
 }
 
 function Profile({ doc, onLogout }: { doc: MemberDoc; onLogout: () => void }) {
   const website = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(/\/$/, "");
-  return <><View style={s.profileBadge}><Text style={s.profileInitials}>{doc.member.name.split(" ").map((x) => x[0]).join("").slice(0, 2)}</Text></View><Text style={[s.hero, s.center]}>{doc.member.name}</Text><Text style={[s.heroCopy, s.center]}>Week {doc.member.week} · {doc.member.phase}</Text><Card><Text style={s.cardTitle}>Your boundaries matter</Text><Text style={s.profileCopy}>{doc.member.constraints.length ? doc.member.constraints.join(" · ") : "Add your preferences with Deepika."}</Text></Card><Card><Text style={s.cardTitle}>Privacy and support</Text><Text style={s.profileCopy}>Your information is used for your coaching journey. You can request an export or deletion at any time.</Text>{website ? <View style={s.policyLinks}><Pressable accessibilityRole="link" onPress={() => Linking.openURL(`${website}/privacy`)}><Text style={s.policyLink}>Privacy policy</Text></Pressable><Pressable accessibilityRole="link" onPress={() => Linking.openURL(`${website}/account-deletion`)}><Text style={s.policyLink}>Delete account</Text></Pressable></View> : null}</Card><Pressable accessibilityRole="button" style={s.secondaryButton} onPress={onLogout}><Text style={s.secondaryButtonText}>Sign out</Text></Pressable><Text style={s.disclaimer}>Deepika Wellness supports coaching and education. It does not diagnose conditions or replace medical care.</Text></>;
+  return <><View style={s.profileBadge}><Text style={s.profileInitials}>{doc.member.name.split(" ").map((x) => x[0]).join("").slice(0, 2)}</Text></View><Text style={[s.hero, s.center]}>{doc.member.name}</Text><Text style={[s.heroCopy, s.center]}>Week {doc.member.week} · {doc.member.phase}</Text><Card><Text style={s.cardTitle}>Your boundaries matter</Text><Text style={s.profileCopy}>{doc.member.constraints.length ? doc.member.constraints.join(" · ") : "Add your preferences with your coach."}</Text></Card><Card><Text style={s.cardTitle}>Privacy and support</Text><Text style={s.profileCopy}>Your information is used for your coaching journey. You can request an export or deletion at any time.</Text>{website ? <View style={s.policyLinks}><Pressable accessibilityRole="link" onPress={() => Linking.openURL(`${website}/privacy`)}><Text style={s.policyLink}>Privacy policy</Text></Pressable><Pressable accessibilityRole="link" onPress={() => Linking.openURL(`${website}/account-deletion`)}><Text style={s.policyLink}>Delete account</Text></Pressable></View> : null}</Card><Pressable accessibilityRole="button" style={s.secondaryButton} onPress={onLogout}><Text style={s.secondaryButtonText}>Sign out</Text></Pressable><Text style={s.disclaimer}>Bharosa Wellness supports coaching and education. It does not diagnose conditions or replace medical care.</Text></>;
 }
 
 function MemberApp({ token, onSignedOut }: { token: string; onSignedOut: () => void }) {
@@ -226,7 +226,7 @@ function MemberApp({ token, onSignedOut }: { token: string; onSignedOut: () => v
   if (loading) return <View style={s.loading}><ActivityIndicator size="large" color={C.green} /><Text style={s.loadingText}>Loading your plan…</Text></View>;
   if (!doc) return <View style={s.loading}><Text style={s.error}>Your plan could not be loaded.</Text><Pressable style={s.primaryButton} onPress={refresh}><Text style={s.primaryButtonText}>Try again</Text></Pressable></View>;
 
-  return <SafeAreaView style={s.app}><StatusBar style="dark" /><View style={s.topBar}><Text style={s.topBrand}>Deepika Wellness</Text>{saving && <Text style={s.saving}>Saving…</Text>}</View><ScrollView style={s.scroll} contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={refreshing} tintColor={C.green} onRefresh={() => { setRefreshing(true); refresh(); }} />}>{content}<View style={{ height: 30 }} /></ScrollView><View style={s.tabBar}>{tabs.map((item) => <Pressable key={item.key} style={s.tab} onPress={() => setTab(item.key)}><Text style={[s.tabGlyph, tab === item.key && s.tabActive]}>{item.glyph}</Text><Text style={[s.tabLabel, tab === item.key && s.tabActive]}>{item.label}</Text></Pressable>)}</View></SafeAreaView>;
+  return <SafeAreaView style={s.app}><StatusBar style="dark" /><View style={s.topBar}><Text style={s.topBrand}>Bharosa Wellness</Text>{saving && <Text style={s.saving}>Saving…</Text>}</View><ScrollView style={s.scroll} contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={refreshing} tintColor={C.green} onRefresh={() => { setRefreshing(true); refresh(); }} />}>{content}<View style={{ height: 30 }} /></ScrollView><View style={s.tabBar}>{tabs.map((item) => <Pressable key={item.key} style={s.tab} onPress={() => setTab(item.key)}><Text style={[s.tabGlyph, tab === item.key && s.tabActive]}>{item.glyph}</Text><Text style={[s.tabLabel, tab === item.key && s.tabActive]}>{item.label}</Text></Pressable>)}</View></SafeAreaView>;
 }
 
 export default function App() {
