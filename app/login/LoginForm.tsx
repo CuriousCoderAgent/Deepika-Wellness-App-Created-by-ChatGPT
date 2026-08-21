@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Loader2 } from "lucide-react";
 
 /**
- * One form for everyone, in two modes.
+ * One form for everyone: sign in, create an account, or request recovery.
  *
  * Signing in does not ask you what kind of person you are — the account
  * decides which surface you land on, so a member is never shown a door marked
@@ -33,21 +33,25 @@ export default function LoginForm({
   canSignUp: boolean;
   needsCode: boolean;
 }) {
-  const [mode, setMode] = useState<"signin" | "create">("signin");
+  const [mode, setMode] = useState<"signin" | "create" | "forgot">("signin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [confirm, setConfirm] = useState("");
   const [code, setCode] = useState("");
   const [touchedUsername, setTouchedUsername] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const creating = mode === "create";
+  const forgot = mode === "forgot";
 
   const switchMode = () => {
     setMode(creating ? "signin" : "create");
     setError(null);
+    setNotice(null);
     setPassword("");
     setConfirm("");
   };
@@ -58,30 +62,55 @@ export default function LoginForm({
   };
 
   const ready = creating
-    ? name.trim() && username.trim() && password.length >= 8 && confirm.length > 0 &&
+    ? name.trim() &&
+      email.trim() &&
+      username.trim() &&
+      password.length >= 8 &&
+      confirm.length > 0 &&
       (!needsCode || code.trim())
-    : username.trim() && password;
+    : forgot
+      ? username.trim()
+      : username.trim() && password;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setNotice(null);
 
     if (creating && password !== confirm) {
-      // Checked here rather than server-side because there is no password
-      // reset in this build: a typo now is an account she cannot get back into.
+      // Catch a typo before creating and signing into the account.
       setError("Those two passwords don't match.");
       return;
     }
 
     setBusy(true);
     try {
-      const res = await fetch(creating ? "/api/auth/signup" : "/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          creating ? { username, password, name, code } : { username, password }
-        ),
-      });
+      if (forgot) {
+        const res = await fetch("/api/auth/password-help", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username }),
+        });
+        const body = await res.json().catch(() => ({}));
+        setNotice(
+          body.message ||
+            "If an account matches those details, we’ll email a password-reset link shortly.",
+        );
+        setBusy(false);
+        return;
+      }
+      const res = await fetch(
+        creating ? "/api/auth/signup" : "/api/auth/login",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            creating
+              ? { username, password, name, email, code }
+              : { username, password },
+          ),
+        },
+      );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setError(body.error || "Something went wrong. Try again.");
@@ -101,25 +130,58 @@ export default function LoginForm({
 
   return (
     <form onSubmit={submit} className="space-y-3">
-      {creating && (
-        <div>
-          <label htmlFor="name" className={label}>
-            Your name
-          </label>
-          <input
-            id="name"
-            name="name"
-            autoComplete="name"
-            value={name}
-            onChange={(e) => onName(e.target.value)}
-            className={field}
-          />
+      {forgot && (
+        <div className="rounded-xl bg-effort-tint px-3.5 py-3 text-[13px] leading-relaxed text-ink-soft">
+          Enter your email or username. If it matches a reset-enabled account,
+          we’ll send a private link that expires in 30 minutes.
         </div>
+      )}
+
+      {creating && (
+        <>
+          <div>
+            <label htmlFor="name" className={label}>
+              Your name
+            </label>
+            <input
+              id="name"
+              name="name"
+              autoComplete="name"
+              value={name}
+              onChange={(e) => onName(e.target.value)}
+              className={field}
+            />
+          </div>
+          <div>
+            <label htmlFor="email" className={label}>
+              Email address
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={field}
+            />
+            <p className="mt-1 text-[11px] text-ink-faint">
+              Used for secure account recovery. It is not shown to other
+              members.
+            </p>
+          </div>
+        </>
       )}
 
       <div>
         <label htmlFor="username" className={label}>
-          {creating ? "Choose a username" : "Username"}
+          {forgot
+            ? "Email or username"
+            : creating
+              ? "Choose a username"
+              : "Username"}
         </label>
         <input
           id="username"
@@ -142,26 +204,44 @@ export default function LoginForm({
         )}
       </div>
 
-      <div>
-        <label htmlFor="password" className={label}>
-          {creating ? "Create a password" : "Password"}
-        </label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete={creating ? "new-password" : "current-password"}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className={field}
-        />
-        {creating && (
-          <p className="mt-1 text-[11px] text-ink-faint">
-            At least 8 characters. Keep it somewhere safe — there's no way to
-            reset it yet.
-          </p>
-        )}
-      </div>
+      {!forgot && (
+        <div>
+          <label htmlFor="password" className={label}>
+            {creating ? "Create a password" : "Password"}
+          </label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete={creating ? "new-password" : "current-password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className={field}
+          />
+          {creating && (
+            <p className="mt-1 text-[11px] text-ink-faint">
+              At least 8 characters. You can securely reset it by email.
+            </p>
+          )}
+        </div>
+      )}
+
+      {mode === "signin" && (
+        <div className="text-right">
+          <button
+            type="button"
+            onClick={() => {
+              setMode("forgot");
+              setError(null);
+              setNotice(null);
+              setPassword("");
+            }}
+            className="text-[12px] font-medium text-effort-stretch underline underline-offset-2"
+          >
+            Forgot password?
+          </button>
+        </div>
+      )}
 
       {creating && (
         <div>
@@ -201,8 +281,20 @@ export default function LoginForm({
       )}
 
       {error && (
-        <p role="alert" className="rounded-xl bg-danger-tint px-3 py-2.5 text-[13px] text-danger">
+        <p
+          role="alert"
+          className="rounded-xl bg-danger-tint px-3 py-2.5 text-[13px] text-danger"
+        >
           {error}
+        </p>
+      )}
+
+      {notice && (
+        <p
+          role="status"
+          className="rounded-xl bg-effort-tint px-3 py-2.5 text-[13px] leading-relaxed text-effort-stretch"
+        >
+          {notice}
         </p>
       )}
 
@@ -213,25 +305,45 @@ export default function LoginForm({
       >
         {busy && <Loader2 size={15} className="animate-spin" />}
         {busy
-          ? creating
-            ? "Creating your account…"
-            : "Signing in…"
-          : creating
-            ? "Create my account"
-            : "Sign in"}
+          ? forgot
+            ? "Sending a secure link…"
+            : creating
+              ? "Creating your account…"
+              : "Signing in…"
+          : forgot
+            ? "Email me a reset link"
+            : creating
+              ? "Create my account"
+              : "Sign in"}
       </button>
 
-      {canSignUp && (
+      {forgot ? (
         <p className="pt-1 text-center text-[13px] text-ink-soft">
-          {creating ? "Already have an account?" : "First time here?"}{" "}
           <button
             type="button"
-            onClick={switchMode}
+            onClick={() => {
+              setMode("signin");
+              setError(null);
+              setNotice(null);
+            }}
             className="font-medium text-effort-stretch underline underline-offset-2"
           >
-            {creating ? "Sign in" : "Create your account"}
+            Back to sign in
           </button>
         </p>
+      ) : (
+        canSignUp && (
+          <p className="pt-1 text-center text-[13px] text-ink-soft">
+            {creating ? "Already have an account?" : "First time here?"}{" "}
+            <button
+              type="button"
+              onClick={switchMode}
+              className="font-medium text-effort-stretch underline underline-offset-2"
+            >
+              {creating ? "Sign in" : "Create your account"}
+            </button>
+          </p>
+        )
       )}
     </form>
   );

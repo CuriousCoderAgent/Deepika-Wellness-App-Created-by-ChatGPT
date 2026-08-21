@@ -25,18 +25,23 @@ const BOOTSTRAP_KEY = "demo_cohort";
 const BOOTSTRAP_VERSION = "1";
 
 /**
- * The connection string, under whichever name the provider used.
+ * The connection string for Bharosa's own database.
  *
- * Vercel's Storage tab provisions a database and injects the variables for
- * you, which is the path most people take — but the name depends on which
- * provider is behind it: Neon writes `DATABASE_URL`, Supabase and the older
- * Vercel Postgres write `POSTGRES_URL`. Both are the pooled connection, which
- * is the one this wants. Reading only the first name would leave someone
- * staring at a correctly provisioned database and an app that says storage is
- * not configured.
+ * Production deliberately accepts only `BHAROSA_DATABASE_URL`. Reusing a
+ * provider's generic `DATABASE_URL` is convenient, but it also makes it far
+ * too easy for a new Bharosa deployment to silently attach to an older app's
+ * database. Local development and tests retain the legacy fallbacks so an
+ * existing developer environment does not break without warning.
  */
 function connectionString(): string | undefined {
-  return process.env.DATABASE_URL?.trim() || process.env.POSTGRES_URL?.trim() || undefined;
+  const bharosa = process.env.BHAROSA_DATABASE_URL?.trim();
+  if (bharosa) return bharosa;
+  if (process.env.NODE_ENV === "production") return undefined;
+  return (
+    process.env.DATABASE_URL?.trim() ||
+    process.env.POSTGRES_URL?.trim() ||
+    undefined
+  );
 }
 
 export function isConfigured(): boolean {
@@ -44,22 +49,22 @@ export function isConfigured(): boolean {
 }
 
 /**
- * Managed Postgres (Supabase, Neon, Railway) presents certificates this
- * runtime has no root for, so the chain goes unverified while the connection
- * itself stays encrypted — the standard posture for those providers. A local
- * database usually speaks no TLS at all, and asking for it there fails the
- * connection outright, so honour what the URL says.
+ * Production health data needs an authenticated TLS peer, not merely an
+ * encrypted socket. Managed providers use publicly trusted certificates, so
+ * certificate verification stays enabled. Local databases may explicitly use
+ * sslmode=disable.
  */
 function sslOption(): false | { rejectUnauthorized: boolean } {
   const url = connectionString() ?? "";
   if (/[?&]sslmode=disable/.test(url)) return false;
   try {
     const host = new URL(url).hostname;
-    if (host === "localhost" || host === "127.0.0.1" || host === "::1") return false;
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1")
+      return false;
   } catch {
     /* unparseable URL — let pg produce the real error */
   }
-  return { rejectUnauthorized: false };
+  return { rejectUnauthorized: true };
 }
 
 /**
@@ -130,37 +135,86 @@ async function init(): Promise<void> {
       user_id       text primary key,
       name          text not null,
       password_hash text not null,
+      email          text,
+      session_version integer not null default 1,
       created_at    timestamptz not null default now()
     );
+    alter table account add column if not exists email text;
+    alter table account add column if not exists session_version integer not null default 1;
+    create unique index if not exists account_email_unique
+      on account (lower(email)) where email is not null;
+
+    create table if not exists password_reset_token (
+      id         text primary key,
+      user_id    text not null references account(user_id) on delete cascade,
+      token_hash text not null unique,
+      created_at timestamptz not null default now(),
+      expires_at timestamptz not null,
+      used_at    timestamptz
+    );
+    create index if not exists password_reset_token_user_idx
+      on password_reset_token (user_id, created_at desc);
+    create index if not exists password_reset_token_expiry_idx
+      on password_reset_token (expires_at);
+
+    create table if not exists auth_rate_limit (
+      scope             text not null,
+      key_hash          text not null,
+      window_started_at timestamptz not null default now(),
+      attempts          integer not null default 1,
+      updated_at        timestamptz not null default now(),
+      primary key (scope, key_hash)
+    );
+    create index if not exists auth_rate_limit_updated_idx
+      on auth_rate_limit (updated_at);
+
+    create table if not exists private_file (
+      id_hash      text primary key,
+      owner_id     text not null,
+      pathname     text not null unique,
+      kind         text not null check (kind in ('meal-photo', 'report')),
+      file_name    text not null,
+      content_type text not null,
+      size_bytes   bigint not null check (size_bytes > 0),
+      created_at   timestamptz not null default now(),
+      deleted_at   timestamptz
+    );
+    create index if not exists private_file_owner_idx
+      on private_file (owner_id, created_at desc) where deleted_at is null;
   `);
 
   // The marker, not a row count, decides whether to seed. Counting would
   // resurrect the demo cohort the day Deepika deletes it, which is exactly
   // what she would be doing on purpose before real members arrive.
-  const marked = await c.query("select 1 from app_meta where key = $1", [BOOTSTRAP_KEY]);
+  const marked = await c.query("select 1 from app_meta where key = $1", [
+    BOOTSTRAP_KEY,
+  ]);
   if (marked.rowCount) return;
 
   for (const doc of seedMemberDocs()) {
     await c.query(
       `insert into member_state (user_id, name, doc) values ($1, $2, $3)
        on conflict (user_id) do nothing`,
-      [doc.member.id, doc.member.name, JSON.stringify(doc)]
+      [doc.member.id, doc.member.name, JSON.stringify(doc)],
     );
   }
   await c.query(
     `insert into coach_state (user_id, doc) values ($1, $2)
      on conflict (user_id) do nothing`,
-    ["deepika", JSON.stringify(seedCoachDoc())]
+    ["deepika", JSON.stringify(seedCoachDoc())],
   );
   await c.query(
     `insert into app_meta (key, value) values ($1, $2) on conflict (key) do nothing`,
-    [BOOTSTRAP_KEY, BOOTSTRAP_VERSION]
+    [BOOTSTRAP_KEY, BOOTSTRAP_VERSION],
   );
 }
 
 export async function readMemberDoc(userId: string): Promise<MemberDoc | null> {
   await ensureReady();
-  const r = await db().query("select doc from member_state where user_id = $1", [userId]);
+  const r = await db().query(
+    "select doc from member_state where user_id = $1",
+    [userId],
+  );
   return r.rows[0]?.doc ?? null;
 }
 
@@ -170,30 +224,38 @@ export async function readAllMemberDocs(): Promise<MemberDoc[]> {
   return r.rows.map((row) => row.doc as MemberDoc);
 }
 
-export async function writeMemberDoc(userId: string, doc: MemberDoc): Promise<void> {
+export async function writeMemberDoc(
+  userId: string,
+  doc: MemberDoc,
+): Promise<void> {
   await ensureReady();
   await db().query(
     `insert into member_state (user_id, name, doc, updated_at)
      values ($1, $2, $3, now())
      on conflict (user_id) do update
        set name = excluded.name, doc = excluded.doc, updated_at = now()`,
-    [userId, doc.member?.name ?? "", JSON.stringify(doc)]
+    [userId, doc.member?.name ?? "", JSON.stringify(doc)],
   );
 }
 
 export async function readCoachDoc(userId: string): Promise<CoachDoc | null> {
   await ensureReady();
-  const r = await db().query("select doc from coach_state where user_id = $1", [userId]);
+  const r = await db().query("select doc from coach_state where user_id = $1", [
+    userId,
+  ]);
   return r.rows[0]?.doc ?? null;
 }
 
-export async function writeCoachDoc(userId: string, doc: CoachDoc): Promise<void> {
+export async function writeCoachDoc(
+  userId: string,
+  doc: CoachDoc,
+): Promise<void> {
   await ensureReady();
   await db().query(
     `insert into coach_state (user_id, doc, updated_at)
      values ($1, $2, now())
      on conflict (user_id) do update set doc = excluded.doc, updated_at = now()`,
-    [userId, JSON.stringify(doc)]
+    [userId, JSON.stringify(doc)],
   );
 }
 
@@ -202,14 +264,58 @@ export async function writeCoachDoc(userId: string, doc: CoachDoc): Promise<void
 /* before they get here and this module never sees a plaintext one.     */
 /* ------------------------------------------------------------------ */
 
-export async function readAccount(userId: string): Promise<StoredAccount | null> {
+export async function readAccount(
+  userId: string,
+): Promise<StoredAccount | null> {
   await ensureReady();
   const r = await db().query(
-    "select user_id, name, password_hash from account where user_id = $1",
-    [userId]
+    `select user_id, name, password_hash, email, session_version
+     from account where user_id = $1`,
+    [userId],
   );
   const row = r.rows[0];
-  return row ? { userId: row.user_id, name: row.name, hash: row.password_hash } : null;
+  return row
+    ? {
+        userId: row.user_id,
+        name: row.name,
+        hash: row.password_hash,
+        email: row.email ?? null,
+        sessionVersion: row.session_version,
+      }
+    : null;
+}
+
+export async function readAccountByEmail(
+  email: string,
+): Promise<StoredAccount | null> {
+  await ensureReady();
+  const r = await db().query(
+    `select user_id, name, password_hash, email, session_version
+     from account where lower(email) = lower($1)`,
+    [email],
+  );
+  const row = r.rows[0];
+  return row
+    ? {
+        userId: row.user_id,
+        name: row.name,
+        hash: row.password_hash,
+        email: row.email ?? null,
+        sessionVersion: row.session_version,
+      }
+    : null;
+}
+
+/** Null means this is not a database-backed self-created account. */
+export async function readAccountSessionVersion(
+  userId: string,
+): Promise<number | null> {
+  await ensureReady();
+  const r = await db().query(
+    "select session_version from account where user_id = $1",
+    [userId],
+  );
+  return r.rows[0]?.session_version ?? null;
 }
 
 /**
@@ -222,16 +328,298 @@ export async function readAccount(userId: string): Promise<StoredAccount | null>
 export async function writeAccount(a: StoredAccount): Promise<boolean> {
   await ensureReady();
   const r = await db().query(
-    `insert into account (user_id, name, password_hash) values ($1, $2, $3)
-     on conflict (user_id) do nothing`,
-    [a.userId, a.name, a.hash]
+    `insert into account (user_id, name, password_hash, email, session_version)
+     values ($1, $2, $3, $4, $5)
+     on conflict do nothing`,
+    [a.userId, a.name, a.hash, a.email, a.sessionVersion],
   );
   return (r.rowCount ?? 0) > 0;
 }
 
-/** Everyone who signed themselves up, for Deepika's roster. */
-export async function readAccountNames(): Promise<{ userId: string; name: string }[]> {
+/** Account and empty member document are one durable unit. */
+export async function createAccountWithMemberDoc(
+  account: StoredAccount,
+  doc: MemberDoc,
+): Promise<boolean> {
   await ensureReady();
-  const r = await db().query("select user_id, name from account order by created_at asc");
+  const client = await db().connect();
+  try {
+    await client.query("begin");
+    const inserted = await client.query(
+      `insert into account (user_id, name, password_hash, email, session_version)
+       values ($1, $2, $3, $4, $5)
+       on conflict do nothing`,
+      [
+        account.userId,
+        account.name,
+        account.hash,
+        account.email,
+        account.sessionVersion,
+      ],
+    );
+    if (!(inserted.rowCount ?? 0)) {
+      await client.query("rollback");
+      return false;
+    }
+    await client.query(
+      `insert into member_state (user_id, name, doc, updated_at)
+       values ($1, $2, $3, now())`,
+      [account.userId, account.name, JSON.stringify(doc)],
+    );
+    await client.query("commit");
+    return true;
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function createPasswordResetToken(input: {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+}): Promise<void> {
+  await ensureReady();
+  const client = await db().connect();
+  try {
+    await client.query("begin");
+    // Serialise requests for one account so two simultaneous emails cannot
+    // both leave usable tokens behind.
+    await client.query(
+      "select user_id from account where user_id = $1 for update",
+      [input.userId],
+    );
+    await client.query(
+      `update password_reset_token
+         set used_at = now()
+       where user_id = $1 and used_at is null`,
+      [input.userId],
+    );
+    await client.query(
+      `insert into password_reset_token (id, user_id, token_hash, expires_at)
+       values ($1, $2, $3, $4)`,
+      [input.id, input.userId, input.tokenHash, input.expiresAt],
+    );
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  await db()
+    .query(
+      `delete from password_reset_token
+       where expires_at < now() - interval '7 days'`,
+    )
+    .catch(() => undefined);
+}
+
+export async function cancelPasswordResetToken(id: string): Promise<void> {
+  await ensureReady();
+  await db().query(
+    `update password_reset_token set used_at = now()
+     where id = $1 and used_at is null`,
+    [id],
+  );
+}
+
+/**
+ * Consumes a reset token and changes the password in one transaction. The row
+ * lock makes simultaneous submissions deterministic: exactly one can win.
+ */
+export async function consumePasswordResetToken(
+  tokenHash: string,
+  passwordHash: string,
+): Promise<boolean> {
+  await ensureReady();
+  const client = await db().connect();
+  try {
+    await client.query("begin");
+    const token = await client.query(
+      `select user_id from password_reset_token
+       where token_hash = $1 and used_at is null and expires_at > now()
+       for update`,
+      [tokenHash],
+    );
+    const userId = token.rows[0]?.user_id as string | undefined;
+    if (!userId) {
+      await client.query("rollback");
+      return false;
+    }
+
+    const changed = await client.query(
+      `update account
+       set password_hash = $1, session_version = session_version + 1
+       where user_id = $2`,
+      [passwordHash, userId],
+    );
+    if (!(changed.rowCount ?? 0)) {
+      await client.query("rollback");
+      return false;
+    }
+
+    await client.query(
+      `update password_reset_token set used_at = now()
+       where user_id = $1 and used_at is null`,
+      [userId],
+    );
+    await client.query("commit");
+    return true;
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Atomic fixed-window limiter; only privacy-preserving hashes reach the DB. */
+export async function consumeAuthRateLimit(input: {
+  scope: string;
+  keyHash: string;
+  limit: number;
+  windowSeconds: number;
+}): Promise<boolean> {
+  await ensureReady();
+  const r = await db().query(
+    `insert into auth_rate_limit
+       (scope, key_hash, window_started_at, attempts, updated_at)
+     values ($1, $2, now(), 1, now())
+     on conflict (scope, key_hash) do update set
+       window_started_at = case
+         when auth_rate_limit.window_started_at <= now() - ($3::int * interval '1 second')
+           then now()
+         else auth_rate_limit.window_started_at
+       end,
+       attempts = case
+         when auth_rate_limit.window_started_at <= now() - ($3::int * interval '1 second')
+           then 1
+         else auth_rate_limit.attempts + 1
+       end,
+       updated_at = now()
+     returning attempts`,
+    [input.scope, input.keyHash, input.windowSeconds],
+  );
+  await db()
+    .query(
+      `delete from auth_rate_limit
+       where updated_at < now() - interval '2 days'`,
+    )
+    .catch(() => undefined);
+  return Number(r.rows[0]?.attempts ?? input.limit + 1) <= input.limit;
+}
+
+export interface PrivateFileRecord {
+  idHash: string;
+  ownerId: string;
+  pathname: string;
+  kind: "meal-photo" | "report";
+  fileName: string;
+  contentType: string;
+  size: number;
+}
+
+const PRIVATE_FILE_LIMIT = 500;
+const PRIVATE_FILE_BYTES_LIMIT = 500_000_000;
+
+/**
+ * Registers ownership after Blob upload. Advisory locking makes the per-owner
+ * quota deterministic across concurrent serverless requests.
+ */
+export async function registerPrivateFile(
+  record: PrivateFileRecord,
+): Promise<boolean> {
+  await ensureReady();
+  const client = await db().connect();
+  try {
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtext($1))", [
+      record.ownerId,
+    ]);
+    const usage = await client.query(
+      `select count(*)::int as files,
+              coalesce(sum(size_bytes), 0)::bigint as bytes
+       from private_file
+       where owner_id = $1 and deleted_at is null`,
+      [record.ownerId],
+    );
+    const files = Number(usage.rows[0]?.files ?? 0);
+    const bytes = Number(usage.rows[0]?.bytes ?? 0);
+    if (
+      files >= PRIVATE_FILE_LIMIT ||
+      bytes + record.size > PRIVATE_FILE_BYTES_LIMIT
+    ) {
+      await client.query("rollback");
+      return false;
+    }
+    await client.query(
+      `insert into private_file
+         (id_hash, owner_id, pathname, kind, file_name, content_type, size_bytes)
+       values ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        record.idHash,
+        record.ownerId,
+        record.pathname,
+        record.kind,
+        record.fileName,
+        record.contentType,
+        record.size,
+      ],
+    );
+    await client.query("commit");
+    return true;
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function readPrivateFileRecord(
+  idHash: string,
+): Promise<PrivateFileRecord | null> {
+  await ensureReady();
+  const result = await db().query(
+    `select id_hash, owner_id, pathname, kind, file_name, content_type, size_bytes
+     from private_file where id_hash = $1 and deleted_at is null`,
+    [idHash],
+  );
+  const row = result.rows[0];
+  return row
+    ? {
+        idHash: row.id_hash,
+        ownerId: row.owner_id,
+        pathname: row.pathname,
+        kind: row.kind,
+        fileName: row.file_name,
+        contentType: row.content_type,
+        size: Number(row.size_bytes),
+      }
+    : null;
+}
+
+export async function markPrivateFileDeleted(idHash: string): Promise<void> {
+  await ensureReady();
+  await db().query(
+    `update private_file set deleted_at = now()
+     where id_hash = $1 and deleted_at is null`,
+    [idHash],
+  );
+}
+
+/** Everyone who signed themselves up, for Deepika's roster. */
+export async function readAccountNames(): Promise<
+  { userId: string; name: string }[]
+> {
+  await ensureReady();
+  const r = await db().query(
+    "select user_id, name from account order by created_at asc",
+  );
   return r.rows.map((row) => ({ userId: row.user_id, name: row.name }));
 }

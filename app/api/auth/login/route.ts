@@ -1,21 +1,97 @@
 import { NextResponse } from "next/server";
 import {
   createSessionToken,
+  sessionSigningAvailable,
   sessionCookieName,
   sessionMaxAge,
   verifyCredentials,
 } from "@/lib/auth";
-import { verifyAccount } from "@/lib/accounts";
-import { isConfigured } from "@/lib/db";
+import { authRateLimitKey, verifyAccount } from "@/lib/accounts";
+import { consumeAuthRateLimit, isConfigured } from "@/lib/db";
 import { encodeUserCookie, USER_COOKIE } from "@/lib/session-client";
 
 export const runtime = "nodejs";
 
+function clientAddress(req: Request): string {
+  return (
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip")?.trim() ||
+    "unknown"
+  );
+}
+
 export async function POST(req: Request) {
-  const { username, password, client } = await req.json().catch(() => ({}) as any);
+  if (
+    !sessionSigningAvailable() ||
+    (process.env.NODE_ENV === "production" && !isConfigured())
+  ) {
+    return NextResponse.json(
+      { error: "Sign-in is not configured on this deployment." },
+      { status: 503 },
+    );
+  }
+  if (
+    !req.headers
+      .get("content-type")
+      ?.toLowerCase()
+      .startsWith("application/json")
+  ) {
+    return NextResponse.json(
+      { error: "Unsupported request." },
+      { status: 415 },
+    );
+  }
+  const raw = await req.text();
+  if (raw.length > 8_192) {
+    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  }
+  const { username, password, client } = (() => {
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return {} as Record<string, unknown>;
+    }
+  })();
 
   if (typeof username !== "string" || typeof password !== "string") {
-    return NextResponse.json({ error: "Missing credentials." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing credentials." },
+      { status: 400 },
+    );
+  }
+
+  if (isConfigured()) {
+    try {
+      const addressAllowed = await consumeAuthRateLimit({
+        scope: "login-address",
+        keyHash: authRateLimitKey("login-address", clientAddress(req)),
+        limit: 20,
+        windowSeconds: 15 * 60,
+      });
+      if (!addressAllowed) {
+        return NextResponse.json(
+          { error: "Too many sign-in attempts. Try again later." },
+          { status: 429 },
+        );
+      }
+      const accountAllowed = await consumeAuthRateLimit({
+        scope: "login-account",
+        keyHash: authRateLimitKey("login-account", username.slice(0, 254)),
+        limit: 10,
+        windowSeconds: 15 * 60,
+      });
+      if (!accountAllowed) {
+        return NextResponse.json(
+          { error: "Too many sign-in attempts. Try again later." },
+          { status: 429 },
+        );
+      }
+    } catch {
+      return NextResponse.json(
+        { error: "Sign-in is temporarily unavailable." },
+        { status: 503 },
+      );
+    }
   }
 
   // Accounts come from two places: the environment, which holds Deepika's
@@ -35,14 +111,17 @@ export async function POST(req: Request) {
     // used to discover which accounts exist.
     return NextResponse.json(
       { error: "That username and password don't match." },
-      { status: 401 }
+      { status: 401 },
     );
   }
 
   if (client === "mobile" && user.role !== "member") {
     return NextResponse.json(
-      { error: "The mobile app is for members. Please use the web coach console." },
-      { status: 403 }
+      {
+        error:
+          "The mobile app is for members. Please use the web coach console.",
+      },
+      { status: 403 },
     );
   }
 

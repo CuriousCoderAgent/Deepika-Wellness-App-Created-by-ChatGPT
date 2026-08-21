@@ -1,33 +1,111 @@
 export type EffortLevel = "minimum" | "target" | "stretch";
+export type JourneyPhase = "Stabilise" | "Build" | "Consolidate";
+export type ActionDomain =
+  | "movement"
+  | "walking"
+  | "nutrition"
+  | "recovery"
+  | "mindset";
 
 export interface Provenance {
-  source: "member_manual" | "coach_on_behalf" | "wearable" | "imported_document" | "system_derived";
+  source:
+    | "member_manual"
+    | "coach_on_behalf"
+    | "wearable"
+    | "imported_document"
+    | "system_derived";
   enteredBy: string;
   at: string;
+}
+
+export interface WeekPlan {
+  week: number;
+  phase: JourneyPhase;
+  focus: string[];
+  moduleIds: string[];
+  rationale?: string;
 }
 
 export interface Member {
   id: string;
   name: string;
   week: number;
-  phase: "Stabilise" | "Build" | "Consolidate";
+  phase: JourneyPhase;
   weeklyFocus: string[];
   goals: string[];
   constraints: string[];
   activeModuleIds: string[];
+  weekPlans?: WeekPlan[];
   lastPlanChange?: { at: string; rationale: string };
+}
+
+export interface EffortSpec {
+  label: string;
+  minutes: number;
+}
+
+export interface OutcomeMeasurement {
+  kind: "minutes" | "repetitions" | "steps" | "meal" | "serving" | "check_in";
+  value: number;
+  unit: string;
 }
 
 export interface DailyAction {
   id: string;
   memberId: string;
   dayOffset: number;
+  moduleId?: string;
+  domain: ActionDomain;
   title: string;
   why: string;
-  minimum: { label: string; minutes: number };
-  target: { label: string; minutes: number };
-  stretch: { label: string; minutes: number };
+  minimum: EffortSpec;
+  target: EffortSpec;
+  stretch: EffortSpec;
+  measurement: OutcomeMeasurement;
   completed: EffortLevel | "rest" | null;
+  isPrimary?: boolean;
+  coachLimits?: { minimumValue: number; maximumValue: number };
+  exercise?: {
+    name: string;
+    sets: string;
+    cue: string;
+    frames: string[];
+  };
+}
+
+export interface WorkoutLog {
+  id: string;
+  actionId: string;
+  memberId: string;
+  completedAt: string;
+  level: EffortLevel;
+  perceivedEffort: 1 | 2 | 3 | 4 | 5;
+  pain: boolean;
+  painNote?: string;
+  coachReviewRequired: boolean;
+}
+
+export interface HealthReport {
+  id: string;
+  memberId: string;
+  title: string;
+  category: "blood_work" | "body_composition" | "other";
+  fileName: string;
+  /** Opaque server-issued reference to a private object. */
+  fileId?: string;
+  /** Legacy/device-local URI. Retained only for older records and demo mode. */
+  fileUri?: string;
+  uploadedAt: string;
+  status: "uploaded" | "coach_reviewed";
+}
+
+export interface LearningArticle {
+  id: string;
+  title: string;
+  summary: string;
+  readMinutes: number;
+  category: "Movement" | "Nutrition" | "Recovery" | "Mindset" | "Body signals";
+  body: string[];
 }
 
 export interface PulseEntry {
@@ -63,13 +141,141 @@ export interface Session {
   status: string;
 }
 
+export interface FoodEntry {
+  id: string;
+  memberId: string;
+  dayOffset: number;
+  loggedDate: string;
+  meal: "Breakfast" | "Lunch" | "Snack" | "Dinner";
+  description: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  /** Opaque server-issued reference to a privately stored meal photo. */
+  photoFileId?: string;
+  /** Legacy/device-local URI. Retained only for older records and demo mode. */
+  photoUri?: string;
+  confidence: "member" | "estimated";
+  memberCorrected?: boolean;
+  createdAt: string;
+}
+
+export type HealthMetric =
+  | "steps"
+  | "restingHeartRate"
+  | "heartRateVariability"
+  | "vo2Max";
+export type HealthPermissionState = "not_requested" | "granted" | "denied";
+
+export interface HealthSnapshot {
+  id: string;
+  date: string;
+  metric: HealthMetric;
+  value: number;
+  unit: "count" | "bpm" | "ms" | "ml/kg/min";
+  source: string;
+  /** When Health Connect says the measurement or aggregate occurred. */
+  observedAt?: string;
+  /** When Bharosa most recently read this value from Health Connect. */
+  syncedAt?: string;
+  /** How the stored value was selected from the provider's records. */
+  aggregation?: "daily_sum" | "latest_record";
+  /** Present for windowed aggregates such as a calendar day's step total. */
+  windowStart?: string;
+  windowEnd?: string;
+  /** Every Health Connect origin included in an aggregate. */
+  sourceOrigins?: string[];
+  /** Legacy timestamp retained while older member documents are migrated. */
+  recordedAt: string;
+  available: boolean;
+  provenance: Provenance;
+}
+
+export interface HealthConnection {
+  platform: "android_health_connect" | "apple_health" | "none";
+  status: "unavailable" | "disconnected" | "partial" | "connected" | "error";
+  syncEnabled: boolean;
+  permissions: Record<HealthMetric, HealthPermissionState>;
+  lastSyncAt?: string;
+  message?: string;
+}
+
+export type RecommendationKind =
+  | "reorder_actions"
+  | "change_action_level"
+  | "adjust_reminder"
+  | "reduce_target"
+  | "coach_review"
+  | "no_change";
+
+export interface AiRecommendation {
+  id: string;
+  createdAt: string;
+  kind: RecommendationKind;
+  actionId?: string;
+  evidence: string[];
+  rationale: string;
+  confidence: number;
+  previousValue?: string | number;
+  proposedValue?: string | number;
+  safety: "low_risk" | "coach_review";
+  status:
+    | "proposed"
+    | "applied"
+    | "approved"
+    | "dismissed"
+    | "needs_coach_review";
+  source: "openai" | "deterministic";
+}
+
+export interface OnboardingState {
+  completed: boolean;
+  currentStep: number;
+  goals: string[];
+  customGoal?: string;
+  activityLevel?: string;
+  availableMinutes?: number;
+  movementCaution?: string;
+  preferredCheckIn?: "morning" | "evening";
+  consent: {
+    wellness: boolean;
+    healthConnect: boolean;
+    aiPersonalisation: boolean;
+  };
+  /** Legacy single-goal field, read during migration only. */
+  primaryGoal?: string;
+}
+
 export interface MemberDoc {
   member: Member;
   actions: DailyAction[];
   pulses: PulseEntry[];
   messages: Message[];
   sessions: Session[];
-  workoutLogs: unknown[];
-  reports: unknown[];
-  foodEntries: unknown[];
+  workoutLogs: WorkoutLog[];
+  reports: HealthReport[];
+  foodEntries: FoodEntry[];
+  healthConnection: HealthConnection;
+  healthSnapshots: HealthSnapshot[];
+  recommendations: AiRecommendation[];
+  onboarding: OnboardingState;
+  engagement?: {
+    weeklyGoal: number;
+    activeChallenge?: {
+      id: string;
+      title: string;
+      description: string;
+      targetDays: number;
+    };
+    circle: {
+      inviteCode: string;
+      memberCount: number;
+    };
+    reminders: {
+      enabled: boolean;
+      time: string;
+    };
+    celebratedMilestones: string[];
+  };
 }

@@ -2,10 +2,11 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { Sprout } from "lucide-react";
 import {
+  demoAuthIsEnabled,
   demoCredentials,
   readSessionToken,
+  sessionSigningAvailable,
   sessionCookieName,
-  sessionsAreSecure,
 } from "@/lib/auth";
 import { isConfigured } from "@/lib/db";
 import LoginForm from "./login/LoginForm";
@@ -21,16 +22,22 @@ export const dynamic = "force-dynamic";
  * not a product's.
  */
 export default async function Home() {
-  const session = await readSessionToken(cookies().get(sessionCookieName)?.value);
+  const session = await readSessionToken(
+    (await cookies()).get(sessionCookieName)?.value,
+  );
   if (session) redirect(session.role === "coach" ? "/coach" : "/member");
 
-  const insecure = !sessionsAreSecure();
+  const localDemo = demoAuthIsEnabled();
+  const signingAvailable = sessionSigningAvailable();
   // Self-signup needs somewhere to put the account. An environment variable is
   // read-only at runtime, so without storage there is nowhere for a new
   // account to go and the option is not offered rather than offered and broken.
-  // isConfigured() knows every name a provider might have used — see lib/db.ts.
-  const canSignUp = isConfigured();
+  // Production accepts only the explicitly Bharosa-owned database variable.
   const needsCode = Boolean(process.env.SIGNUP_CODE?.trim());
+  const canSignUp =
+    isConfigured() &&
+    signingAvailable &&
+    (process.env.NODE_ENV !== "production" || needsCode);
 
   return (
     <main className="relative min-h-dvh overflow-hidden bg-paper">
@@ -46,7 +53,7 @@ export default async function Home() {
             <Sprout size={21} strokeWidth={1.8} />
           </span>
           <h1 className="mt-5 font-display text-[2.1rem] leading-[1.1] tracking-tight">
-            Deepika Wellness
+            Bharosa Wellness
           </h1>
           {/* Deliberately names no age and no gender. The practice is built
               around women in midlife and the coaching reflects that, but the
@@ -63,34 +70,53 @@ export default async function Home() {
           <LoginForm canSignUp={canSignUp} needsCode={needsCode} />
         </div>
 
-        {insecure && (
+        {localDemo && (
           <div className="mt-6 rounded-xl border border-dashed border-ink-line bg-paper-sunk/50 p-3.5">
             <p className="label mb-1.5">Preview access</p>
             <p className="text-[13px] leading-relaxed text-ink-soft">
               Member:{" "}
-              <span className="font-mono text-ink">{demoCredentials.member.username}</span> /{" "}
-              <span className="font-mono text-ink">{demoCredentials.member.password}</span>
+              <span className="font-mono text-ink">
+                {demoCredentials.member.username}
+              </span>{" "}
+              /{" "}
+              <span className="font-mono text-ink">
+                {demoCredentials.member.password}
+              </span>
               <br />
               Coach:{" "}
-              <span className="font-mono text-ink">{demoCredentials.coach.username}</span> /{" "}
-              <span className="font-mono text-ink">{demoCredentials.coach.password}</span>
+              <span className="font-mono text-ink">
+                {demoCredentials.coach.username}
+              </span>{" "}
+              /{" "}
+              <span className="font-mono text-ink">
+                {demoCredentials.coach.password}
+              </span>
             </p>
             <p className="mt-1.5 text-[11px] leading-relaxed text-ink-faint">
               Shared preview credentials, fine while the app holds only sample
-              data. Set AUTH_SECRET, COACH_PASSWORD and MEMBERS in the
-              deployment environment before anyone real signs in.
+              data. They are disabled automatically in production.
             </p>
           </div>
         )}
 
-        {!canSignUp && !insecure && (
+        {!signingAvailable && (
+          <div className="mt-6 rounded-xl border border-rose-200 bg-rose-50 p-3.5 text-[13px] leading-relaxed text-rose-900">
+            Sign-in is unavailable because this deployment does not have a valid
+            32-byte <code>AUTH_SECRET</code>. No demo password is accepted in
+            production.
+          </div>
+        )}
+
+        {!canSignUp && signingAvailable && !localDemo && (
           <p className="mt-6 text-center text-[12px] leading-relaxed text-ink-faint">
             Signing up isn't open on this deployment. Deepika can add you.
           </p>
         )}
 
         <p className="mt-8 text-center text-[11px] leading-relaxed text-ink-faint">
-          Preview build. Sample data, not real health records.
+          {localDemo
+            ? "Local preview. Sample data, not real health records."
+            : "Your account and health records are private to this service."}
         </p>
       </div>
     </main>

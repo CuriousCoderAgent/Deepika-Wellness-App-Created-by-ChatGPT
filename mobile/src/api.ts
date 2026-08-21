@@ -1,7 +1,10 @@
 import * as SecureStore from "expo-secure-store";
 import type { MemberDoc } from "./types";
+import { createDemoMember } from "./demo";
+import { normalizeMemberDoc } from "./normalize";
 
 const TOKEN_KEY = "bharosa_wellness_session";
+export const DEMO_TOKEN = "bharosa-local-demo";
 const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 function endpoint(path: string) {
@@ -9,9 +12,23 @@ function endpoint(path: string) {
   return `${API_URL}${path}`;
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function parse(response: Response) {
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || "Something went wrong. Please try again.");
+  if (!response.ok)
+    throw new ApiError(
+      body.error || "Something went wrong. Please try again.",
+      response.status,
+    );
   return body;
 }
 
@@ -26,11 +43,124 @@ export async function login(username: string, password: string) {
     body: JSON.stringify({ username, password, client: "mobile" }),
   });
   const body = await parse(response);
-  if (!body.token) throw new Error("The server did not issue a mobile session.");
+  if (!body.token)
+    throw new Error("The server did not issue a mobile session.");
   await SecureStore.setItemAsync(TOKEN_KEY, body.token, {
     keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
   return body.token as string;
+}
+
+export async function signup(input: {
+  name: string;
+  email: string;
+  username: string;
+  password: string;
+  code?: string;
+}) {
+  const response = await fetch(endpoint("/api/auth/signup"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...input, client: "mobile" }),
+  });
+  const body = await parse(response);
+  if (!body.token)
+    throw new Error("The server did not issue a mobile session.");
+  await SecureStore.setItemAsync(TOKEN_KEY, body.token, {
+    keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  });
+  return body.token as string;
+}
+
+export interface UploadAsset {
+  uri: string;
+  name?: string | null;
+  type?: string | null;
+}
+
+export interface PrivateMemberFile {
+  id: string;
+  kind: "meal-photo" | "report";
+  fileName: string;
+  contentType: string;
+  size: number;
+}
+
+function uploadContentType(
+  asset: UploadAsset,
+  kind: PrivateMemberFile["kind"],
+): string {
+  const allowed =
+    kind === "meal-photo"
+      ? new Set(["image/jpeg", "image/png", "image/webp"])
+      : new Set(["application/pdf", "image/jpeg", "image/png"]);
+  const declared = asset.type?.toLowerCase().split(";", 1)[0]?.trim();
+  if (declared && allowed.has(declared)) return declared;
+
+  const candidates = [asset.name ?? "", asset.uri].map((value) =>
+    (value.split(/[?#]/, 1)[0] ?? "").toLowerCase(),
+  );
+  const hasExtension = (pattern: RegExp) =>
+    candidates.some((value) => pattern.test(value));
+  const inferred = hasExtension(/\.pdf$/)
+    ? "application/pdf"
+    : hasExtension(/\.png$/)
+      ? "image/png"
+      : hasExtension(/\.webp$/)
+        ? "image/webp"
+        : hasExtension(/\.jpe?g$/)
+          ? "image/jpeg"
+          : null;
+  if (inferred && allowed.has(inferred)) return inferred;
+  throw new Error(
+    kind === "report"
+      ? "Choose a PDF, JPEG or PNG file whose type can be identified."
+      : "Choose a JPEG, PNG or WebP photo whose type can be identified.",
+  );
+}
+
+export async function uploadMemberFile(
+  token: string,
+  asset: UploadAsset,
+  kind: PrivateMemberFile["kind"],
+): Promise<PrivateMemberFile | null> {
+  if (token === DEMO_TOKEN) return null;
+  const contentType = uploadContentType(asset, kind);
+  const form = new FormData();
+  form.append("kind", kind);
+  form.append("file", {
+    uri: asset.uri,
+    name:
+      asset.name ??
+      (kind === "meal-photo"
+        ? `meal-${Date.now()}.jpg`
+        : `report-${Date.now()}`),
+    type: contentType,
+  } as unknown as Blob);
+  const response = await fetch(endpoint("/api/files"), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const body = await parse(response);
+  if (!body.file?.id) throw new Error("The server did not save this file.");
+  return body.file as PrivateMemberFile;
+}
+
+export function privateMemberFileSource(token: string, fileId: string) {
+  return {
+    uri: endpoint(`/api/files/${encodeURIComponent(fileId)}`),
+    headers: { Authorization: `Bearer ${token}` },
+  };
+}
+
+export async function requestPasswordHelp(username: string) {
+  const response = await fetch(endpoint("/api/auth/password-help"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username }),
+  });
+  return parse(response) as Promise<{ message: string }>;
 }
 
 export async function logout() {
@@ -38,6 +168,7 @@ export async function logout() {
 }
 
 export async function loadMember(token: string): Promise<MemberDoc> {
+  if (token === DEMO_TOKEN) return createDemoMember();
   const response = await fetch(endpoint("/api/state"), {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -45,11 +176,13 @@ export async function loadMember(token: string): Promise<MemberDoc> {
   if (!body.configured) {
     throw new Error("The production database is not configured yet.");
   }
-  if (!body.doc?.member) throw new Error("Your member profile is not ready yet.");
-  return body.doc;
+  if (!body.doc?.member)
+    throw new Error("Your member profile is not ready yet.");
+  return normalizeMemberDoc(body.doc as MemberDoc);
 }
 
 export async function saveMember(token: string, doc: MemberDoc) {
+  if (token === DEMO_TOKEN) return;
   const response = await fetch(endpoint("/api/state"), {
     method: "PUT",
     headers: {
@@ -59,4 +192,15 @@ export async function saveMember(token: string, doc: MemberDoc) {
     body: JSON.stringify({ doc }),
   });
   await parse(response);
+}
+
+export async function generateRecommendation(token: string) {
+  if (token === DEMO_TOKEN) return null;
+  const response = await fetch(endpoint("/api/recommendations/generate"), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parse(response) as Promise<{
+    recommendation: MemberDoc["recommendations"][number];
+  }>;
 }

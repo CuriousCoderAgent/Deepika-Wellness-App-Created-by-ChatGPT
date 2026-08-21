@@ -23,19 +23,177 @@ import {
   writeMemberDoc,
 } from "@/lib/db";
 import type { CoachDoc, MemberDoc } from "@/lib/persist";
+import type { Report } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 async function session() {
-  const authorization = headers().get("authorization");
+  const authorization = (await headers()).get("authorization");
   const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
-  return readSessionToken(bearer ?? cookies().get(sessionCookieName)?.value);
+  return readSessionToken(bearer ?? (await cookies()).get(sessionCookieName)?.value);
+}
+
+/**
+ * Mobile captures a document first; the coach console can later add transcribed
+ * values. Convert that capture to the shared report schema at the trust
+ * boundary so neither surface has to understand the other's legacy shape.
+ */
+function normalizeIncomingReport(
+  report: Report & Record<string, unknown>,
+  memberId: string,
+): Report {
+  const uploadedAt =
+    typeof report.uploadedAt === "string"
+      ? report.uploadedAt
+      : (report.provenance?.at ?? new Date().toISOString());
+  const mobileCategory =
+    typeof report.category === "string" ? report.category : undefined;
+  const kind =
+    report.kind ??
+    (mobileCategory === "body_composition"
+      ? "body_composition"
+      : mobileCategory === "other"
+        ? "other"
+        : "blood_panel");
+  return {
+    id: report.id,
+    memberId,
+    kind,
+    title: report.title || "Uploaded report",
+    collectedOn: report.collectedOn || uploadedAt.slice(0, 10),
+    lab: report.lab,
+    fileName: report.fileName,
+    fileId: typeof report.fileId === "string" ? report.fileId : undefined,
+    values: Array.isArray(report.values) ? report.values : [],
+    provenance: report.provenance ?? {
+      source: "imported_document",
+      enteredBy: memberId,
+      at: uploadedAt,
+    },
+    note: report.note,
+  };
+}
+
+/**
+ * Mobile saves are intentionally field-scoped. A member can record her own
+ * observations and completion, but cannot replace coach-authored action
+ * definitions, sessions, or the published 12-week plan with a stale client
+ * copy. This also keeps a newly arrived coach message when a member saves an
+ * older screen a moment later.
+ */
+function mergeMemberUpdate(
+  existing: MemberDoc,
+  incoming: MemberDoc,
+  memberId: string,
+): MemberDoc {
+  const incomingActions = new Map(
+    (incoming.actions ?? []).map((action) => [action.id, action]),
+  );
+  const existingActionIds = new Set(
+    (existing.actions ?? []).map((action) => action.id),
+  );
+  const safeLegacyPrefix = `legacy-${memberId}-`;
+  const generatedCheckIns = (incoming.actions ?? [])
+    .filter(
+      (action) =>
+        !existingActionIds.has(action.id) &&
+        action.id.startsWith(safeLegacyPrefix),
+    )
+    .map((action) => ({
+      ...action,
+      memberId,
+      moduleId: action.moduleId || "member-baseline-check-in",
+      workoutId: undefined,
+      coachLimits: undefined,
+    }));
+  const actions = (existing.actions ?? []).map((action) => {
+    const update = incomingActions.get(action.id);
+    return update
+      ? {
+          ...action,
+          completed: update.completed,
+          skipReason: update.skipReason,
+        }
+      : action;
+  });
+
+  const incomingMessages = new Map(
+    (incoming.messages ?? []).map((message) => [message.id, message]),
+  );
+  const existingMessageIds = new Set(
+    (existing.messages ?? []).map((message) => message.id),
+  );
+  const messages = [
+    ...(existing.messages ?? []).map((message) => {
+      const update = incomingMessages.get(message.id);
+      return update ? { ...message, read: update.read } : message;
+    }),
+    ...(incoming.messages ?? [])
+      .filter(
+        (message) =>
+          !existingMessageIds.has(message.id) && message.from === "member",
+      )
+      .map((message) => ({ ...message, memberId })),
+  ];
+
+  const existingReportIds = new Set(
+    (existing.reports ?? []).map((report) => report.id),
+  );
+  const reports = [
+    ...(existing.reports ?? []),
+    ...(incoming.reports ?? [])
+      .filter((report) => !existingReportIds.has(report.id))
+      .map((report) =>
+        normalizeIncomingReport(
+          report as Report & Record<string, unknown>,
+          memberId,
+        ),
+      ),
+  ];
+
+  return {
+    ...existing,
+    member: {
+      ...existing.member,
+      id: memberId,
+      goals: incoming.member.goals ?? existing.member.goals,
+      constraints: incoming.member.constraints ?? existing.member.constraints,
+      checkInPreference:
+        incoming.onboarding?.preferredCheckIn ??
+        existing.member.checkInPreference,
+    },
+    actions: [...actions, ...generatedCheckIns],
+    pulses: (incoming.pulses ?? existing.pulses).map((entry) => ({
+      ...entry,
+      memberId,
+    })),
+    workoutLogs: (incoming.workoutLogs ?? existing.workoutLogs).map(
+      (entry) => ({
+        ...entry,
+        memberId,
+      }),
+    ),
+    messages,
+    sessions: existing.sessions ?? [],
+    reports,
+    foodEntries: (incoming.foodEntries ?? existing.foodEntries).map(
+      (entry) => ({
+        ...entry,
+        memberId,
+      }),
+    ),
+    healthConnection: incoming.healthConnection ?? existing.healthConnection,
+    healthSnapshots: incoming.healthSnapshots ?? existing.healthSnapshots ?? [],
+    recommendations: incoming.recommendations ?? existing.recommendations ?? [],
+    onboarding: incoming.onboarding ?? existing.onboarding,
+  };
 }
 
 export async function GET() {
   const user = await session();
-  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (!user)
+    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   // Not an error. It is the honest answer to "is there a database", and the
   // client uses it to decide whether to fall back to browser storage.
@@ -49,7 +207,10 @@ export async function GET() {
       ]);
       return NextResponse.json({ configured: true, docs, coach });
     }
-    return NextResponse.json({ configured: true, doc: await readMemberDoc(user.sub) });
+    return NextResponse.json({
+      configured: true,
+      doc: await readMemberDoc(user.sub),
+    });
   } catch (err) {
     console.error("[state] read failed", err);
     return NextResponse.json({ error: "Storage unavailable" }, { status: 503 });
@@ -58,7 +219,8 @@ export async function GET() {
 
 export async function PUT(req: Request) {
   const user = await session();
-  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (!user)
+    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   if (!isConfigured()) return NextResponse.json({ configured: false });
 
   let body: { doc?: MemberDoc; docs?: MemberDoc[]; coach?: CoachDoc };
@@ -82,9 +244,15 @@ export async function PUT(req: Request) {
     }
 
     const doc = body.doc;
-    if (!doc?.member) return NextResponse.json({ error: "Missing document" }, { status: 400 });
-    // The session decides the key, so a member can only ever overwrite herself.
-    await writeMemberDoc(user.sub, { ...doc, member: { ...doc.member, id: user.sub } });
+    if (!doc?.member)
+      return NextResponse.json({ error: "Missing document" }, { status: 400 });
+    const existing = await readMemberDoc(user.sub);
+    if (!existing)
+      return NextResponse.json(
+        { error: "Member record not found" },
+        { status: 404 },
+      );
+    await writeMemberDoc(user.sub, mergeMemberUpdate(existing, doc, user.sub));
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[state] write failed", err);
