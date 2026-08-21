@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, use } from "react";
 import {
   ChevronLeft,
   Mic,
@@ -39,7 +39,8 @@ type Tab = (typeof TABS)[number];
 
 const PHASE_ORDER: WeekPlan["phase"][] = ["Stabilise", "Build", "Consolidate"];
 
-export default function Member360({ params }: { params: { id: string } }) {
+export default function Member360(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const store = useStore();
   const {
     members,
@@ -94,7 +95,9 @@ export default function Member360({ params }: { params: { id: string } }) {
   const draftPlans = draftWeekPlansFor(m);
   const weekDraft = draftPlans.find((w) => w.week === week) ?? draftPlans[0];
   const weekActive = modules.filter((x) => weekDraft.moduleIds.includes(x.id));
-  const weekAvailable = modules.filter((x) => !weekDraft.moduleIds.includes(x.id));
+  const weekAvailable = modules.filter(
+    (x) => !weekDraft.moduleIds.includes(x.id),
+  );
   const myNotes = m.notes ?? [];
   const myReports = reports
     .filter((r) => r.memberId === m.id)
@@ -108,12 +111,12 @@ export default function Member360({ params }: { params: { id: string } }) {
       level: (day.find((a) => a.completed === "stretch")
         ? "stretch"
         : day.find((a) => a.completed === "target")
-        ? "target"
-        : day.find((a) => a.completed === "minimum")
-        ? "minimum"
-        : day.find((a) => a.completed === "rest")
-        ? "rest"
-        : null) as any,
+          ? "target"
+          : day.find((a) => a.completed === "minimum")
+            ? "minimum"
+            : day.find((a) => a.completed === "rest")
+              ? "rest"
+              : null) as any,
     };
   });
 
@@ -130,7 +133,9 @@ export default function Member360({ params }: { params: { id: string } }) {
 
       <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="font-mono text-3xl font-medium leading-tight">{memberLabel(m)}</h1>
+          <h1 className="font-mono text-3xl font-medium leading-tight">
+            {memberLabel(m)}
+          </h1>
           <p className="mt-1.5 text-[15px] text-ink-soft">
             {m.age} · {m.city} · Week {m.week} · {m.phase} phase
           </p>
@@ -156,7 +161,9 @@ export default function Member360({ params }: { params: { id: string } }) {
           <ul className="mt-2 space-y-1">
             {flags.map((f) => (
               <li key={f.id} className="text-[14px] leading-snug text-ink-soft">
-                <span className="font-mono text-[11px] text-ink-faint">{f.ruleId}</span>{" "}
+                <span className="font-mono text-[11px] text-ink-faint">
+                  {f.ruleId}
+                </span>{" "}
                 {f.detail}
               </li>
             ))}
@@ -194,7 +201,9 @@ export default function Member360({ params }: { params: { id: string } }) {
             </ul>
             <div className="mt-4 border-t border-ink-line pt-3">
               <p className="label">And what she will not do</p>
-              <p className="mt-1.5 text-[14px] italic text-ink-soft">&ldquo;{m.wontDo}&rdquo;</p>
+              <p className="mt-1.5 text-[14px] italic text-ink-soft">
+                &ldquo;{m.wontDo}&rdquo;
+              </p>
             </div>
           </div>
 
@@ -205,7 +214,8 @@ export default function Member360({ params }: { params: { id: string } }) {
             </div>
             <p className="mt-2.5 text-[14px] text-ink-soft">
               Active on{" "}
-              {days14.filter((d) => d.level && d.level !== "rest").length} of 14 days.
+              {days14.filter((d) => d.level && d.level !== "rest").length} of 14
+              days.
             </p>
           </div>
 
@@ -214,11 +224,19 @@ export default function Member360({ params }: { params: { id: string } }) {
             <div className="mt-3 space-y-3">
               <div>
                 <p className="text-[13px] text-ink-soft">Energy</p>
-                <Sparkline values={myPulses.map((p) => p.energy)} color="#6E8F73" height={28} />
+                <Sparkline
+                  values={myPulses.map((p) => p.energy)}
+                  color="#6E8F73"
+                  height={28}
+                />
               </div>
               <div>
                 <p className="text-[13px] text-ink-soft">Sleep</p>
-                <Sparkline values={myPulses.map((p) => p.sleep)} color="#8FA9C4" height={28} />
+                <Sparkline
+                  values={myPulses.map((p) => p.sleep)}
+                  color="#8FA9C4"
+                  height={28}
+                />
               </div>
             </div>
           </div>
@@ -227,13 +245,19 @@ export default function Member360({ params }: { params: { id: string } }) {
             <div className="flex items-baseline justify-between">
               <p className="label">Today&rsquo;s plan</p>
               <span className="font-mono text-[11px] text-ink-faint">
-                {todays.filter((a) => a.completed && a.completed !== "rest").length} /{" "}
-                {todays.length} DONE
+                {
+                  todays.filter((a) => a.completed && a.completed !== "rest")
+                    .length
+                }{" "}
+                / {todays.length} DONE
               </span>
             </div>
             <div className="mt-3 space-y-2">
               {todays.map((a) => (
-                <div key={a.id} className="flex items-center gap-3 border-b border-ink-line pb-2 last:border-0">
+                <div
+                  key={a.id}
+                  className="flex items-center gap-3 border-b border-ink-line pb-2 last:border-0"
+                >
                   <div className="min-w-0 flex-1">
                     <p className="text-[15px]">{a.title}</p>
                     {a.skipReason && (
@@ -250,7 +274,9 @@ export default function Member360({ params }: { params: { id: string } }) {
                 </div>
               ))}
               {todays.length === 0 && (
-                <p className="text-[14px] text-ink-faint">Nothing assigned today.</p>
+                <p className="text-[14px] text-ink-faint">
+                  Nothing assigned today.
+                </p>
               )}
             </div>
           </div>
@@ -276,7 +302,10 @@ export default function Member360({ params }: { params: { id: string } }) {
                 max={250}
                 value={m.proteinTargetG ?? ""}
                 onChange={(e) =>
-                  setProteinTarget(m.id, e.target.value ? Number(e.target.value) : undefined)
+                  setProteinTarget(
+                    m.id,
+                    e.target.value ? Number(e.target.value) : undefined,
+                  )
                 }
                 placeholder="—"
                 className="w-24 rounded-xl border border-ink-line bg-paper px-3 py-2 text-right font-mono text-[15px] focus:border-effort-target focus:outline-none"
@@ -291,7 +320,9 @@ export default function Member360({ params }: { params: { id: string } }) {
               <button
                 onClick={() => setVoiceMode(false)}
                 className={`rounded-lg px-3 py-1.5 text-[13px] ${
-                  !voiceMode ? "bg-ink text-white" : "bg-paper-sunk text-ink-soft"
+                  !voiceMode
+                    ? "bg-ink text-white"
+                    : "bg-paper-sunk text-ink-soft"
                 }`}
               >
                 Text
@@ -299,7 +330,9 @@ export default function Member360({ params }: { params: { id: string } }) {
               <button
                 onClick={() => setVoiceMode(true)}
                 className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] ${
-                  voiceMode ? "bg-marigold text-white" : "bg-paper-sunk text-ink-soft"
+                  voiceMode
+                    ? "bg-marigold text-white"
+                    : "bg-paper-sunk text-ink-soft"
                 }`}
               >
                 <Mic size={13} /> Voice note
@@ -323,7 +356,9 @@ export default function Member360({ params }: { params: { id: string } }) {
                   from: "coach",
                   kind: voiceMode ? "voice" : "text",
                   body: note.trim(),
-                  seconds: voiceMode ? Math.max(12, Math.round(note.length / 14)) : undefined,
+                  seconds: voiceMode
+                    ? Math.max(12, Math.round(note.length / 14))
+                    : undefined,
                   dayOffset: 0,
                   time: "just now",
                   read: false,
@@ -344,7 +379,9 @@ export default function Member360({ params }: { params: { id: string } }) {
           <div className="card p-5">
             <div className="flex items-baseline justify-between">
               <p className="label">Baseline completeness</p>
-              <span className="font-mono text-[13px]">{m.assessmentComplete}%</span>
+              <span className="font-mono text-[13px]">
+                {m.assessmentComplete}%
+              </span>
             </div>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-paper-sunk">
               <div
@@ -354,8 +391,8 @@ export default function Member360({ params }: { params: { id: string } }) {
             </div>
             {m.assessmentComplete < 100 && (
               <p className="mt-2.5 text-[14px] text-ink-soft">
-                Finish the remaining sections together during the next call rather
-                than sending another form.
+                Finish the remaining sections together during the next call
+                rather than sending another form.
               </p>
             )}
           </div>
@@ -371,7 +408,9 @@ export default function Member360({ params }: { params: { id: string } }) {
                     </li>
                   ))
                 ) : (
-                  <li className="text-[14px] text-ink-faint">Nothing recorded.</li>
+                  <li className="text-[14px] text-ink-faint">
+                    Nothing recorded.
+                  </li>
                 )}
               </ul>
               <p className="label mt-4">Medications</p>
@@ -405,7 +444,10 @@ export default function Member360({ params }: { params: { id: string } }) {
               <p className="label">Measurements and reports</p>
               <div className="mt-3 divide-y divide-ink-line">
                 {m.bodyComp.map((b, i) => (
-                  <div key={i} className="flex items-center justify-between gap-3 py-2.5">
+                  <div
+                    key={i}
+                    className="flex items-center justify-between gap-3 py-2.5"
+                  >
                     <div>
                       <p className="text-[15px]">{b.label}</p>
                       <p className="text-[13px] text-ink-faint">{b.at}</p>
@@ -435,15 +477,22 @@ export default function Member360({ params }: { params: { id: string } }) {
             ) : (
               <div className="mt-3 space-y-4">
                 {myReports.map((r) => (
-                  <div key={r.id} className="border-t border-ink-line pt-3 first:border-0 first:pt-0">
+                  <div
+                    key={r.id}
+                    className="border-t border-ink-line pt-3 first:border-0 first:pt-0"
+                  >
                     <div className="flex flex-wrap items-baseline gap-x-2">
                       <p className="text-[15px] font-medium">{r.title}</p>
-                      <span className="text-[13px] text-ink-faint">{r.collectedOn}</span>
+                      <span className="text-[13px] text-ink-faint">
+                        {r.collectedOn}
+                      </span>
                       <span className="ml-auto">
                         <ProvenanceChip p={r.provenance} showWho />
                       </span>
                     </div>
-                    {r.lab && <p className="text-[13px] text-ink-faint">{r.lab}</p>}
+                    {r.lab && (
+                      <p className="text-[13px] text-ink-faint">{r.lab}</p>
+                    )}
                     <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
                       {r.values.map((v, i) => (
                         <span key={i} className="text-[13px] text-ink-soft">
@@ -456,7 +505,19 @@ export default function Member360({ params }: { params: { id: string } }) {
                       ))}
                     </div>
                     {r.note && (
-                      <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">{r.note}</p>
+                      <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
+                        {r.note}
+                      </p>
+                    )}
+                    {r.fileId && (
+                      <a
+                        href={`/api/files/${encodeURIComponent(r.fileId)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="tap mt-2 inline-flex items-center rounded-xl bg-paper-sunk px-3 text-[13px] font-medium text-effort-stretch"
+                      >
+                        Open private upload
+                      </a>
                     )}
                   </div>
                 ))}
@@ -465,12 +526,12 @@ export default function Member360({ params }: { params: { id: string } }) {
           </div>
 
           <ScopeNotice>
-            Reports are stored and trended here, never interpreted. No value on this
-            screen is flagged high, low or concerning, because doing so would be a
-            clinical judgement and this is not a clinical product. If a value needs
-            explaining, that conversation belongs with her doctor — use the
-            &ldquo;Preparing Questions for Your Doctor&rdquo; module to make it a
-            better appointment.
+            Reports are stored and trended here, never interpreted. No value on
+            this screen is flagged high, low or concerning, because doing so
+            would be a clinical judgement and this is not a clinical product. If
+            a value needs explaining, that conversation belongs with her doctor
+            — use the &ldquo;Preparing Questions for Your Doctor&rdquo; module
+            to make it a better appointment.
           </ScopeNotice>
         </div>
       )}
@@ -510,7 +571,11 @@ export default function Member360({ params }: { params: { id: string } }) {
                     ) : (
                       <Circle
                         size={14}
-                        className={isCurrentRange ? "text-effort-target" : "text-ink-faint"}
+                        className={
+                          isCurrentRange
+                            ? "text-effort-target"
+                            : "text-ink-faint"
+                        }
                       />
                     )}
                     <p className="text-[13px] font-medium">{ph}</p>
@@ -537,17 +602,24 @@ export default function Member360({ params }: { params: { id: string } }) {
               >
                 <span className="flex items-center gap-1">
                   Week {w}
-                  {w < m.week && <CheckCircle2 size={12} className="text-effort-target" />}
+                  {w < m.week && (
+                    <CheckCircle2 size={12} className="text-effort-target" />
+                  )}
                 </span>
                 <span className="block text-[10px] text-ink-faint">
-                  {w === m.week ? "This week" : w === m.week + 1 ? "Next week" : " "}
+                  {w === m.week
+                    ? "This week"
+                    : w === m.week + 1
+                      ? "Next week"
+                      : " "}
                 </span>
               </button>
             ))}
           </div>
 
           <p className="text-[13px] text-ink-faint">
-            Editing week {week} of 12{week === m.week ? " — her current week" : ""}
+            Editing week {week} of 12
+            {week === m.week ? " — her current week" : ""}
           </p>
 
           <div className="card p-5">
@@ -558,11 +630,17 @@ export default function Member360({ params }: { params: { id: string } }) {
                   key={i}
                   value={weekDraft.focus[i] ?? ""}
                   onChange={(e) => {
-                    const n = [weekDraft.focus[0] ?? "", weekDraft.focus[1] ?? "", weekDraft.focus[2] ?? ""];
+                    const n = [
+                      weekDraft.focus[0] ?? "",
+                      weekDraft.focus[1] ?? "",
+                      weekDraft.focus[2] ?? "",
+                    ];
                     n[i] = e.target.value;
                     updateDraftWeek(m.id, week, { focus: n });
                   }}
-                  placeholder={i === 0 ? "First priority" : `Priority ${i + 1} (optional)`}
+                  placeholder={
+                    i === 0 ? "First priority" : `Priority ${i + 1} (optional)`
+                  }
                   className="tap w-full rounded-xl border border-ink-line bg-paper px-3 text-[14px] placeholder:text-ink-faint focus:border-effort-target focus:outline-none"
                 />
               ))}
@@ -576,9 +654,14 @@ export default function Member360({ params }: { params: { id: string } }) {
                 {weekActive.map((mod) => (
                   <div key={mod.id} className="card p-3.5">
                     <div className="flex items-start gap-2">
-                      <CategoryIcon category={mod.category} className="mt-0.5 shrink-0 text-ink-faint" />
+                      <CategoryIcon
+                        category={mod.category}
+                        className="mt-0.5 shrink-0 text-ink-faint"
+                      />
                       <div className="min-w-0 flex-1">
-                        <p className="text-[15px] font-medium leading-snug">{mod.name}</p>
+                        <p className="text-[15px] font-medium leading-snug">
+                          {mod.name}
+                        </p>
                         <p className="mt-0.5 text-[13px] text-ink-faint">
                           {mod.category} · v{mod.version}
                         </p>
@@ -586,7 +669,9 @@ export default function Member360({ params }: { params: { id: string } }) {
                       <button
                         onClick={() =>
                           updateDraftWeek(m.id, week, {
-                            moduleIds: weekDraft.moduleIds.filter((x) => x !== mod.id),
+                            moduleIds: weekDraft.moduleIds.filter(
+                              (x) => x !== mod.id,
+                            ),
                           })
                         }
                         className="tap -mr-1 -mt-1 rounded-lg px-2 text-ink-faint hover:bg-paper-sunk hover:text-ink"
@@ -601,7 +686,9 @@ export default function Member360({ params }: { params: { id: string } }) {
                   </div>
                 ))}
                 {weekActive.length === 0 && (
-                  <p className="text-[13px] text-ink-faint">Nothing assigned this week.</p>
+                  <p className="text-[13px] text-ink-faint">
+                    Nothing assigned this week.
+                  </p>
                 )}
               </div>
             </div>
@@ -619,14 +706,22 @@ export default function Member360({ params }: { params: { id: string } }) {
                     }
                     className="flex w-full items-start gap-2 rounded-xl bg-paper-sunk/70 p-3.5 text-left transition-colors hover:bg-paper-sunk"
                   >
-                    <CategoryIcon category={mod.category} className="mt-0.5 shrink-0 text-ink-faint" />
+                    <CategoryIcon
+                      category={mod.category}
+                      className="mt-0.5 shrink-0 text-ink-faint"
+                    />
                     <div className="min-w-0 flex-1">
-                      <p className="text-[15px] font-medium leading-snug">{mod.name}</p>
+                      <p className="text-[15px] font-medium leading-snug">
+                        {mod.name}
+                      </p>
                       <p className="mt-0.5 text-[13px] text-ink-faint">
                         {mod.category} · v{mod.version}
                       </p>
                     </div>
-                    <Plus size={15} className="mt-0.5 shrink-0 text-ink-faint" />
+                    <Plus
+                      size={15}
+                      className="mt-0.5 shrink-0 text-ink-faint"
+                    />
                   </button>
                 ))}
               </div>
@@ -670,7 +765,8 @@ export default function Member360({ params }: { params: { id: string } }) {
 
             {draftSaved && (
               <p className="mt-3 text-[14px] text-ink-soft">
-                Saved as a draft. She won&rsquo;t see week {week} until you assign it.
+                Saved as a draft. She won&rsquo;t see week {week} until you
+                assign it.
               </p>
             )}
             {published && (
@@ -702,47 +798,58 @@ export default function Member360({ params }: { params: { id: string } }) {
                     {a.moduleId}
                   </span>
                 </div>
-                <p className="mt-1 text-[14px] leading-relaxed text-ink-soft">{a.why}</p>
+                <p className="mt-1 text-[14px] leading-relaxed text-ink-soft">
+                  {a.why}
+                </p>
 
                 <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  {(["minimum", "target", "stretch"] as EffortLevel[]).map((l) => (
-                    <div key={l} className="rounded-xl bg-paper-sunk/70 p-3">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`h-1 w-5 rounded-full ${
-                            l === "minimum"
-                              ? "bg-effort-min"
-                              : l === "target"
-                              ? "bg-effort-target"
-                              : "bg-effort-stretch"
-                          }`}
-                        />
-                        <span className="text-[11px] capitalize text-ink-soft">{l}</span>
-                      </div>
-                      <input
-                        value={a[l].label}
-                        onChange={(e) =>
-                          updateAction(a.id, {
-                            [l]: { ...a[l], label: e.target.value },
-                          } as any)
-                        }
-                        className="mt-2 w-full rounded-lg border border-ink-line bg-paper-card px-2 py-1.5 text-[13px] focus:border-effort-target focus:outline-none"
-                      />
-                      <div className="mt-1.5 flex items-center gap-1.5">
+                  {(["minimum", "target", "stretch"] as EffortLevel[]).map(
+                    (l) => (
+                      <div key={l} className="rounded-xl bg-paper-sunk/70 p-3">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`h-1 w-5 rounded-full ${
+                              l === "minimum"
+                                ? "bg-effort-min"
+                                : l === "target"
+                                  ? "bg-effort-target"
+                                  : "bg-effort-stretch"
+                            }`}
+                          />
+                          <span className="text-[11px] capitalize text-ink-soft">
+                            {l}
+                          </span>
+                        </div>
                         <input
-                          type="number"
-                          value={a[l].minutes}
+                          value={a[l].label}
                           onChange={(e) =>
                             updateAction(a.id, {
-                              [l]: { ...a[l], minutes: Number(e.target.value) },
+                              [l]: { ...a[l], label: e.target.value },
                             } as any)
                           }
-                          className="w-16 rounded-lg border border-ink-line bg-paper-card px-2 py-1 font-mono text-[13px] focus:border-effort-target focus:outline-none"
+                          className="mt-2 w-full rounded-lg border border-ink-line bg-paper-card px-2 py-1.5 text-[13px] focus:border-effort-target focus:outline-none"
                         />
-                        <span className="text-[11px] text-ink-faint">min</span>
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            value={a[l].minutes}
+                            onChange={(e) =>
+                              updateAction(a.id, {
+                                [l]: {
+                                  ...a[l],
+                                  minutes: Number(e.target.value),
+                                },
+                              } as any)
+                            }
+                            className="w-16 rounded-lg border border-ink-line bg-paper-card px-2 py-1 font-mono text-[13px] focus:border-effort-target focus:outline-none"
+                          />
+                          <span className="text-[11px] text-ink-faint">
+                            min
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ),
+                  )}
                 </div>
 
                 <button
@@ -768,7 +875,9 @@ export default function Member360({ params }: { params: { id: string } }) {
           <div className="card p-5">
             <div className="flex items-center gap-2">
               <p className="label">Add a note</p>
-              <span className="chip bg-paper-sunk text-ink-faint">she never sees this</span>
+              <span className="chip bg-paper-sunk text-ink-faint">
+                she never sees this
+              </span>
             </div>
             <textarea
               value={newNote}
@@ -798,9 +907,14 @@ export default function Member360({ params }: { params: { id: string } }) {
                 {myNotes.map((n) => (
                   <div key={n.id} className="card p-4">
                     <p className="label">
-                      {new Date(n.at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                      {new Date(n.at).toLocaleDateString("en-IN", {
+                        day: "numeric",
+                        month: "short",
+                      })}
                     </p>
-                    <p className="mt-1.5 text-[14px] leading-relaxed">{n.text}</p>
+                    <p className="mt-1.5 text-[14px] leading-relaxed">
+                      {n.text}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -817,16 +931,24 @@ export default function Member360({ params }: { params: { id: string } }) {
               <div className="card p-5">
                 <p className="label">
                   {nextSession.type} ·{" "}
-                  {nextSession.dayOffset === 0 ? "today" : `in ${nextSession.dayOffset} day(s)`} ·{" "}
-                  {nextSession.time}
+                  {nextSession.dayOffset === 0
+                    ? "today"
+                    : `in ${nextSession.dayOffset} day(s)`}{" "}
+                  · {nextSession.time}
                 </p>
-                <h2 className="mt-2 font-display text-xl">What happened this week</h2>
+                <h2 className="mt-2 font-display text-xl">
+                  What happened this week
+                </h2>
 
                 <div className="mt-4 grid gap-4 sm:grid-cols-3">
                   <div>
                     <p className="label">Completed</p>
                     <p className="mt-1 font-display text-2xl">
-                      {mine.filter((a) => a.completed && a.completed !== "rest").length}
+                      {
+                        mine.filter(
+                          (a) => a.completed && a.completed !== "rest",
+                        ).length
+                      }
                     </p>
                   </div>
                   <div>
@@ -840,7 +962,8 @@ export default function Member360({ params }: { params: { id: string } }) {
                     <p className="mt-1 font-display text-2xl">
                       {myPulses.length
                         ? (
-                            myPulses.reduce((s, p) => s + p.energy, 0) / myPulses.length
+                            myPulses.reduce((s, p) => s + p.energy, 0) /
+                            myPulses.length
                           ).toFixed(1)
                         : "—"}
                     </p>
@@ -880,7 +1003,10 @@ export default function Member360({ params }: { params: { id: string } }) {
                     <p className="label">Suggested to cover</p>
                     <ul className="mt-2 space-y-1.5">
                       {nextSession.agenda.map((x, i) => (
-                        <li key={i} className="flex gap-2.5 text-[15px] leading-snug">
+                        <li
+                          key={i}
+                          className="flex gap-2.5 text-[15px] leading-snug"
+                        >
                           <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-effort-target" />
                           {x}
                         </li>
@@ -895,13 +1021,18 @@ export default function Member360({ params }: { params: { id: string } }) {
                   <p className="label">What she committed to last time</p>
                   <div className="mt-2.5 space-y-2">
                     {lastSession.commitments.map((c, i) => (
-                      <div key={i} className="flex items-start gap-2.5 text-[15px]">
+                      <div
+                        key={i}
+                        className="flex items-start gap-2.5 text-[15px]"
+                      >
                         <span
                           className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
                             c.done ? "bg-effort-target" : "bg-rest"
                           }`}
                         />
-                        <span className={c.done ? "text-ink-faint" : ""}>{c.text}</span>
+                        <span className={c.done ? "text-ink-faint" : ""}>
+                          {c.text}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -912,7 +1043,9 @@ export default function Member360({ params }: { params: { id: string } }) {
                 <div className="card p-5">
                   <div className="flex items-center gap-2">
                     <p className="label">Your private notes from last time</p>
-                    <span className="chip bg-paper-sunk text-ink-faint">not shared</span>
+                    <span className="chip bg-paper-sunk text-ink-faint">
+                      not shared
+                    </span>
                   </div>
                   <p className="mt-2 text-[14px] leading-relaxed text-ink-soft">
                     {lastSession.privateNotes}
@@ -923,7 +1056,9 @@ export default function Member360({ params }: { params: { id: string } }) {
               <div className="card p-5">
                 <div className="flex items-center gap-2">
                   <p className="label">Private notes</p>
-                  <span className="chip bg-paper-sunk text-ink-faint">she never sees this</span>
+                  <span className="chip bg-paper-sunk text-ink-faint">
+                    she never sees this
+                  </span>
                 </div>
                 <textarea
                   value={privateNotes}
@@ -935,7 +1070,9 @@ export default function Member360({ params }: { params: { id: string } }) {
 
                 <div className="mt-5 flex items-center gap-2">
                   <p className="label">Recap for her</p>
-                  <span className="chip bg-effort-tint text-effort-stretch">she reads this</span>
+                  <span className="chip bg-effort-tint text-effort-stretch">
+                    she reads this
+                  </span>
                 </div>
                 <textarea
                   value={recap}
@@ -974,7 +1111,9 @@ export default function Member360({ params }: { params: { id: string } }) {
             </>
           ) : (
             <div className="card p-8 text-center">
-              <p className="text-[15px] text-ink-soft">Nothing scheduled with her yet.</p>
+              <p className="text-[15px] text-ink-soft">
+                Nothing scheduled with her yet.
+              </p>
             </div>
           )}
         </div>

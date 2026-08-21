@@ -19,14 +19,18 @@ import * as seed from "./seed";
 import { radarRules, type RadarRule } from "./radar";
 import type {
   DailyAction,
+  AiRecommendation,
   Feedback,
   FoodEntry,
+  HealthConnection,
+  HealthSnapshot,
   Member,
   Message,
   PulseEntry,
   Report,
   Session,
   WorkoutLog,
+  MobileOnboarding,
 } from "./types";
 
 export interface MemberDoc {
@@ -38,7 +42,16 @@ export interface MemberDoc {
   sessions: Session[];
   reports: Report[];
   foodEntries: FoodEntry[];
+  healthConnection?: HealthConnection;
+  healthSnapshots?: HealthSnapshot[];
+  recommendations?: AiRecommendation[];
+  onboarding?: MobileOnboarding;
 }
+
+type MemberExtensions = Pick<
+  MemberDoc,
+  "healthConnection" | "healthSnapshots" | "recommendations" | "onboarding"
+>;
 
 export interface CoachDoc {
   rules: RadarRule[];
@@ -61,6 +74,8 @@ export interface PersistedState {
   rules: RadarRule[];
   resolvedRadar: string[];
   activeMemberId: string;
+  /** Mobile-only document fields preserved while the coach console flattens state. */
+  memberExtensions?: Record<string, MemberExtensions>;
 }
 
 const byMember = <T extends { memberId: string }>(rows: T[], id: string) =>
@@ -68,7 +83,7 @@ const byMember = <T extends { memberId: string }>(rows: T[], id: string) =>
 
 export function extractMemberDoc<S extends PersistedState>(
   state: S,
-  memberId: string
+  memberId: string,
 ): MemberDoc | null {
   const member = state.members.find((m) => m.id === memberId);
   if (!member) return null;
@@ -81,6 +96,7 @@ export function extractMemberDoc<S extends PersistedState>(
     sessions: byMember(state.sessions, memberId),
     reports: byMember(state.reports, memberId),
     foodEntries: byMember(state.foodEntries, memberId),
+    ...(state.memberExtensions?.[memberId] ?? {}),
   };
 }
 
@@ -94,7 +110,10 @@ export function extractCoachDoc<S extends PersistedState>(state: S): CoachDoc {
 
 /** One member's app: her document and nothing else. She never holds anyone
  *  else's record, on the server or in her browser. */
-export function stateFromMemberDoc<S extends PersistedState>(base: S, doc: MemberDoc): S {
+export function stateFromMemberDoc<S extends PersistedState>(
+  base: S,
+  doc: MemberDoc,
+): S {
   return {
     ...base,
     members: [doc.member],
@@ -105,6 +124,15 @@ export function stateFromMemberDoc<S extends PersistedState>(base: S, doc: Membe
     sessions: doc.sessions,
     reports: doc.reports,
     foodEntries: doc.foodEntries,
+    memberExtensions: {
+      ...(base.memberExtensions ?? {}),
+      [doc.member.id]: {
+        healthConnection: doc.healthConnection,
+        healthSnapshots: doc.healthSnapshots,
+        recommendations: doc.recommendations,
+        onboarding: doc.onboarding,
+      },
+    },
     activeMemberId: doc.member.id,
   };
 }
@@ -114,7 +142,7 @@ export function stateFromMemberDoc<S extends PersistedState>(base: S, doc: Membe
 export function stateFromDocs<S extends PersistedState>(
   base: S,
   docs: MemberDoc[],
-  coach: CoachDoc | null
+  coach: CoachDoc | null,
 ): S {
   return {
     ...base,
@@ -126,6 +154,17 @@ export function stateFromDocs<S extends PersistedState>(
     sessions: docs.flatMap((d) => d.sessions ?? []),
     reports: docs.flatMap((d) => d.reports ?? []),
     foodEntries: docs.flatMap((d) => d.foodEntries ?? []),
+    memberExtensions: Object.fromEntries(
+      docs.map((doc) => [
+        doc.member.id,
+        {
+          healthConnection: doc.healthConnection,
+          healthSnapshots: doc.healthSnapshots,
+          recommendations: doc.recommendations,
+          onboarding: doc.onboarding,
+        },
+      ]),
+    ),
     rules: coach?.rules?.length ? coach.rules : base.rules,
     resolvedRadar: coach?.resolvedRadar ?? base.resolvedRadar,
     feedback: coach?.feedback ?? base.feedback,

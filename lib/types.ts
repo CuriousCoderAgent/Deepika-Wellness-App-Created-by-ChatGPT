@@ -8,6 +8,12 @@
  */
 
 export type EffortLevel = "minimum" | "target" | "stretch";
+export type ActionDomain =
+  | "movement"
+  | "walking"
+  | "nutrition"
+  | "recovery"
+  | "mindset";
 
 export type SourceType =
   | "member_manual"
@@ -60,7 +66,12 @@ export interface Member {
   activeModuleIds: string[];
   /** Set when the coach republishes a plan; surfaced to the member as a reason. */
   lastPlanChange?: { at: string; rationale: string };
-  bodyComp?: { label: string; value: string; at: string; provenance: Provenance }[];
+  bodyComp?: {
+    label: string;
+    value: string;
+    at: string;
+    provenance: Provenance;
+  }[];
   assessmentComplete: number; // 0–100
   /**
    * Asked at the start of onboarding, and used for one thing only: which
@@ -113,6 +124,8 @@ export interface WeekPlan {
   phase: "Stabilise" | "Build" | "Consolidate";
   focus: string[];
   moduleIds: string[];
+  /** Plain-language reason shown when a published week differs from the outline. */
+  rationale?: string;
 }
 
 export interface DailyAction {
@@ -121,11 +134,21 @@ export interface DailyAction {
   /** Day offset from "today". 0 = today, -1 = yesterday. */
   dayOffset: number;
   moduleId: string;
+  /** Added for the holistic mobile Today view; inferred from moduleId for legacy records. */
+  domain?: ActionDomain;
   title: string;
   why: string;
   minimum: EffortSpec;
   target: EffortSpec;
   stretch: EffortSpec;
+  /** Outcome-first tracking avoids presenting a meal choice as a duration. */
+  measurement?: {
+    kind: "minutes" | "repetitions" | "steps" | "meal" | "serving" | "check_in";
+    value: number;
+    unit: string;
+  };
+  isPrimary?: boolean;
+  coachLimits?: { minimumValue: number; maximumValue: number };
   /** null = untouched, "rest" = explicitly not today (never a failure state). */
   completed: EffortLevel | "rest" | null;
   skipReason?: string;
@@ -322,6 +345,8 @@ export interface Report {
   collectedOn: string; // ISO date
   lab?: string;
   fileName?: string;
+  /** Opaque server-issued reference to a private object. */
+  fileId?: string;
   values: ReportValue[];
   provenance: Provenance;
   note?: string;
@@ -392,6 +417,8 @@ export interface FoodEntry {
   id: string;
   memberId: string;
   dayOffset: number;
+  /** Canonical calendar date. dayOffset remains during the backwards-compatible migration. */
+  loggedDate?: string;
   /** Present when picked from the library; absent for a custom entry. */
   itemId?: string;
   name: string;
@@ -399,10 +426,92 @@ export interface FoodEntry {
   unitLabel: string;
   /** Total grams for this entry, not per unit. */
   protein: number;
+  /** Mobile nutrition estimates. The coach protein-only experience can omit them. */
+  description?: string;
+  calories?: number;
+  carbs?: number;
+  fat?: number;
+  /** Opaque server-issued reference to a privately stored meal photo. */
+  photoFileId?: string;
+  /** Legacy/device-local URI retained while older documents migrate. */
+  photoUri?: string;
+  confidence?: "member" | "estimated";
+  memberCorrected?: boolean;
+  createdAt?: string;
   /** True when she corrected the library's figure — hers wins, and is marked. */
   proteinEdited?: boolean;
   meal: "Breakfast" | "Lunch" | "Snack" | "Dinner";
   provenance: Provenance;
+}
+
+export type HealthMetric =
+  | "steps"
+  | "restingHeartRate"
+  | "heartRateVariability"
+  | "vo2Max";
+
+export interface HealthSnapshot {
+  id: string;
+  date: string;
+  metric: HealthMetric;
+  value: number;
+  unit: "count" | "bpm" | "ms" | "ml/kg/min";
+  source: string;
+  recordedAt: string;
+  available: boolean;
+  provenance: Provenance;
+}
+
+export interface HealthConnection {
+  platform: "android_health_connect" | "apple_health" | "none";
+  status: "unavailable" | "disconnected" | "partial" | "connected" | "error";
+  syncEnabled: boolean;
+  permissions: Record<HealthMetric, "not_requested" | "granted" | "denied">;
+  lastSyncAt?: string;
+  message?: string;
+}
+
+export interface AiRecommendation {
+  id: string;
+  createdAt: string;
+  kind:
+    | "reorder_actions"
+    | "change_action_level"
+    | "adjust_reminder"
+    | "reduce_target"
+    | "coach_review"
+    | "no_change";
+  actionId?: string;
+  evidence: string[];
+  rationale: string;
+  confidence: number;
+  previousValue?: string | number;
+  proposedValue?: string | number;
+  safety: "low_risk" | "coach_review";
+  status:
+    | "proposed"
+    | "applied"
+    | "approved"
+    | "dismissed"
+    | "needs_coach_review";
+  source: "openai" | "deterministic";
+}
+
+export interface MobileOnboarding {
+  completed: boolean;
+  currentStep: number;
+  goals: string[];
+  customGoal?: string;
+  activityLevel?: string;
+  availableMinutes?: number;
+  movementCaution?: string;
+  preferredCheckIn?: "morning" | "evening";
+  consent: {
+    wellness: boolean;
+    healthConnect: boolean;
+    aiPersonalisation: boolean;
+  };
+  primaryGoal?: string;
 }
 
 export interface Feedback {

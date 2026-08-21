@@ -1,10 +1,8 @@
 /**
  * Authentication for the pilot.
  *
- * One coach account and any number of member accounts, all defined by
- * environment variables. No external auth service and no database — that is
- * the right size for a closed pilot and keeps the app deployable with nothing
- * but env vars.
+ * One environment-managed coach account, optional environment-managed member
+ * accounts, and database-backed self-created member accounts.
  *
  * Configuration:
  *   AUTH_SECRET      random string, signs the session cookie
@@ -13,22 +11,20 @@
  *                    separated by commas or newlines. Example:
  *                      radhika:someword:Radhika,priya:otherword:Priya
  *
- * With none of these set the app falls back to the demo accounts below so a
- * preview deployment still opens. That fallback is only defensible while the
- * data is fictional — a password in a public repo is not a password.
+ * With none of these set, local development falls back to the demo accounts
+ * below. Production never accepts those public credentials or the development
+ * signing key: missing configuration makes sign-in unavailable.
  */
+import { readSignedSessionToken, type SessionUser } from "./session-token";
 
-const SESSION_COOKIE = "dw_session";
-const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days — this cohort should not be re-typing passwords
-
-export type Role = "coach" | "member";
-
-export interface SessionUser {
-  /** Also the storage namespace for this account's data. */
-  sub: string;
-  role: Role;
-  name: string;
-}
+export {
+  createSessionToken,
+  sessionCookieName,
+  sessionMaxAge,
+  sessionSigningAvailable,
+  type Role,
+  type SessionUser,
+} from "./session-token";
 
 interface Account extends SessionUser {
   username: string;
@@ -44,8 +40,14 @@ export const DEMO_MEMBER_ID = "radhika";
 const DEMO_COACH_PASSWORD = "deepika2026";
 const DEMO_MEMBER_PASSWORD = "radhika2026";
 
-export function sessionsAreSecure(): boolean {
-  return Boolean(process.env.AUTH_SECRET && process.env.COACH_PASSWORD && process.env.MEMBERS);
+/** Public demo credentials are a local-development convenience only. */
+export function demoAuthIsEnabled(): boolean {
+  return Boolean(
+    process.env.NODE_ENV !== "production" &&
+      !process.env.AUTH_SECRET?.trim() &&
+      !process.env.COACH_PASSWORD?.trim() &&
+      !process.env.MEMBERS?.trim(),
+  );
 }
 
 export const demoCredentials = {
@@ -57,15 +59,17 @@ export const demoCredentials = {
 function memberAccounts(): Account[] {
   const raw = process.env.MEMBERS?.trim();
   if (!raw) {
-    return [
-      {
-        sub: DEMO_MEMBER_ID,
-        role: "member",
-        name: "Radhika",
-        username: DEMO_MEMBER_ID,
-        password: DEMO_MEMBER_PASSWORD,
-      },
-    ];
+    return demoAuthIsEnabled()
+      ? [
+          {
+            sub: DEMO_MEMBER_ID,
+            role: "member",
+            name: "Radhika",
+            username: DEMO_MEMBER_ID,
+            password: DEMO_MEMBER_PASSWORD,
+          },
+        ]
+      : [];
   }
   return raw
     .split(/[\n,]+/)
@@ -74,7 +78,9 @@ function memberAccounts(): Account[] {
     .map((line) => {
       const [username, password, ...rest] = line.split(":");
       if (!username || !password) return null;
-      const name = rest.join(":").trim() || username.charAt(0).toUpperCase() + username.slice(1);
+      const name =
+        rest.join(":").trim() ||
+        username.charAt(0).toUpperCase() + username.slice(1);
       return {
         sub: username.toLowerCase(),
         role: "member" as const,
@@ -87,49 +93,23 @@ function memberAccounts(): Account[] {
 }
 
 function accounts(): Account[] {
+  const coachPassword =
+    process.env.COACH_PASSWORD?.trim() ||
+    (demoAuthIsEnabled() ? DEMO_COACH_PASSWORD : null);
   return [
-    {
-      sub: "deepika",
-      role: "coach",
-      name: "Deepika",
-      username: "deepika",
-      password: process.env.COACH_PASSWORD || DEMO_COACH_PASSWORD,
-    },
+    ...(coachPassword
+      ? [
+          {
+            sub: "deepika",
+            role: "coach" as const,
+            name: "Deepika",
+            username: "deepika",
+            password: coachPassword,
+          },
+        ]
+      : []),
     ...memberAccounts(),
   ];
-}
-
-function secret(): string {
-  return process.env.AUTH_SECRET || "dev-only-unsafe-secret-set-AUTH_SECRET";
-}
-
-/* ------------------------------------------------------------------ */
-/* Signing — Web Crypto, so this works in both the Edge middleware and  */
-/* Node route handlers without a polyfill.                              */
-/* ------------------------------------------------------------------ */
-
-function b64url(bytes: Uint8Array): string {
-  let s = "";
-  bytes.forEach((b) => (s += String.fromCharCode(b)));
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function fromB64url(s: string): Uint8Array {
-  const pad = s.replace(/-/g, "+").replace(/_/g, "/");
-  const bin = atob(pad + "=".repeat((4 - (pad.length % 4)) % 4));
-  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
-}
-
-async function hmac(payload: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret()),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
-  return b64url(new Uint8Array(sig));
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -139,37 +119,47 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export async function createSessionToken(user: SessionUser): Promise<string> {
-  const body = { ...user, exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE };
-  const payload = b64url(new TextEncoder().encode(JSON.stringify(body)));
-  return `${payload}.${await hmac(payload)}`;
-}
+export async function readSessionToken(
+  token: string | undefined,
+): Promise<SessionUser | null> {
+  const user = await readSignedSessionToken(token);
+  if (!user) return null;
 
-export async function readSessionToken(token: string | undefined): Promise<SessionUser | null> {
-  if (!token) return null;
-  const [payload, sig] = token.split(".");
-  if (!payload || !sig) return null;
-  if (!safeEqual(sig, await hmac(payload))) return null;
-  try {
-    const body = JSON.parse(new TextDecoder().decode(fromB64url(payload)));
-    if (typeof body.exp !== "number" || body.exp * 1000 < Date.now()) return null;
-    return { sub: body.sub, role: body.role, name: body.name };
-  } catch {
-    return null;
+  // Node route handlers additionally compare database-account versions, which
+  // makes every old API session unusable after a password reset. Middleware
+  // imports only the Edge-safe verifier and never pulls this module into its
+  // bundle.
+  if (process.env.NEXT_RUNTIME !== "edge" && user.role === "member") {
+    try {
+      const { isConfigured, readAccountSessionVersion } = await import("./db");
+      if (isConfigured()) {
+        const current = await readAccountSessionVersion(user.sub);
+        if (current === null) {
+          // Environment-backed members have no database account/version.
+          if (user.sessionVersion !== undefined) return null;
+        } else if (user.sessionVersion !== current) {
+          return null;
+        }
+      } else if (user.sessionVersion !== undefined) {
+        return null;
+      }
+    } catch {
+      // A versioned session belongs to a DB account, so fail closed when its
+      // revocation state cannot be checked. Environment accounts still work.
+      if (user.sessionVersion !== undefined) return null;
+    }
   }
+  return user;
 }
 
 export async function verifyCredentials(
   username: string,
-  password: string
+  password: string,
 ): Promise<SessionUser | null> {
   const account = accounts().find(
-    (a) => a.username.toLowerCase() === username.trim().toLowerCase()
+    (a) => a.username.toLowerCase() === username.trim().toLowerCase(),
   );
   if (!account) return null;
   if (!safeEqual(account.password, password)) return null;
   return { sub: account.sub, role: account.role, name: account.name };
 }
-
-export const sessionCookieName = SESSION_COOKIE;
-export const sessionMaxAge = SESSION_MAX_AGE;

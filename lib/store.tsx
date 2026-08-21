@@ -1,6 +1,13 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import * as seed from "./seed";
 import { evaluateRadar, radarRules, type RadarRule } from "./radar";
 import { draftWeekPlansFor, weekPlansFor } from "./plan";
@@ -13,7 +20,11 @@ import {
   type CoachDoc,
   type MemberDoc,
 } from "./persist";
-import { DEMO_MEMBER_ID, readUserCookie, type ClientSession } from "./session-client";
+import {
+  DEMO_MEMBER_ID,
+  readUserCookie,
+  type ClientSession,
+} from "./session-client";
 import type {
   Article,
   FoodEntry,
@@ -76,6 +87,19 @@ const initial: State = {
 const KEY_PREFIX = "dw-v0-state-6";
 const storageKey = (userId: string) => `${KEY_PREFIX}:${userId}`;
 
+async function clearRevokedBrowserSession(userId: string) {
+  try {
+    window.localStorage.removeItem(storageKey(userId));
+  } catch {
+    /* Storage can be unavailable; cookie revocation still proceeds. */
+  }
+  try {
+    await fetch("/api/auth/logout", { method: "POST" });
+  } finally {
+    window.location.replace("/");
+  }
+}
+
 /**
  * Only the demo member carries the seeded history. Everyone else — including
  * every real pilot member — starts from nothing and builds their own.
@@ -83,7 +107,8 @@ const storageKey = (userId: string) => `${KEY_PREFIX}:${userId}`;
 function initialFor(session: ClientSession | null) {
   if (!session) return initial;
   if (session.role === "coach") return initial;
-  if (session.sub === DEMO_MEMBER_ID) return { ...initial, activeMemberId: DEMO_MEMBER_ID };
+  if (session.sub === DEMO_MEMBER_ID)
+    return { ...initial, activeMemberId: DEMO_MEMBER_ID };
   return { ...initial, ...emptyStateFor(session.sub, session.name) } as State;
 }
 
@@ -93,7 +118,11 @@ interface Ctx extends State {
   /** Who is signed in, or null before the cookie has been read. */
   session: ClientSession | null;
   setActiveMember: (id: string) => void;
-  completeAction: (id: string, level: EffortLevel | "rest", reason?: string) => void;
+  completeAction: (
+    id: string,
+    level: EffortLevel | "rest",
+    reason?: string,
+  ) => void;
   submitPulse: (
     memberId: string,
     v: {
@@ -104,7 +133,7 @@ interface Ctx extends State {
       note?: string;
       partial?: boolean;
     },
-    byCoach?: boolean
+    byCoach?: boolean,
   ) => void;
   logWorkout: (log: Omit<WorkoutLog, "id">) => void;
   updateAction: (id: string, patch: Partial<DailyAction>) => void;
@@ -113,7 +142,7 @@ interface Ctx extends State {
   updateDraftWeek: (
     memberId: string,
     week: number,
-    changes: Partial<Pick<WeekPlan, "focus" | "moduleIds">>
+    changes: Partial<Pick<WeekPlan, "focus" | "moduleIds">>,
   ) => void;
   publishWeek: (memberId: string, week: number, rationale: string) => void;
   addCoachNote: (memberId: string, text: string) => void;
@@ -132,7 +161,7 @@ interface Ctx extends State {
       constraints: string[];
       checkInPreference: "morning" | "evening";
       consent: { health: boolean; reports: boolean };
-    }
+    },
   ) => void;
   /**
    * False until localStorage has been read. Anything that redirects on stored
@@ -170,7 +199,7 @@ function primeSaved(
   saved: Map<string, string>,
   state: State,
   who: ClientSession,
-  opts: { hadDoc: boolean }
+  opts: { hadDoc: boolean },
 ) {
   saved.clear();
   if (!opts.hadDoc) return;
@@ -229,13 +258,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         try {
           const res = await fetch("/api/state", { cache: "no-store" });
           const body = await res.json();
+          if (res.status === 401) {
+            if (!cancelled) await clearRevokedBrowserSession(who.sub);
+            return;
+          }
           if (res.ok && body.configured) {
             next = withLiveContent(
               who.role === "coach"
                 ? stateFromDocs(base, body.docs ?? [], body.coach ?? null)
                 : body.doc
                   ? stateFromMemberDoc(base, body.doc)
-                  : base
+                  : base,
             );
             primeSaved(savedDocs.current, next, who, {
               /* A member with no document yet is deliberately left unprimed,
@@ -281,7 +314,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!hydrated || !serverBacked || !session) return;
 
     const timer = setTimeout(() => {
-      const body: { doc?: MemberDoc; docs?: MemberDoc[]; coach?: CoachDoc } = {};
+      const body: { doc?: MemberDoc; docs?: MemberDoc[]; coach?: CoachDoc } =
+        {};
 
       if (session.role === "coach") {
         const changed: MemberDoc[] = [];
@@ -296,7 +330,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
         body.coach = extractCoachDoc(state);
         if (changed.length) body.docs = changed;
-        if (!changed.length && savedDocs.current.get("__coach__") === JSON.stringify(body.coach)) {
+        if (
+          !changed.length &&
+          savedDocs.current.get("__coach__") === JSON.stringify(body.coach)
+        ) {
           return;
         }
         savedDocs.current.set("__coach__", JSON.stringify(body.coach));
@@ -313,11 +350,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-      }).catch(() => {
-        // Failed writes drop their cached signature so the next change retries
-        // this content rather than skipping it as already saved.
-        savedDocs.current.clear();
-      });
+      })
+        .then((response) => {
+          if (response.status === 401) {
+            void clearRevokedBrowserSession(session.sub);
+          } else if (!response.ok) {
+            savedDocs.current.clear();
+          }
+        })
+        .catch(() => {
+          // Failed writes drop their cached signature so the next change retries
+          // this content rather than skipping it as already saved.
+          savedDocs.current.clear();
+        });
     }, 900);
 
     return () => clearTimeout(timer);
@@ -327,16 +372,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const value: Ctx = useMemo(() => {
     const activeMember =
-      state.members.find((m) => m.id === state.activeMemberId) ?? state.members[0];
+      state.members.find((m) => m.id === state.activeMemberId) ??
+      state.members[0];
 
     const radar = evaluateRadar(
       state.members,
       state.actions,
       state.pulses,
+      state.workoutLogs,
       state.messages,
       state.sessions,
       state.rules,
-      state.resolvedRadar
+      state.resolvedRadar,
     );
 
     return {
@@ -359,17 +406,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                   skipReason: level === "rest" ? reason : undefined,
                   provenance: {
                     source: "member_manual",
-                    enteredBy: s.members.find((m) => m.id === a.memberId)?.name.split(" ")[0] ?? "Member",
+                    enteredBy:
+                      s.members
+                        .find((m) => m.id === a.memberId)
+                        ?.name.split(" ")[0] ?? "Member",
                     at: new Date().toISOString().slice(0, 10),
                   },
                 }
-              : a
+              : a,
           ),
         })),
 
       submitPulse: (memberId, v, byCoach) =>
         patch((s) => {
-          const existing = s.pulses.find((x) => x.memberId === memberId && x.dayOffset === 0);
+          const existing = s.pulses.find(
+            (x) => x.memberId === memberId && x.dayOffset === 0,
+          );
           const entry: PulseEntry = {
             id: existing?.id ?? `p-${memberId}-${Date.now()}`,
             memberId,
@@ -379,7 +431,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               source: byCoach ? "coach_on_behalf" : "member_manual",
               enteredBy: byCoach
                 ? "Deepika"
-                : s.members.find((m) => m.id === memberId)?.name.split(" ")[0] ?? "Member",
+                : (s.members
+                    .find((m) => m.id === memberId)
+                    ?.name.split(" ")[0] ?? "Member"),
               at: new Date().toISOString().slice(0, 10),
             },
           };
@@ -392,14 +446,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }),
 
       logWorkout: (log) =>
-        patch((s) => ({ ...s, workoutLogs: [{ ...log, id: `wl-${Date.now()}` }, ...s.workoutLogs] })),
+        patch((s) => ({
+          ...s,
+          workoutLogs: [{ ...log, id: `wl-${Date.now()}` }, ...s.workoutLogs],
+        })),
 
       updateAction: (id, p) =>
-        patch((s) => ({ ...s, actions: s.actions.map((a) => (a.id === id ? { ...a, ...p } : a)) })),
+        patch((s) => ({
+          ...s,
+          actions: s.actions.map((a) => (a.id === id ? { ...a, ...p } : a)),
+        })),
 
       addAction: (a) => patch((s) => ({ ...s, actions: [a, ...s.actions] })),
 
-      removeAction: (id) => patch((s) => ({ ...s, actions: s.actions.filter((a) => a.id !== id) })),
+      removeAction: (id) =>
+        patch((s) => ({ ...s, actions: s.actions.filter((a) => a.id !== id) })),
 
       updateDraftWeek: (memberId, week, changes) =>
         patch((s) => ({
@@ -407,7 +468,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           members: s.members.map((m) => {
             if (m.id !== memberId) return m;
             const draftWeekPlans = draftWeekPlansFor(m).map((w) =>
-              w.week === week ? { ...w, ...changes } : w
+              w.week === week ? { ...w, ...changes } : w,
             );
             return { ...m, draftWeekPlans };
           }),
@@ -424,8 +485,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             if (m.id !== memberId) return m;
             const rawTarget = draftWeekPlansFor(m).find((w) => w.week === week);
             if (!rawTarget) return m;
-            const target = { ...rawTarget, focus: rawTarget.focus.filter(Boolean) };
-            const weekPlans = weekPlansFor(m).map((w) => (w.week === week ? target : w));
+            const target = {
+              ...rawTarget,
+              focus: rawTarget.focus.filter(Boolean),
+            };
+            const weekPlans = weekPlansFor(m).map((w) =>
+              w.week === week ? target : w,
+            );
             const isCurrent = week === m.week;
             if (isCurrent) announce = `Deepika changed your week. ${rationale}`;
             return {
@@ -480,7 +546,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 source: byCoach ? "coach_on_behalf" : "member_manual",
                 enteredBy: byCoach
                   ? "Deepika"
-                  : s.members.find((m) => m.id === e.memberId)?.name.split(" ")[0] ?? "Member",
+                  : (s.members
+                      .find((m) => m.id === e.memberId)
+                      ?.name.split(" ")[0] ?? "Member"),
                 at: new Date().toISOString().slice(0, 10),
               },
             },
@@ -489,13 +557,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         })),
 
       removeFood: (id) =>
-        patch((s) => ({ ...s, foodEntries: s.foodEntries.filter((x) => x.id !== id) })),
+        patch((s) => ({
+          ...s,
+          foodEntries: s.foodEntries.filter((x) => x.id !== id),
+        })),
 
       setProteinTarget: (memberId, grams) =>
         patch((s) => ({
           ...s,
           members: s.members.map((m) =>
-            m.id === memberId ? { ...m, proteinTargetG: grams } : m
+            m.id === memberId ? { ...m, proteinTargetG: grams } : m,
           ),
         })),
 
@@ -507,11 +578,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               ? {
                   ...m,
                   notes: [
-                    { id: `note-${Date.now()}`, at: new Date().toISOString().slice(0, 10), text },
+                    {
+                      id: `note-${Date.now()}`,
+                      at: new Date().toISOString().slice(0, 10),
+                      text,
+                    },
                     ...(m.notes ?? []),
                   ],
                 }
-              : m
+              : m,
           ),
         })),
 
@@ -524,13 +599,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       markRead: (memberId) =>
         patch((s) => ({
           ...s,
-          messages: s.messages.map((m) => (m.memberId === memberId ? { ...m, read: true } : m)),
+          messages: s.messages.map((m) =>
+            m.memberId === memberId ? { ...m, read: true } : m,
+          ),
         })),
 
       toggleRule: (id) =>
         patch((s) => ({
           ...s,
-          rules: s.rules.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)),
+          rules: s.rules.map((r) =>
+            r.id === id ? { ...r, enabled: !r.enabled } : r,
+          ),
         })),
 
       resolveRadar: (id) =>
@@ -542,13 +621,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         })),
 
       addFeedback: (f) =>
-        patch((s) => ({ ...s, feedback: [{ ...f, id: `f-${Date.now()}` }, ...s.feedback] })),
+        patch((s) => ({
+          ...s,
+          feedback: [{ ...f, id: `f-${Date.now()}` }, ...s.feedback],
+        })),
 
       updateFeedback: (id, p) =>
-        patch((s) => ({ ...s, feedback: s.feedback.map((f) => (f.id === id ? { ...f, ...p } : f)) })),
+        patch((s) => ({
+          ...s,
+          feedback: s.feedback.map((f) => (f.id === id ? { ...f, ...p } : f)),
+        })),
 
       saveSessionNotes: (id, p) =>
-        patch((s) => ({ ...s, sessions: s.sessions.map((x) => (x.id === id ? { ...x, ...p } : x)) })),
+        patch((s) => ({
+          ...s,
+          sessions: s.sessions.map((x) => (x.id === id ? { ...x, ...p } : x)),
+        })),
 
       completeOnboarding: (memberId, d) =>
         patch((s) => ({
@@ -564,10 +652,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                   wontDo: d.wontDo,
                   constraints: d.constraints.filter(Boolean),
                   checkInPreference: d.checkInPreference,
-                  consent: { ...d.consent, at: new Date().toISOString().slice(0, 10) },
+                  consent: {
+                    ...d.consent,
+                    at: new Date().toISOString().slice(0, 10),
+                  },
                   onboardedAt: new Date().toISOString().slice(0, 10),
                 }
-              : m
+              : m,
           ),
         })),
 
@@ -590,13 +681,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         patch((s) => ({
           ...s,
           members: s.members.map((m) =>
-            m.id === memberId ? { ...m, onboardedAt: undefined } : m
+            m.id === memberId ? { ...m, onboardedAt: undefined } : m,
           ),
         })),
     };
   }, [state, session, hydrated, key]);
 
-  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+  return (
+    <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
+  );
 }
 
 export function useStore() {

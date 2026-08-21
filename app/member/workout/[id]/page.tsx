@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, use } from "react";
 import { ChevronLeft, AlertTriangle, Check } from "lucide-react";
 import { useStore } from "@/lib/store";
 import ExerciseFigure from "@/components/ExerciseFigure";
 import ExerciseSheet from "@/components/ExerciseSheet";
 import type { EffortLevel, ExerciseSet } from "@/lib/types";
 
-export default function WorkoutDetail({ params }: { params: { id: string } }) {
+export default function WorkoutDetail(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const { workouts, activeMember, logWorkout, actions, completeAction } = useStore();
   const w = workouts.find((x) => x.id === params.id);
 

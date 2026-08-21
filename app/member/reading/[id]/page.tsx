@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, use } from "react";
 import { ChevronLeft, Clock, BookMarked } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { ScopeNotice } from "@/components/ui";
 
-export default function ArticleDetail({ params }: { params: { id: string } }) {
+export default function ArticleDetail(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const { articles, activeMember, sendMessage } = useStore();
   const a = articles.find((x) => x.id === params.id);
   const [q, setQ] = useState("");

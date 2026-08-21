@@ -4,25 +4,25 @@ Operational guidance for Claude Code working on this repository.
 Read `docs/PROJECT-BRIEF.md` before making product decisions — it holds the
 business context, the research the design rests on, and the prioritised backlog.
 
-Internal project codename: **Bharosa** (`package.json` name, repo-facing
-references). This is a codename for the codebase only — the product itself
-stays branded as Deepika Wellness, the founder's real practice name. Do not
-rename in-app branding, page titles, or notification copy to Bharosa without
-an explicit decision from the user.
+Product name: **Bharosa Wellness** (`package.json` name, app branding, and
+repo-facing references). The user explicitly chose Bharosa Wellness instead
+of using Deepika's name for this product. Do not revert the customer-facing
+brand to Deepika without another explicit decision from the user.
 
 ---
 
 ## What this is
 
-A **V0 Vision Prototype** for Deepika Wellness: coaching software for a women's
-midlife health practice in India. Two surfaces — a member app and a coach
-console — built so the founder (Deepika) can use them and react, rather than
-answer more discovery questions.
+A **pilot-stage Bharosa Wellness product** for holistic health coaching in
+India. It has two surfaces — a member app and a coach console — and is being
+developed locally and on a separate Bharosa staging stack before any public
+launch.
 
-It is **not** the Pilot MVP, but it is no longer only a demo: it has real
-sign-in, per-account data, and optional durable storage, because the twenty
-pilot members are going to use it. There is still no AI in it — do not add UI
-implying otherwise.
+It is no longer only a demo: it has real sign-in, per-account data, optional
+durable storage, private uploads, password recovery, Health Connect support,
+and a bounded server-side recommendations endpoint. AI must remain optional,
+explainable, low-risk, and subordinate to coach-approved plans and the safety
+rules documented in the code and deployment guide.
 
 **Product thesis:** Deepika provides the intelligence and the human
 relationship. The software provides memory, structure, visibility,
@@ -81,12 +81,12 @@ Assessment tab, `app/member/reports`). None of that is a diagnosis pipeline —
 it's Deepika, using her own judgement, looking at a client's numbers, which
 she's obviously allowed to do as a coach in conversation.
 
-**What I'll hold off building:** a feature that has the *software itself*
-generate the interpretation ("AI Summary: your iron levels have improved…")
-and hands it to a member without Deepika in the loop. Same for anything UI
-that implies AI exists when it doesn't yet — there's no backend in this repo
-to hold an API key safely (see Stack below), so a real integration is a
-separate scoping conversation, not a checkbox to remove.
+**What remains out of scope:** a feature that has the *software itself*
+generate a clinical interpretation ("AI Summary: your iron levels have
+improved…") and hands it to a member without a qualified professional in the
+loop. The server-side recommendations endpoint may only make the reversible,
+low-risk adjustments defined by its guardrails; pain, clinical questions,
+unusual trends, and strategic changes require coach review.
 
 If you get a straight answer from her certification body or a lawyer that
 auto-generated interpretation is fine for this pilot, tell me and I'll build
@@ -104,20 +104,23 @@ being deliberate about which one this is before it ships either way.
 
 ## Stack and commands
 
-Next.js 14 (App Router) · TypeScript · Tailwind · React context, persisted to
-Postgres when `DATABASE_URL` is set and to `localStorage` when it is not.
+Next.js 15 (App Router) · React 19 · TypeScript · Tailwind · React context,
+persisted to a dedicated Postgres database when `BHAROSA_DATABASE_URL` is set.
+The web demo can use `localStorage` without a database; production deliberately
+ignores generic `DATABASE_URL` and `POSTGRES_URL` values to avoid sharing the
+protected Deepika stack.
 
 Storage is per account either way — one document per member, split and
 rejoined by `lib/persist.ts`. `lib/db.ts` is server-only; importing it from a
 client component would put the connection string in the browser bundle.
 
 Accounts come from two places: the environment (`MEMBERS`, `COACH_PASSWORD`,
-`AUTH_SECRET`), all with fallbacks so a deployment with nothing set still
-opens on demo credentials; and the database, for members who signed
-themselves up. `lib/accounts.ts` handles the second kind and is server-only —
-Node's crypto is not available in the Edge middleware, which is why the
-middleware imports from `lib/auth.ts` and never from there.
-See `docs/DEPLOYMENT.md`.
+`AUTH_SECRET`) and the database for members who sign themselves up.
+Development-only demo fallbacks are available locally; production fails closed
+when signing, database, or invitation configuration is missing.
+`lib/accounts.ts` handles database accounts and password recovery server-side.
+Private uploads use a separate private Blob store and opaque owner-bound file
+references. See `docs/DEPLOYMENT.md` for the complete environment contract.
 
 ```bash
 npm install

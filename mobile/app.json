@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "Bharosa Wellness",
+    "slug": "curious-coder",
+    "version": "1.0.0",
+    "icon": "./assets/icon-v2.png",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "bharosawellness",
+    "android": {
+      "package": "com.bharosawellness.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon-v2.png",
+        "backgroundColor": "#073F43"
+      },
+      "permissions": [
+        "android.permission.health.READ_STEPS",
+        "android.permission.health.READ_RESTING_HEART_RATE",
+        "android.permission.health.READ_HEART_RATE_VARIABILITY",
+        "android.permission.health.READ_VO2_MAX"
+      ]
+    },
+    "plugins": [
+      "react-native-health-connect",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "minSdkVersion": 26
+          }
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": "Allow Bharosa Wellness to protect your private wellness information."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "945e60dc-4eeb-47aa-9e85-105ad698bc69"
+      }
+    }
+  }
+}

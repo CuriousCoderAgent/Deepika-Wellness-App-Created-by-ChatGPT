@@ -6,6 +6,7 @@ import type {
   RadarBucket,
   RadarEvent,
   Session,
+  WorkoutLog,
 } from "./types";
 
 /**
@@ -26,21 +27,45 @@ export interface RadarRule {
   enabled: boolean;
 }
 
+/** Mobile workout logs use `pain`/`completedAt`; the coach web app's legacy
+ * logs use `painFlag`/`dayOffset`. Persistence intentionally accepts both, so
+ * Radar normalises the small overlapping safety surface here. */
+type RadarWorkoutLog = Partial<WorkoutLog> & {
+  memberId?: string;
+  pain?: boolean;
+  coachReviewRequired?: boolean;
+  completedAt?: string;
+};
+
+function isRecentPainLog(log: RadarWorkoutLog) {
+  if (!(log.painFlag || log.pain || log.coachReviewRequired)) return false;
+  if (typeof log.dayOffset === "number")
+    return log.dayOffset >= -7 && log.dayOffset <= 0;
+  if (!log.completedAt) return true;
+  const completedAt = new Date(log.completedAt);
+  if (Number.isNaN(completedAt.getTime())) return true;
+  const ageMs = Date.now() - completedAt.getTime();
+  return ageMs >= 0 && ageMs <= 7 * 24 * 60 * 60 * 1000;
+}
+
 export const radarRules: RadarRule[] = [
   {
     id: "R01",
     name: "No recent interaction",
     bucket: "attention",
     trigger: "No completed action, pulse or message for 72 hours",
-    suggestedAction: "Send a low-pressure check-in. Consider assigning Comeback Week.",
+    suggestedAction:
+      "Send a low-pressure check-in. Consider assigning Comeback Week.",
     enabled: true,
   },
   {
     id: "R02",
     name: "Movement slipping",
     bucket: "attention",
-    trigger: "Two or more planned movement sessions not completed in a rolling 7 days",
-    suggestedAction: "Ask what got in the way. Offer the Minimum version or reschedule.",
+    trigger:
+      "Two or more planned movement sessions not completed in a rolling 7 days",
+    suggestedAction:
+      "Ask what got in the way. Offer the Minimum version or reschedule.",
     enabled: true,
   },
   {
@@ -48,7 +73,8 @@ export const radarRules: RadarRule[] = [
     name: "Low energy pattern",
     bucket: "attention",
     trigger: "Energy 2 or below on 3 of the last 4 recorded days",
-    suggestedAction: "Review sleep, workload and symptoms. Adapt the week. Refer if concerning.",
+    suggestedAction:
+      "Review sleep, workload and symptoms. Adapt the week. Refer if concerning.",
     enabled: true,
   },
   {
@@ -56,14 +82,16 @@ export const radarRules: RadarRule[] = [
     name: "Sleep concern",
     bucket: "attention",
     trigger: "Self-rated sleep 2 or below for 3 or more of the last 7 days",
-    suggestedAction: "Reduce intensity where appropriate. Distinguish waking hot from waking anxious.",
+    suggestedAction:
+      "Reduce intensity where appropriate. Distinguish waking hot from waking anxious.",
     enabled: true,
   },
   {
     id: "R05",
     name: "Member flagged something",
     bucket: "attention",
-    trigger: "Member reported a symptom, pain, or asked a question needing review",
+    trigger:
+      "Member reported a symptom, pain, or asked a question needing review",
     suggestedAction: "Review promptly. Coach within scope, or refer.",
     enabled: true,
   },
@@ -71,7 +99,8 @@ export const radarRules: RadarRule[] = [
     id: "R06",
     name: "Message unanswered",
     bucket: "attention",
-    trigger: "Member message unread or unanswered beyond the coach response window",
+    trigger:
+      "Member message unread or unanswered beyond the coach response window",
     suggestedAction: "Reply, or schedule a reply time.",
     enabled: true,
   },
@@ -104,7 +133,8 @@ export const radarRules: RadarRule[] = [
     name: "Assessment incomplete",
     bucket: "admin",
     trigger: "Baseline assessment below 80% complete after week 2",
-    suggestedAction: "Complete the missing sections together during the next 1:1.",
+    suggestedAction:
+      "Complete the missing sections together during the next 1:1.",
     enabled: true,
   },
 ];
@@ -113,20 +143,17 @@ export function evaluateRadar(
   members: Member[],
   actions: DailyAction[],
   pulses: PulseEntry[],
+  workoutLogs: readonly RadarWorkoutLog[],
   messages: Message[],
   sessions: Session[],
   rules: RadarRule[],
-  resolvedIds: string[]
+  resolvedIds: string[],
 ): RadarEvent[] {
   const events: RadarEvent[] = [];
   const on = (id: string) => rules.find((r) => r.id === id)?.enabled;
   const rule = (id: string) => rules.find((r) => r.id === id)!;
 
-  const push = (
-    memberId: string,
-    ruleId: string,
-    detail: string
-  ) => {
+  const push = (memberId: string, ruleId: string, detail: string) => {
     const r = rule(ruleId);
     const id = `${memberId}-${ruleId}`;
     events.push({
@@ -146,11 +173,14 @@ export function evaluateRadar(
   for (const m of members) {
     const mine = actions.filter((a) => a.memberId === m.id);
     const myPulses = pulses.filter((x) => x.memberId === m.id);
+    const myWorkoutLogs = workoutLogs.filter((x) => x.memberId === m.id);
     const myMessages = messages.filter((x) => x.memberId === m.id);
 
     // R01 — silence
     const touched = [
-      ...mine.filter((a) => a.completed && a.completed !== "rest").map((a) => a.dayOffset),
+      ...mine
+        .filter((a) => a.completed && a.completed !== "rest")
+        .map((a) => a.dayOffset),
       ...myPulses.map((x) => x.dayOffset),
       ...myMessages.filter((x) => x.from === "member").map((x) => x.dayOffset),
     ];
@@ -173,21 +203,27 @@ export function evaluateRadar(
         a.dayOffset >= -7 &&
         a.workoutId !== undefined &&
         (a.completed === "rest" || a.completed === null) &&
-        a.dayOffset < 0
+        a.dayOffset < 0,
     );
     if (on("R02") && missedMovement.length >= 2) {
       push(
         m.id,
         "R02",
-        `${missedMovement.length} planned movement sessions not completed in the last 7 days.`
+        `${missedMovement.length} planned movement sessions not completed in the last 7 days.`,
       );
     }
 
     // R03 — low energy
-    const recent = myPulses.filter((x) => x.dayOffset >= -4).sort((a, b) => b.dayOffset - a.dayOffset);
+    const recent = myPulses
+      .filter((x) => x.dayOffset >= -4)
+      .sort((a, b) => b.dayOffset - a.dayOffset);
     const lowEnergy = recent.filter((x) => x.energy <= 2).length;
     if (on("R03") && lowEnergy >= 3) {
-      push(m.id, "R03", `Energy 2 or below on ${lowEnergy} of the last ${recent.length} recorded days.`);
+      push(
+        m.id,
+        "R03",
+        `Energy 2 or below on ${lowEnergy} of the last ${recent.length} recorded days.`,
+      );
     }
 
     // R04 — sleep. `sleep === 0` means she only left a one-tap mood and never
@@ -195,29 +231,56 @@ export function evaluateRadar(
     const week = myPulses.filter((x) => x.dayOffset >= -7 && x.sleep >= 1);
     const poorSleep = week.filter((x) => x.sleep <= 2).length;
     if (on("R04") && poorSleep >= 3) {
-      push(m.id, "R04", `Sleep rated 2 or below on ${poorSleep} days this week.`);
+      push(
+        m.id,
+        "R04",
+        `Sleep rated 2 or below on ${poorSleep} days this week.`,
+      );
     }
 
-    // R05 — flagged symptom
-    const flagged = myPulses.filter((x) => x.dayOffset >= -7 && x.symptoms.length > 0);
-    if (on("R05") && flagged.length >= 2) {
+    // R05 — flagged symptom or pain. One movement pain flag is sufficient;
+    // it must not disappear merely because the mobile and web log fields have
+    // different names.
+    const flagged = myPulses.filter(
+      (x) => x.dayOffset >= -7 && x.symptoms.length > 0,
+    );
+    const painLogged = myWorkoutLogs.some(isRecentPainLog);
+    if (on("R05") && (flagged.length >= 2 || painLogged)) {
       const all = Array.from(new Set(flagged.flatMap((f) => f.symptoms)));
-      push(m.id, "R05", `Reported: ${all.join(", ")}.`);
+      const details = [];
+      if (all.length) details.push(`Reported: ${all.join(", ")}.`);
+      if (painLogged)
+        details.push(
+          "Pain was reported during a recent movement; review before it is repeated.",
+        );
+      push(m.id, "R05", details.join(" "));
     }
 
     // R06 — unanswered
     const unread = myMessages.filter((x) => x.from === "member" && !x.read);
     if (on("R06") && unread.length > 0) {
-      push(m.id, "R06", `${unread.length} message${unread.length > 1 ? "s" : ""} awaiting a reply.`);
+      push(
+        m.id,
+        "R06",
+        `${unread.length} message${unread.length > 1 ? "s" : ""} awaiting a reply.`,
+      );
     }
 
     // R07 — session prep
     const upcoming = sessions.filter(
-      (s) => s.memberId === m.id && s.status === "scheduled" && s.dayOffset >= 0 && s.dayOffset <= 1
+      (s) =>
+        s.memberId === m.id &&
+        s.status === "scheduled" &&
+        s.dayOffset >= 0 &&
+        s.dayOffset <= 1,
     );
     if (on("R07") && upcoming.length > 0) {
       const s = upcoming[0];
-      push(m.id, "R07", `${s.type} ${s.dayOffset === 0 ? "today" : "tomorrow"} at ${s.time}.`);
+      push(
+        m.id,
+        "R07",
+        `${s.type} ${s.dayOffset === 0 ? "today" : "tomorrow"} at ${s.time}.`,
+      );
     }
 
     // R08 — comeback
@@ -225,20 +288,44 @@ export function evaluateRadar(
       .filter((a) => a.completed && a.completed !== "rest")
       .map((a) => a.dayOffset)
       .sort((a, b) => b - a);
-    if (on("R08") && done.length >= 2 && done[0] - done[1] >= 3 && done[0] >= -1) {
-      push(m.id, "R08", `First action after ${done[0] - done[1]} inactive days.`);
+    if (
+      on("R08") &&
+      done.length >= 2 &&
+      done[0] - done[1] >= 3 &&
+      done[0] >= -1
+    ) {
+      push(
+        m.id,
+        "R08",
+        `First action after ${done[0] - done[1]} inactive days.`,
+      );
     }
 
     // R09 — quiet progress
-    const completions = mine.filter((a) => a.completed && a.completed !== "rest");
+    const completions = mine.filter(
+      (a) => a.completed && a.completed !== "rest",
+    );
     const skips = mine.filter((a) => a.completed === "rest");
-    if (on("R09") && completions.length >= 4 && skips.length === 0 && m.engagement === "strong") {
-      push(m.id, "R09", `${completions.length} consecutive completions, no missed actions.`);
+    if (
+      on("R09") &&
+      completions.length >= 4 &&
+      skips.length === 0 &&
+      m.engagement === "strong"
+    ) {
+      push(
+        m.id,
+        "R09",
+        `${completions.length} consecutive completions, no missed actions.`,
+      );
     }
 
     // R10 — admin
     if (on("R10") && m.assessmentComplete < 80 && m.week >= 2) {
-      push(m.id, "R10", `Baseline assessment ${m.assessmentComplete}% complete.`);
+      push(
+        m.id,
+        "R10",
+        `Baseline assessment ${m.assessmentComplete}% complete.`,
+      );
     }
   }
 
