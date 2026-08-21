@@ -2,10 +2,14 @@
 
 ## Right now
 
-The local redesign is not linked to a new Bharosa Vercel project, dedicated
-cloud database, private Blob store, or verified email sender yet. Older mobile
-builds pointed to the existing `deepika-health-app.vercel.app` backend; current
-EAS profiles do not. Do not use an older APK/AAB for real customer data.
+The Bharosa staging backend is live at
+<https://bharosa-wellness-staging.vercel.app>. It is a separate Vercel project
+with its own Neon PostgreSQL database (`bharosa-wellness-staging-db`) and its
+own private Blob store (`bharosa-wellness-staging-files`), both in Singapore.
+It does not use or modify the protected Deepika repository, project, database,
+or storage. Older mobile builds pointed to the existing
+`deepika-health-app.vercel.app` backend; current EAS profiles do not. Do not use
+an older APK/AAB for real customer data.
 
 Local development with no auth variables still offers fictional-data demo
 credentials:
@@ -20,10 +24,13 @@ Those values are public and are accepted only when `NODE_ENV` is not
 development signing key. Missing or short signing configuration makes sign-in
 fail closed with a controlled service-unavailable response.
 
-This is source-level isolation only. A dedicated Bharosa Vercel project,
-PostgreSQL database, private Blob store and verified Resend sender have not yet
-been provisioned, so provider-backed signup, password email and successful
-private-file storage are not live.
+Database-backed signup, login, state persistence, private-file storage, coach
+access, and deterministic recommendation fallback have passed staging smoke
+tests. The password-help endpoint and its anti-enumeration response are live,
+but reset delivery and redemption are unverified: `RESEND_API_KEY` is absent.
+The temporary `onboarding@resend.dev` sender can deliver only to the email on
+the Resend account. Sending to pilot customers requires an owned domain and a
+verified Resend sender.
 
 ## Before real members
 
@@ -156,10 +163,10 @@ makes existing opaque references unreadable.
 The explicit mobile demo mode does not upload selected files; it retains only
 a device-local URI.
 
-**Recommended:** create a new Bharosa Vercel project, then attach a new Neon
-PostgreSQL integration from Vercel Marketplace. Copy its pooled connection into
-the server-only `BHAROSA_DATABASE_URL` variable and redeploy. Keep the new
-resource independent of every Deepika project/database.
+**Current staging:** the separate `bharosa-wellness-staging` Vercel project has
+the `bharosa-wellness-staging-db` Neon integration attached. Its pooled
+connection is mapped to the server-only `BHAROSA_DATABASE_URL` variable. Keep
+this resource independent of every Deepika project/database.
 
 Marketplace integrations often inject `DATABASE_URL`. For this app, map that
 new Bharosa-owned value into `BHAROSA_DATABASE_URL`. Production deliberately
@@ -239,3 +246,36 @@ retention policy.
 
 Do not describe `delete from member_state` alone as full account deletion.
 Automating and verifying this complete purge is a pilot launch gate.
+
+## Staging verification
+
+Run `npm run smoke:staging` only from the linked staging checkout after pulling
+the **Production environment of this staging Vercel project** into the ignored
+`.env.local` file:
+
+```powershell
+vercel env pull .env.local --environment=production --yes
+npm.cmd run smoke:staging
+```
+
+The script refuses every HTTP origin except the stable Bharosa staging URL. It
+creates a uniquely named disposable member, verifies that the API and cleanup
+database contain that exact account, exercises the API, removes its private
+object and database rows, and never prints tokens or secrets. If target/database
+verification or Blob deletion fails, it retains the database registry rather
+than hiding an orphaned object.
+
+Verified on 21 August 2026:
+
+- signup, member login, and authenticated state read/write;
+- wrong-password rejection;
+- private PNG upload, owner read, anonymous denial, deletion, and subsequent
+  not-found response;
+- deterministic recommendation fallback without an OpenAI key;
+- identical password-help responses for known and unknown identifiers;
+- coach web login and coach-mobile denial; and
+- deletion of the disposable account, member state, and private-file record.
+
+Actual reset-email delivery and redemption remain pending until a Resend API
+key is configured. The smoke script must use fictional data only and must never
+be repointed at production or a third-party origin.

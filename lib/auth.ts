@@ -15,21 +15,16 @@
  * below. Production never accepts those public credentials or the development
  * signing key: missing configuration makes sign-in unavailable.
  */
+import { readSignedSessionToken, type SessionUser } from "./session-token";
 
-const SESSION_COOKIE = "dw_session";
-const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days — this cohort should not be re-typing passwords
-const DEV_SESSION_SECRET = "dev-only-unsafe-secret-set-AUTH_SECRET";
-
-export type Role = "coach" | "member";
-
-export interface SessionUser {
-  /** Also the storage namespace for this account's data. */
-  sub: string;
-  role: Role;
-  name: string;
-  /** Present for database accounts so password changes revoke older tokens. */
-  sessionVersion?: number;
-}
+export {
+  createSessionToken,
+  sessionCookieName,
+  sessionMaxAge,
+  sessionSigningAvailable,
+  type Role,
+  type SessionUser,
+} from "./session-token";
 
 interface Account extends SessionUser {
   username: string;
@@ -44,20 +39,6 @@ export const DEMO_MEMBER_ID = "radhika";
 
 const DEMO_COACH_PASSWORD = "deepika2026";
 const DEMO_MEMBER_PASSWORD = "radhika2026";
-
-function configuredSessionSecret(): string | null {
-  const value = process.env.AUTH_SECRET?.trim();
-  return value && new TextEncoder().encode(value).byteLength >= 32
-    ? value
-    : null;
-}
-
-/** Production can issue or validate sessions only with a strong secret. */
-export function sessionSigningAvailable(): boolean {
-  return (
-    Boolean(configuredSessionSecret()) || process.env.NODE_ENV !== "production"
-  );
-}
 
 /** Public demo credentials are a local-development convenience only. */
 export function demoAuthIsEnabled(): boolean {
@@ -131,46 +112,6 @@ function accounts(): Account[] {
   ];
 }
 
-function secret(): string {
-  const configured = configuredSessionSecret();
-  if (configured) return configured;
-  if (process.env.NODE_ENV !== "production") return DEV_SESSION_SECRET;
-  throw new Error("Session signing is not configured.");
-}
-
-/* ------------------------------------------------------------------ */
-/* Signing — Web Crypto, so this works in both the Edge middleware and  */
-/* Node route handlers without a polyfill.                              */
-/* ------------------------------------------------------------------ */
-
-function b64url(bytes: Uint8Array): string {
-  let s = "";
-  bytes.forEach((b) => (s += String.fromCharCode(b)));
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function fromB64url(s: string): Uint8Array {
-  const pad = s.replace(/-/g, "+").replace(/_/g, "/");
-  const bin = atob(pad + "=".repeat((4 - (pad.length % 4)) % 4));
-  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
-}
-
-async function hmac(payload: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret()),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(payload),
-  );
-  return b64url(new Uint8Array(sig));
-}
-
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -178,72 +119,37 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export async function createSessionToken(user: SessionUser): Promise<string> {
-  const body = {
-    ...user,
-    exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE,
-  };
-  const payload = b64url(new TextEncoder().encode(JSON.stringify(body)));
-  return `${payload}.${await hmac(payload)}`;
-}
-
 export async function readSessionToken(
   token: string | undefined,
 ): Promise<SessionUser | null> {
-  if (!token) return null;
-  try {
-    const [payload, sig] = token.split(".");
-    if (!payload || !sig) return null;
-    if (!safeEqual(sig, await hmac(payload))) return null;
-    const body = JSON.parse(new TextDecoder().decode(fromB64url(payload)));
-    if (typeof body.exp !== "number" || body.exp * 1000 < Date.now())
-      return null;
-    if (
-      typeof body.sub !== "string" ||
-      (body.role !== "coach" && body.role !== "member") ||
-      typeof body.name !== "string"
-    ) {
-      return null;
-    }
-    const user: SessionUser = {
-      sub: body.sub,
-      role: body.role,
-      name: body.name,
-      ...(Number.isInteger(body.sessionVersion)
-        ? { sessionVersion: body.sessionVersion as number }
-        : {}),
-    };
+  const user = await readSignedSessionToken(token);
+  if (!user) return null;
 
-    // Edge middleware performs the signature/expiry gate. Node route handlers
-    // additionally compare database-account versions, which makes every old
-    // API session unusable after a password reset. The dynamic import keeps pg
-    // out of the Edge bundle.
-    if (process.env.NEXT_RUNTIME !== "edge" && user.role === "member") {
-      try {
-        const { isConfigured, readAccountSessionVersion } = await import(
-          "./db"
-        );
-        if (isConfigured()) {
-          const current = await readAccountSessionVersion(user.sub);
-          if (current === null) {
-            // Environment-backed members have no database account/version.
-            if (user.sessionVersion !== undefined) return null;
-          } else if (user.sessionVersion !== current) {
-            return null;
-          }
-        } else if (user.sessionVersion !== undefined) {
+  // Node route handlers additionally compare database-account versions, which
+  // makes every old API session unusable after a password reset. Middleware
+  // imports only the Edge-safe verifier and never pulls this module into its
+  // bundle.
+  if (process.env.NEXT_RUNTIME !== "edge" && user.role === "member") {
+    try {
+      const { isConfigured, readAccountSessionVersion } = await import("./db");
+      if (isConfigured()) {
+        const current = await readAccountSessionVersion(user.sub);
+        if (current === null) {
+          // Environment-backed members have no database account/version.
+          if (user.sessionVersion !== undefined) return null;
+        } else if (user.sessionVersion !== current) {
           return null;
         }
-      } catch {
-        // A versioned session belongs to a DB account, so fail closed when its
-        // revocation state cannot be checked. Environment accounts still work.
-        if (user.sessionVersion !== undefined) return null;
+      } else if (user.sessionVersion !== undefined) {
+        return null;
       }
+    } catch {
+      // A versioned session belongs to a DB account, so fail closed when its
+      // revocation state cannot be checked. Environment accounts still work.
+      if (user.sessionVersion !== undefined) return null;
     }
-    return user;
-  } catch {
-    return null;
   }
+  return user;
 }
 
 export async function verifyCredentials(
@@ -257,6 +163,3 @@ export async function verifyCredentials(
   if (!safeEqual(account.password, password)) return null;
   return { sub: account.sub, role: account.role, name: account.name };
 }
-
-export const sessionCookieName = SESSION_COOKIE;
-export const sessionMaxAge = SESSION_MAX_AGE;
