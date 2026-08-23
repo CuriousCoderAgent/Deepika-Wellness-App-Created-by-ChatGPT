@@ -585,6 +585,7 @@ function ActionCard({
   action,
   recommendation,
   onComplete,
+  inline,
 }: {
   action: DailyAction;
   recommendation?: AiRecommendation;
@@ -593,9 +594,11 @@ function ActionCard({
     effort?: 1 | 2 | 3 | 4 | 5,
     pain?: boolean,
   ) => void;
+  /** Rendered inside the day card, so it drops its own background and border. */
+  inline?: boolean;
 }) {
   const [expanded, setExpanded] = useState(
-    Boolean(action.isPrimary || action.exercise),
+    Boolean(inline || action.isPrimary || action.exercise),
   );
   const [pendingLevel, setPendingLevel] = useState<EffortLevel | null>(null);
   const [effort, setEffort] = useState<1 | 2 | 3 | 4 | 5>(3);
@@ -609,7 +612,7 @@ function ActionCard({
     setPendingLevel(null);
   };
   return (
-    <Card style={s.actionCard}>
+    <Card style={[s.actionCard, inline && s.actionCardInline]}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded }}
@@ -1972,8 +1975,8 @@ function Today({
           const isMovement = domain === "movement";
           const only = inDomain[0]!;
           return (
+            <View key={domain}>
             <DomainRow
-              key={domain}
               meta={meta}
               title={
                 isMovement && inDomain.length > 1
@@ -1992,32 +1995,28 @@ function Today({
                 else setExpandedDomain(expandedDomain === domain ? null : domain);
               }}
             />
+            {expandedDomain === domain &&
+              inDomain.map((a) => (
+                <ActionCard
+                  key={a.id}
+                  action={a}
+                  inline
+                  recommendation={[...doc.recommendations]
+                    .reverse()
+                    .find(
+                      (item) =>
+                        item.actionId === a.id &&
+                        ["applied", "approved"].includes(item.status),
+                    )}
+                  onComplete={(level, effort, pain) =>
+                    complete(a.id, level, effort, pain)
+                  }
+                />
+              ))}
+            </View>
           );
         })}
       </Card>
-
-      {/* A single small action expands where it is. Sending someone to another
-          screen to tick "drink a glass of water" would be worse than the
-          scrolling this replaced. */}
-      {expandedDomain &&
-        actions
-          .filter((a) => a.domain === expandedDomain)
-          .map((a) => (
-            <ActionCard
-              key={a.id}
-              action={a}
-              recommendation={[...doc.recommendations]
-                .reverse()
-                .find(
-                  (item) =>
-                    item.actionId === a.id &&
-                    ["applied", "approved"].includes(item.status),
-                )}
-              onComplete={(level, effort, pain) =>
-                complete(a.id, level, effort, pain)
-              }
-            />
-          ))}
 
       {/* The circle is a headline feature, not a setting buried under You. */}
       <CircleToday token={token} onOpenCircle={onOpenProfile} />
@@ -5129,6 +5128,16 @@ const s = StyleSheet.create({
   topAvatarText: { color: C.greenDeep, fontSize: 11, fontWeight: "800" },
   saving: { color: C.green, fontSize: 11 },
   savingQueued: { color: C.calm, fontSize: 11 },
+  actionCardInline: {
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    shadowOpacity: 0,
+    elevation: 0,
+    marginTop: 0,
+    marginBottom: 6,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+  },
   rowInline: { flexDirection: "row", alignItems: "center", gap: 8 },
   circleTodayCard: { gap: 10 },
   circleTodayRow: { flexDirection: "row", gap: 14, marginTop: 2 },
