@@ -2529,6 +2529,8 @@ function Food({
   const [description, setDescription] = useState("");
   /** What the last estimate was read from, shown so it can be judged. */
   const [lastEstimate, setLastEstimate] = useState<string | null>(null);
+  /** The month is for reviewing history, which is occasional. Folded by default. */
+  const [showCalendar, setShowCalendar] = useState(false);
   const [photoAsset, setPhotoAsset] = useState<ImagePicker.ImagePickerAsset>();
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoUri = photoAsset?.uri;
@@ -2735,9 +2737,33 @@ function Food({
         <Text style={s.heroUnit}>kcal · {totalProtein || "—"}g protein</Text>
       </Text>
       <Text style={s.heroCopy}>
-        Calories and protein are estimates for context, never a score. Tap any
-        day to see and correct its meals.
+        Calories and protein are estimates for context, never a score.
       </Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: showCalendar }}
+        accessibilityLabel={
+          showCalendar ? "Hide the month" : "See another day"
+        }
+        style={s.calendarToggle}
+        onPress={() => setShowCalendar((value) => !value)}
+      >
+        <CalendarDays size={15} color={C.green} />
+        <Text style={s.calendarToggleText}>
+          {selectedDate === isoDate()
+            ? "See another day"
+            : new Date(`${selectedDate}T12:00:00`).toLocaleDateString(
+                undefined,
+                { day: "numeric", month: "long" },
+              )}
+        </Text>
+        {showCalendar ? (
+          <ChevronUp size={16} color={C.faint} />
+        ) : (
+          <ChevronDown size={16} color={C.faint} />
+        )}
+      </Pressable>
+      {showCalendar && (
       <Card style={s.calendarCard}>
         <View style={s.calendarHeader}>
           <Pressable
@@ -2821,6 +2847,7 @@ function Food({
           </Text>
         </View>
       </Card>
+      )}
       <Card>
         <View style={s.rowBetween}>
           <Text style={s.cardTitle}>
@@ -4537,6 +4564,8 @@ function MemberApp({
   const [youSection, setYouSection] = useState<
     null | "circle" | "health" | "reports" | "settings"
   >(null);
+  /** Progress opens on its own; null is the plan itself. */
+  const [planSection, setPlanSection] = useState<null | "progress">(null);
   /** The current document, readable from callbacks without a stale closure. */
   const latest = useRef<MemberDoc | null>(null);
   /** Coach messages already seen, so only genuinely new ones are announced. */
@@ -4789,6 +4818,7 @@ function MemberApp({
 
   useEffect(() => {
     if (tab !== "profile") setYouSection(null);
+    if (tab !== "plan") setPlanSection(null);
   }, [tab]);
 
   /** Opening the conversation is reading it. */
@@ -4832,13 +4862,48 @@ function MemberApp({
       />
     );
   else if (tab === "plan")
-    content = (
-      <>
-        <Journey doc={doc} />
-        <EngagementPanel doc={doc} />
-        <Progress doc={doc} />
-      </>
-    );
+    content =
+      planSection === "progress" ? (
+        <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to plan"
+            style={s.backRow}
+            onPress={() => setPlanSection(null)}
+          >
+            <ChevronLeft size={18} color={C.green} />
+            <Text style={s.backRowText}>Plan</Text>
+          </Pressable>
+          <Progress doc={doc} />
+        </>
+      ) : (
+        <>
+          <Journey doc={doc} />
+          <EngagementPanel doc={doc} />
+          <Card style={s.glanceCard}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="See how it has been going"
+              style={({ pressed }) => [
+                s.domainRow,
+                pressed && s.domainRowPressed,
+              ]}
+              onPress={() => setPlanSection("progress")}
+            >
+              <View style={s.domainRowIcon}>
+                <Sparkles size={16} color={C.greenDeep} />
+              </View>
+              <View style={s.flex}>
+                <Text style={s.domainRowTitle}>How it has been going</Text>
+                <Text style={s.domainRowDetail}>
+                  Your check-ins and completed days, week by week
+                </Text>
+              </View>
+              <ChevronRight size={17} color={C.faint} />
+            </Pressable>
+          </Card>
+        </>
+      );
   else if (tab === "food")
     content = <Food doc={doc} update={update} token={token} />;
   else if (tab === "coach") content = <Coach doc={doc} update={update} />;
@@ -5139,6 +5204,19 @@ const s = StyleSheet.create({
   topAvatarText: { color: C.greenDeep, fontSize: 11, fontWeight: "800" },
   saving: { color: C.green, fontSize: 11 },
   savingQueued: { color: C.calm, fontSize: 11 },
+  calendarToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 46,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: C.card,
+  },
+  calendarToggleText: { color: C.green, flex: 1, fontSize: 14, fontWeight: "700" },
 
   /* Today at a glance — five rows instead of ten stacked cards. */
   glanceCard: { paddingVertical: 6 },
