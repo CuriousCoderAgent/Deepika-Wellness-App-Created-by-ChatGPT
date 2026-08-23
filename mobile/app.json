@@ -48,7 +48,8 @@
         "expo-image-picker",
         {
           "photosPermission": "Allow Bharosa Wellness to use the meal and report photos you choose.",
-          "cameraPermission": "Allow Bharosa Wellness to take meal photos for your food log."
+          "cameraPermission": "Allow Bharosa Wellness to take meal photos for your food log.",
+          "microphonePermission": false
         }
       ],
       [
@@ -79,7 +80,10 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Bharosa uses your rough area — about 3km — only to suggest other members near you. Your exact location never leaves your phone.",
+          "locationAlwaysAndWhenInUsePermission": false,
+          "locationAlwaysPermission": false,
+          "locationWhenInUsePermission": "Allow Bharosa Wellness to use your location while you choose nearby support. The app reduces it to a rough 3km area on this iPhone; your coordinates never leave the device.",
+          "motionUsagePermission": false,
           "isAndroidBackgroundLocationEnabled": false,
           "isIosBackgroundLocationEnabled": false
         }

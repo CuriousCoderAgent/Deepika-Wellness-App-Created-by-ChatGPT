@@ -58,6 +58,36 @@ The permanent Android application ID is `com.bharosawellness.app`. Changing it a
 Do not create a production AAB until the redesigned member flows have been
 approved and the Google Play Health Connect declarations are complete.
 
+## iOS builds from Windows
+
+The JavaScript application, Expo configuration and EAS build submission can be
+prepared from Windows. Xcode and the iOS Simulator cannot run here, so native
+HealthKit behaviour still needs a physical iPhone before release.
+
+```bash
+eas build --platform ios --profile ios-simulator # cloud simulator artifact; usable on a Mac simulator
+eas build --platform ios --profile development   # development client for registered devices
+eas build --platform ios --profile ios-preview   # internal non-dev-client build, development bundle id
+eas build --platform ios --profile testflight    # App Store-signed TestFlight build
+eas submit --platform ios --profile testflight
+```
+
+Development and internal-preview builds use
+`com.bharosawellness.app.dev`. TestFlight and production use the permanent
+`com.bharosawellness.app` identifier. This prevents a test build replacing an
+eventual App Store installation.
+
+Apple Health access is read-only and foreground-only in this release: steps,
+resting heart rate, HRV-SDNN and VO2 max. iOS does not reveal whether the user
+granted each individual read permission, so the UI says **Requested** rather
+than claiming access was granted. Empty results can mean no data, a limited
+history, or a declined read permission.
+
+The app asks only for foreground location. It reduces the coordinate to a rough
+grid cell on the iPhone and never sends coordinates to the server. Always
+location, motion activity and microphone permission descriptions are
+deliberately omitted because the current product does not use them.
+
 ## Bounded AI recommendations
 
 Recommendations are generated only by the authenticated server endpoint. Set

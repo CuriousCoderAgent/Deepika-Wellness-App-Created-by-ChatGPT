@@ -17,6 +17,13 @@
       "extends": "development",
       "ios": { "simulator": true }
     },
+    "ios-preview": {
+      "distribution": "internal",
+      "env": {
+        "BHAROSA_APP_VARIANT": "development",
+        "EXPO_PUBLIC_API_URL": "https://bharosa-wellness-staging.vercel.app"
+      }
+    },
     "preview": {
       "distribution": "internal",
       "android": { "buildType": "apk" },
