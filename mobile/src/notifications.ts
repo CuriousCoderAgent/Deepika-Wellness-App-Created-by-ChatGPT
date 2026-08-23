@@ -21,15 +21,51 @@ import * as Notifications from "expo-notifications";
 const DAILY_IDENTIFIER = "bharosa-daily-check-in";
 const ANDROID_CHANNEL = "bharosa-reminders";
 
+/**
+ * Notifications need native code. An app build made before this dependency was
+ * added does not have it, and every call below would throw.
+ *
+ * Unlike connectivity, this cannot be papered over: a reminder that cannot be
+ * scheduled will not arrive, so `scheduleDailyReminder` returns false and
+ * Profile leaves the switch off. Saying "on" would be a lie the member only
+ * discovers by not being reminded.
+ */
+let available: boolean | null = null;
+
+function notificationsAvailable(): boolean {
+  if (available === null) {
+    available = typeof Notifications?.getPermissionsAsync === "function";
+    if (!available)
+      console.warn(
+        "[bharosa] expo-notifications is unavailable in this build; reminders are off. Rebuild the development client to restore them.",
+      );
+  }
+  return available;
+}
+
 /** A notification arriving while the app is open should be quiet, not modal. */
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-  }),
-});
+try {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+    }),
+  });
+} catch {
+  // No native module in this build. Handled per call below.
+}
+
+/**
+ * Whether this build can schedule reminders at all.
+ *
+ * Lets the caller distinguish "she said no" from "this binary has no
+ * notification code", which need very different messages.
+ */
+export function remindersAreSupported(): boolean {
+  return notificationsAvailable();
+}
 
 export interface ReminderTime {
   hour: number;
@@ -61,7 +97,7 @@ export function parseReminderTime(value: string | undefined): ReminderTime {
 }
 
 async function ensureAndroidChannel() {
-  if (Platform.OS !== "android") return;
+  if (Platform.OS !== "android" || !notificationsAvailable()) return;
   await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL, {
     name: "Daily check-in",
     // Deliberately below the "heads-up" level. This is a gentle prompt, not an
@@ -78,6 +114,7 @@ async function ensureAndroidChannel() {
  * the caller turns the switch back off rather than pretending it is on.
  */
 export async function requestReminderPermission(): Promise<boolean> {
+  if (!notificationsAvailable()) return false;
   const current = await Notifications.getPermissionsAsync();
   if (current.granted) return true;
   if (!current.canAskAgain) return false;
@@ -86,6 +123,7 @@ export async function requestReminderPermission(): Promise<boolean> {
 }
 
 export async function cancelDailyReminder(): Promise<void> {
+  if (!notificationsAvailable()) return;
   await Notifications.cancelScheduledNotificationAsync(DAILY_IDENTIFIER).catch(
     () => {
       // Nothing scheduled. Cancelling something that is not there is success.
@@ -139,6 +177,7 @@ export async function scheduleDailyReminder(
  * should not sit on a lock screen.
  */
 export async function notifyCoachReply(count: number): Promise<void> {
+  if (!notificationsAvailable()) return;
   const granted = (await Notifications.getPermissionsAsync()).granted;
   if (!granted) return;
   await ensureAndroidChannel();
@@ -157,6 +196,7 @@ export async function notifyCoachReply(count: number): Promise<void> {
 
 /** Sign-out should not leave reminders firing for someone who has left. */
 export async function cancelAllReminders(): Promise<void> {
+  if (!notificationsAvailable()) return;
   await Notifications.cancelAllScheduledNotificationsAsync().catch(() => {
     // Best effort on sign-out.
   });

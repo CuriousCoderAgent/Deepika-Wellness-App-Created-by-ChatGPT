@@ -29,7 +29,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import NetInfo from "@react-native-community/netinfo";
 import {
   Bell,
   Brain,
@@ -72,6 +71,7 @@ import {
   uploadMemberFile,
 } from "./src/api";
 import { exerciseMediaFor } from "./src/exerciseMedia";
+import { subscribeToConnectivity } from "./src/net";
 import { describeMatches, estimateMeal } from "./src/nutrition";
 import {
   cancelAllReminders,
@@ -79,6 +79,7 @@ import {
   formatReminderTime,
   notifyCoachReply,
   parseReminderTime,
+  remindersAreSupported,
   scheduleDailyReminder,
 } from "./src/notifications";
 import {
@@ -2946,6 +2947,16 @@ function Profile({
     );
     if (!scheduled) {
       saveReminder(false);
+      // Two very different reasons to end up here, and telling someone to
+      // check her settings when the app simply cannot do it would waste her
+      // time looking for a switch that is already on.
+      if (!remindersAreSupported()) {
+        Alert.alert(
+          "Reminders are not available in this version",
+          "This build of the app cannot schedule reminders yet. Everything else works as normal.",
+        );
+        return;
+      }
       Alert.alert(
         "Notifications are switched off for Bharosa",
         "You can turn them back on for Bharosa Wellness in your phone settings whenever you like.",
@@ -3390,9 +3401,7 @@ function MemberApp({
 
   useEffect(
     () =>
-      NetInfo.addEventListener((state) => {
-        const reachable =
-          Boolean(state.isConnected) && state.isInternetReachable !== false;
+      subscribeToConnectivity((reachable) => {
         setOnline(reachable);
         if (reachable) flushQueued();
       }),

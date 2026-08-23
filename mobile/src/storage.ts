@@ -19,11 +19,53 @@
  * device and cleared on sign-out.
  */
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { MemberDoc } from "./types";
 
 const DOC_KEY = "bharosa_cached_doc";
 const PENDING_KEY = "bharosa_pending_doc";
+
+interface KeyValueStore {
+  getItem: (key: string) => Promise<string | null>;
+  setItem: (key: string, value: string) => Promise<void>;
+  removeItem: (key: string) => Promise<void>;
+  multiRemove: (keys: string[]) => Promise<void>;
+}
+
+/**
+ * AsyncStorage throws while it is being imported when the native module is not
+ * in the running binary — a top-level `throw`, not a failed call — so a static
+ * import would red-screen the whole app on a build made before this dependency
+ * was added. It is required lazily instead, and its absence disables the cache
+ * rather than the app.
+ *
+ * Without it the app behaves exactly as it did before offline support existed:
+ * it needs a connection to open, and an unsent change is reported rather than
+ * held. That is a real loss, and it is still much better than not starting.
+ */
+let resolved = false;
+let store: KeyValueStore | null = null;
+
+function storage(): KeyValueStore | null {
+  if (resolved) return store;
+  resolved = true;
+  try {
+    const mod = require("@react-native-async-storage/async-storage");
+    const candidate = (mod?.default ?? mod) as KeyValueStore | undefined;
+    store = typeof candidate?.getItem === "function" ? candidate : null;
+  } catch {
+    store = null;
+  }
+  if (!store)
+    console.warn(
+      "[bharosa] AsyncStorage is unavailable in this build; the offline cache is disabled. Rebuild the development client to restore it.",
+    );
+  return store;
+}
+
+/** True when this build can cache anything at all. */
+export function offlineCacheIsAvailable(): boolean {
+  return storage() !== null;
+}
 
 export interface CachedDoc {
   doc: MemberDoc;
@@ -32,8 +74,10 @@ export interface CachedDoc {
 }
 
 async function readJson<T>(key: string): Promise<T | null> {
+  const s = storage();
+  if (!s) return null;
   try {
-    const raw = await AsyncStorage.getItem(key);
+    const raw = await s.getItem(key);
     return raw ? (JSON.parse(raw) as T) : null;
   } catch {
     // A corrupt or unreadable cache is not worth an error in the member's
@@ -43,8 +87,10 @@ async function readJson<T>(key: string): Promise<T | null> {
 }
 
 async function writeJson(key: string, value: unknown): Promise<void> {
+  const s = storage();
+  if (!s) return;
   try {
-    await AsyncStorage.setItem(key, JSON.stringify(value));
+    await s.setItem(key, JSON.stringify(value));
   } catch {
     // Out of space or storage unavailable. The app still works online.
   }
@@ -69,8 +115,10 @@ export async function writePendingDoc(doc: MemberDoc): Promise<void> {
 }
 
 export async function clearPendingDoc(): Promise<void> {
+  const s = storage();
+  if (!s) return;
   try {
-    await AsyncStorage.removeItem(PENDING_KEY);
+    await s.removeItem(PENDING_KEY);
   } catch {
     // Nothing useful to do; a duplicate replay is harmless because the server
     // merge is idempotent for the fields a member can write.
@@ -79,8 +127,10 @@ export async function clearPendingDoc(): Promise<void> {
 
 /** Sign-out removes the member's health data from the device. */
 export async function clearCache(): Promise<void> {
+  const s = storage();
+  if (!s) return;
   try {
-    await AsyncStorage.multiRemove([DOC_KEY, PENDING_KEY]);
+    await s.multiRemove([DOC_KEY, PENDING_KEY]);
   } catch {
     // Best effort. The token is gone either way, so the data is unreachable.
   }
