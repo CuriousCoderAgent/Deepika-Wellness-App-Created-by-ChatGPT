@@ -1,0 +1,14 @@
+# React Native's native build (Gradle, CMake, prefab) resolves packages to
+# their real paths on disk, and pnpm's default layout puts every package under
+# .pnpm/<name>@<hash>/node_modules/<name> — around 80 extra characters that a
+# symlink hides from `ls` but not from the toolchain.
+#
+# On Windows that is not cosmetic. A path over 260 characters cannot be created
+# at all while LongPathsEnabled is 0, and the CMake output directory for
+# expo-modules-core and react-native-nitro-modules lands at ~280, so the build
+# fails with a prefab_command.bat that was never written.
+#
+# A hoisted layout is what React Native expects and what EAS builds with.
+# This lives here rather than in .npmrc because pnpm 11 reads its own settings
+# from this file; an .npmrc entry is silently ignored.
+nodeLinker: hoisted

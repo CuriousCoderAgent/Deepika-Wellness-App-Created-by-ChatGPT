@@ -117,3 +117,58 @@ different figures.
 It reports what it recognised, and the Food screen shows that under the entry.
 When nothing is recognised it returns a generic meal marked as unrecognised
 rather than presenting an invented total as measured.
+
+## Building the Android development client on Windows
+
+Three environment facts will each stop the native build with an error that does
+not name its own cause. All three are environment, not code.
+
+**Use JDK 17, not Android Studio's bundled JDK.** Android Studio ships JBR 25.
+The Android Gradle Plugin supports 17 and 21; on 25 the CMake configure step
+fails with `[CXX1428] exception while building Json`, because a JEP 472
+native-access warning is printed into the output AGP parses as JSON. Temurin 17
+is usually already present at `~/.gradle/jdks/`.
+
+```bash
+export JAVA_HOME="C:/Users/<you>/.gradle/jdks/eclipse_adoptium-17-amd64-windows.2"
+export ANDROID_HOME="C:/Users/<you>/AppData/Local/Android/Sdk"
+```
+
+**Enable Windows long paths.** CMake writes each object file to a path that
+embeds the mangled full source path, and `CMAKE_OBJECT_PATH_MAX` is 250. With
+this repository's depth the C++ objects for `expo-modules-core` and
+`react-native-nitro-modules` exceed it, and ninja loops on "Re-running CMake"
+until the task fails. In an **administrator** terminal, then reboot:
+
+```
+reg add "HKLMSYSTEMCurrentControlSetControlFileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
+```
+
+Keeping the checkout somewhere short — `C:harosa` rather than a deep
+`Documents...` path — buys back around ninety characters and is worth doing
+as well.
+
+**`local.properties` is regenerated.** `expo prebuild --clean` deletes
+`android/`, taking `local.properties` with it. Setting `ANDROID_HOME` in the
+environment is the durable fix; recreating the file by hand is not.
+
+After changing the package layout — a reinstall, or switching `nodeLinker` —
+delete the stale autolinking caches or Gradle will keep resolving packages to
+paths that no longer exist:
+
+```bash
+rm -rf android/build/generated/autolinking android/app/build/generated/autolinking
+```
+
+### Package layout
+
+`pnpm-workspace.yaml` sets `nodeLinker: hoisted`. React Native's Gradle, CMake
+and prefab steps resolve packages to their real paths on disk, and pnpm's
+default layout nests every package under
+`.pnpm/<name>@<hash>/node_modules/<name>` — around eighty characters that a
+symlink hides from `ls` but not from the toolchain. Hoisted is what React
+Native expects and what EAS builds with.
+
+This setting belongs in `pnpm-workspace.yaml`, not `.npmrc`: pnpm 11 reads its
+own settings from that file and silently ignores an `.npmrc` entry. Check it
+took effect with `pnpm config get node-linker`.
