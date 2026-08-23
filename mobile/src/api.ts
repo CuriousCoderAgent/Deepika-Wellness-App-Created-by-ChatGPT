@@ -12,6 +12,56 @@ function endpoint(path: string) {
   return `${API_URL}${path}`;
 }
 
+/**
+ * How long to wait before giving up on the server.
+ *
+ * Without a timeout, a request that connects but never answers — a wrong host,
+ * a server that has gone away, a hotel wifi portal — hangs forever, and the app
+ * shows a spinner that never stops. That is the worst outcome available: she
+ * cannot use it, and she is not told why. Fifteen seconds is long enough for a
+ * slow connection and short enough that nobody sits watching a circle turn.
+ *
+ * Uploads get longer, because a meal photo on a poor connection legitimately
+ * takes a while.
+ */
+const REQUEST_TIMEOUT_MS = 15_000;
+const UPLOAD_TIMEOUT_MS = 60_000;
+
+/**
+ * Every request the app makes goes through here.
+ *
+ * `AbortSignal.timeout` rejects with a bare `TimeoutError`, which would reach
+ * the member as the word "Aborted". This turns it into something true, and into
+ * an `ApiError` so every existing caller handles it exactly as it already
+ * handles a failed request. Status 0 means "never got an answer", which is
+ * distinct from any status the server could return.
+ */
+async function request(
+  path: string,
+  init: RequestInit = {},
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  try {
+    return await fetch(endpoint(path), {
+      ...init,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    const name = (error as { name?: string })?.name;
+    if (name === "TimeoutError" || name === "AbortError")
+      throw new ApiError(
+        "The server did not respond. Check your connection and try again.",
+        0,
+      );
+    // A refused connection or unknown host lands here. The message React
+    // Native produces is not something to show a member.
+    throw new ApiError(
+      "Could not reach Bharosa. Check your connection and try again.",
+      0,
+    );
+  }
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -37,7 +87,7 @@ export async function restoreToken() {
 }
 
 export async function login(username: string, password: string) {
-  const response = await fetch(endpoint("/api/auth/login"), {
+  const response = await request("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password, client: "mobile" }),
@@ -58,7 +108,7 @@ export async function signup(input: {
   password: string;
   code?: string;
 }) {
-  const response = await fetch(endpoint("/api/auth/signup"), {
+  const response = await request("/api/auth/signup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...input, client: "mobile" }),
@@ -137,11 +187,15 @@ export async function uploadMemberFile(
         : `report-${Date.now()}`),
     type: contentType,
   } as unknown as Blob);
-  const response = await fetch(endpoint("/api/files"), {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: form,
-  });
+  const response = await request(
+    "/api/files",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    },
+    UPLOAD_TIMEOUT_MS,
+  );
   const body = await parse(response);
   if (!body.file?.id) throw new Error("The server did not save this file.");
   return body.file as PrivateMemberFile;
@@ -155,7 +209,7 @@ export function privateMemberFileSource(token: string, fileId: string) {
 }
 
 export async function requestPasswordHelp(username: string) {
-  const response = await fetch(endpoint("/api/auth/password-help"), {
+  const response = await request("/api/auth/password-help", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username }),
@@ -169,7 +223,7 @@ export async function logout() {
 
 export async function loadMember(token: string): Promise<MemberDoc> {
   if (token === DEMO_TOKEN) return createDemoMember();
-  const response = await fetch(endpoint("/api/state"), {
+  const response = await request("/api/state", {
     headers: { Authorization: `Bearer ${token}` },
   });
   const body = await parse(response);
@@ -183,7 +237,7 @@ export async function loadMember(token: string): Promise<MemberDoc> {
 
 export async function saveMember(token: string, doc: MemberDoc) {
   if (token === DEMO_TOKEN) return;
-  const response = await fetch(endpoint("/api/state"), {
+  const response = await request("/api/state", {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -196,7 +250,7 @@ export async function saveMember(token: string, doc: MemberDoc) {
 
 export async function generateRecommendation(token: string) {
   if (token === DEMO_TOKEN) return null;
-  const response = await fetch(endpoint("/api/recommendations/generate"), {
+  const response = await request("/api/recommendations/generate", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -214,7 +268,7 @@ export async function generateRecommendation(token: string) {
 export async function exportAccount(token: string) {
   if (token === DEMO_TOKEN)
     throw new Error("The demo account has nothing to export.");
-  const response = await fetch(endpoint("/api/account/export"), {
+  const response = await request("/api/account/export", {
     headers: { Authorization: `Bearer ${token}` },
   });
   return parse(response) as Promise<Record<string, unknown>>;
@@ -231,7 +285,7 @@ export async function exportAccount(token: string) {
 export async function deleteAccount(token: string, password: string) {
   if (token === DEMO_TOKEN)
     throw new Error("The demo account is not stored and cannot be deleted.");
-  const response = await fetch(endpoint("/api/account"), {
+  const response = await request("/api/account", {
     method: "DELETE",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -257,7 +311,7 @@ export async function deleteAccount(token: string, password: string) {
  */
 export async function loadCircle(token: string): Promise<CircleState | null> {
   if (token === DEMO_TOKEN) return null;
-  const response = await fetch(endpoint("/api/circle"), {
+  const response = await request("/api/circle", {
     headers: { Authorization: `Bearer ${token}` },
   });
   return parse(response) as Promise<CircleState>;
@@ -268,7 +322,7 @@ export async function saveCircleSettings(
   settings: Partial<CircleState["profile"]>,
 ) {
   if (token === DEMO_TOKEN) return null;
-  const response = await fetch(endpoint("/api/circle"), {
+  const response = await request("/api/circle", {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -282,7 +336,7 @@ export async function saveCircleSettings(
 /** Members in the same city who chose to be findable. City is the limit. */
 export async function discoverCircle(token: string) {
   if (token === DEMO_TOKEN) return { city: null, members: [] };
-  const response = await fetch(endpoint("/api/circle/discover"), {
+  const response = await request("/api/circle/discover", {
     headers: { Authorization: `Bearer ${token}` },
   });
   return parse(response) as Promise<{
@@ -293,7 +347,7 @@ export async function discoverCircle(token: string) {
 }
 
 export async function requestConnection(token: string, memberId: string) {
-  const response = await fetch(endpoint("/api/circle/requests"), {
+  const response = await request("/api/circle/requests", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -309,7 +363,7 @@ export async function answerConnection(
   memberId: string,
   decision: "accepted" | "declined" | "blocked",
 ) {
-  const response = await fetch(endpoint("/api/circle/requests"), {
+  const response = await request("/api/circle/requests", {
     method: "PATCH",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -321,7 +375,7 @@ export async function answerConnection(
 }
 
 export async function removeConnection(token: string, memberId: string) {
-  const response = await fetch(endpoint("/api/circle/requests"), {
+  const response = await request("/api/circle/requests", {
     method: "DELETE",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -344,7 +398,7 @@ export async function estimateMealPhoto(
   description?: string,
 ) {
   if (token === DEMO_TOKEN) return null;
-  const response = await fetch(endpoint("/api/nutrition/estimate"), {
+  const response = await request("/api/nutrition/estimate", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -382,7 +436,7 @@ export async function estimateMealPhoto(
  */
 export async function generatePlan(token: string) {
   if (token === DEMO_TOKEN) return null;
-  const response = await fetch(endpoint("/api/plan/generate"), {
+  const response = await request("/api/plan/generate", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -397,7 +451,7 @@ export async function generatePlan(token: string) {
 
 /** Send one of the fixed encouragements to a connected member. */
 export async function sendNudge(token: string, memberId: string, kind: string) {
-  const response = await fetch(endpoint("/api/circle/nudge"), {
+  const response = await request("/api/circle/nudge", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -411,7 +465,7 @@ export async function sendNudge(token: string, memberId: string, kind: string) {
 /** Encouragements sent to her in the last week. */
 export async function loadNudges(token: string) {
   if (token === DEMO_TOKEN) return { nudges: [] };
-  const response = await fetch(endpoint("/api/circle/nudge"), {
+  const response = await request("/api/circle/nudge", {
     headers: { Authorization: `Bearer ${token}` },
   });
   return parse(response) as Promise<{

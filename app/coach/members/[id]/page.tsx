@@ -141,13 +141,7 @@ export default function Member360(props: { params: Promise<{ id: string }> }) {
           </p>
           <p className="mt-1 text-[14px] text-ink-faint">{m.lifeStage}</p>
         </div>
-        <Link
-          href="/member"
-          onClick={() => store.setActiveMember(m.id)}
-          className="tap inline-flex items-center gap-1.5 rounded-xl bg-paper-sunk px-3 text-sm text-ink-soft hover:bg-ink-line hover:text-ink"
-        >
-          See her app <ArrowUpRight size={14} />
-        </Link>
+
       </div>
 
       {flags.length > 0 && (
