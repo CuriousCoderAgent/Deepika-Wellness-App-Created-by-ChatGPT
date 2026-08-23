@@ -204,3 +204,42 @@ export async function generateRecommendation(token: string) {
     recommendation: MemberDoc["recommendations"][number];
   }>;
 }
+
+/**
+ * Everything stored about the signed-in member, as one JSON document.
+ *
+ * The Privacy card promises an export "at any time"; this is what makes that
+ * true without a member having to ask a person and wait.
+ */
+export async function exportAccount(token: string) {
+  if (token === DEMO_TOKEN)
+    throw new Error("The demo account has nothing to export.");
+  const response = await fetch(endpoint("/api/account/export"), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parse(response) as Promise<Record<string, unknown>>;
+}
+
+/**
+ * Delete the account and everything stored under it.
+ *
+ * The password is asked for again at the point of deletion: a signed session
+ * proves the phone was unlocked, not that its owner meant to erase her
+ * history. The stored token is removed whatever the server says, because a
+ * session for a deleted account is worth nothing.
+ */
+export async function deleteAccount(token: string, password: string) {
+  if (token === DEMO_TOKEN)
+    throw new Error("The demo account is not stored and cannot be deleted.");
+  const response = await fetch(endpoint("/api/account"), {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ password, confirm: "DELETE" }),
+  });
+  const body = await parse(response);
+  await SecureStore.deleteItemAsync(TOKEN_KEY);
+  return body as { deleted: boolean; credentialRemoved: boolean; message: string };
+}

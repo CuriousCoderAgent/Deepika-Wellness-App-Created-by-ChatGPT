@@ -7,6 +7,14 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "bharosawellness",
+    "ios": {
+      "bundleIdentifier": "com.bharosawellness.app",
+      "buildNumber": "1",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
     "android": {
       "package": "com.bharosawellness.app",
       "versionCode": 1,
@@ -18,11 +26,27 @@
         "android.permission.health.READ_STEPS",
         "android.permission.health.READ_RESTING_HEART_RATE",
         "android.permission.health.READ_HEART_RATE_VARIABILITY",
-        "android.permission.health.READ_VO2_MAX"
+        "android.permission.health.READ_VO2_MAX",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "plugins": [
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Bharosa Wellness reads steps, resting heart rate, heart-rate variability and VO₂ max to personalise your plan and show trends to you and your authorised coach.",
+          "NSHealthUpdateUsageDescription": false,
+          "background": false
+        }
+      ],
       "react-native-health-connect",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Bharosa Wellness to use the meal and report photos you choose.",
+          "cameraPermission": "Allow Bharosa Wellness to take meal photos for your food log."
+        }
+      ],
       [
         "expo-build-properties",
         {
@@ -38,6 +62,14 @@
         {
           "configureAndroidBackup": true,
           "faceIDPermission": "Allow Bharosa Wellness to protect your private wellness information."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#073F43",
+          "defaultChannel": "bharosa-reminders",
+          "enableBackgroundRemoteNotifications": false
         }
       ]
     ],

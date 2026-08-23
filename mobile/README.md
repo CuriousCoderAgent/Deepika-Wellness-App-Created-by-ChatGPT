@@ -65,3 +65,55 @@ Recommendations are generated only by the authenticated server endpoint. Set
 `OPENAI_RECOMMENDATION_MODEL`. Never expose either value through an
 `EXPO_PUBLIC_*` mobile variable. If AI is unavailable, Today continues using
 the last approved plan and deterministic safety rules.
+
+## Reminders
+
+The daily reminder is a **local** notification scheduled on the device by
+`src/notifications.ts`. There is no push service, no device token leaves the
+phone, and nothing about a member's health is sent anywhere to make one fire.
+
+Android 13 and above require `POST_NOTIFICATIONS` at runtime. If a member
+declines, the switch in Profile goes back off rather than sitting on for a
+reminder that will never arrive, and she is offered a link to system settings.
+
+Coach replies are announced locally when the app notices new messages while it
+is running. The message body is never included — a coach's words about
+someone's health should not sit on a lock screen. A reply that arrives while
+the app is closed is still seen at the next open.
+
+## Working offline
+
+`src/storage.ts` caches the last known document and holds a save that cannot
+reach the server. The app opens on the cached copy, so it is usable on a train
+or in a lift, and a queued change is sent when the connection returns.
+
+The queue holds only the most recent document rather than a log of edits. Saves
+are whole-document and the server merges field-scoped, so the newest copy
+already contains every earlier change and replaying an older one could undo a
+newer edit.
+
+A save the server actively rejects — a 4xx — is not queued. Retrying a
+rejection forever would not help, so the stored record is reloaded and the
+member is told. Only network failures and 5xx responses are held.
+
+Sign-out and account deletion both clear the cache and cancel scheduled
+reminders.
+
+## Your data
+
+**You → Your data** offers a member her own export and a real account
+deletion, both without going through the coach. Deletion asks for the password
+again and cannot be undone. See `docs/DEPLOYMENT.md` for what the server
+removes.
+
+## Meal estimates
+
+`src/nutrition.ts` reads a description into an estimate: it finds each food it
+recognises, reads the quantity in front of it, and adds them up. Protein values
+are deliberately the same numbers as the coach console's food table in
+`lib/seed.ts`, so a member and Deepika looking at one meal do not see two
+different figures.
+
+It reports what it recognised, and the Food screen shows that under the entry.
+When nothing is recognised it returns a generic meal marked as unrecognised
+rather than presenting an invented total as measured.

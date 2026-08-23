@@ -50,6 +50,20 @@ to an existing build.
 | `BHAROSA_APP_URL`       | Canonical HTTPS origin used to construct reset links.                                                                          |
 | `FILE_TOKEN_SECRET`     | Independent random value of at least 32 bytes used for opaque private-file references. Keep it stable.                         |
 | `BLOB_READ_WRITE_TOKEN` | Credential for a Vercel Blob store configured for private access.                                                              |
+| `BHAROSA_TIMEZONE`      | Optional. The timezone the day rolls over in. Defaults to `Asia/Kolkata`. See below.                                          |
+
+### Which day is "today"
+
+Actions, pulses, messages and sessions are stored against a relative day
+offset, and `lib/day-offset.ts` moves those offsets forward whenever a document
+is read. The day boundary is computed in `BHAROSA_TIMEZONE`, not UTC: a member
+logging a pulse at 05:00 IST is logging it today, and a UTC boundary would
+record it as yesterday. Leave it unset unless the practice moves out of India.
+
+Documents written before this existed carry no anchor. They are treated as
+having been written today, which is exactly how the app behaved previously, and
+are stamped on the first read so they are correct from the following day
+onwards. No migration or backfill is required.
 
 These are server-only Vercel variables and must never be copied into EAS or an
 `EXPO_PUBLIC_*` variable. In EAS, configure only `EXPO_PUBLIC_API_URL` with the
@@ -279,3 +293,31 @@ Verified on 21 August 2026:
 Actual reset-email delivery and redemption remain pending until a Resend API
 key is configured. The smoke script must use fictional data only and must never
 be repointed at production or a third-party origin.
+
+## Data export and deletion
+
+Members export and delete their own data from **You → Your data** in the mobile
+app. Both are self-service and neither needs the coach.
+
+- `GET /api/account/export` returns the signed-in member's stored document plus
+  a count of her uploaded files. Files themselves are downloaded individually
+  through `/api/files/[id]`, which is the only route that authorises access to
+  private object storage.
+- `DELETE /api/account` removes the member document, private-file rows,
+  outstanding password-reset tokens, the account row, and the uploaded blobs.
+  It asks for the password again, is rate-limited to five attempts per address
+  per fifteen minutes, and clears the session cookie. Blobs are deleted before
+  database rows, so a failure leaves the account intact and retryable rather
+  than half-erased.
+
+Both routes are member-only. Deepika removing a member is a different decision
+and belongs in the coach console, not on a route a member session can reach.
+
+A `MEMBERS`-provisioned login has no database row to delete — the credential
+lives in an environment variable this server cannot rewrite. Her data is removed
+and the response says plainly that the sign-in itself has to be withdrawn by
+whoever runs the deployment. Remove her entry from `MEMBERS` and redeploy.
+
+Google Play requires an in-app deletion route for any app that creates
+accounts, alongside the public `/account-deletion` page. Both now exist and
+describe the same flow.

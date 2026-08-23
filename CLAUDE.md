@@ -126,6 +126,7 @@ references. See `docs/DEPLOYMENT.md` for the complete environment contract.
 npm install
 npm run dev      # http://localhost:3000
 npm run build    # must pass before any commit
+npm test         # pure logic: day rollover, meal estimation
 ```
 
 Deploys to Vercel (import repo, zero config) or Railway (`npm start` reads
@@ -155,12 +156,19 @@ app/
     sessions|library|messages|notifications|feedback/
 lib/
   types.ts                  Domain model + Provenance envelope
+  day-offset.ts             Re-bases relative dayOffsets onto today, on read
   seed.ts                   6 personas, 14 modules, 3 workouts, plans, messages
   radar.ts                  10 rules + evaluator
   store.tsx                 Context, localStorage, all mutations
 components/
   ui.tsx                    EffortRamp, ProvenanceChip, ConsistencyBand, Sparkline
   PulseCard.tsx             Daily Pulse (member + coach-on-behalf modes)
+mobile/src/
+  storage.ts                Offline cache + queued save
+  notifications.ts          Local daily reminder and coach-reply alerts
+  nutrition.ts              Meal estimation (quantity-aware, Indian food table)
+scripts/
+  test.mjs                  npm test — day-offset and nutrition logic
 ```
 
 **Design tokens** live in `tailwind.config.ts` with comments explaining what
@@ -179,7 +187,12 @@ each colour means semantically. Read those comments before adding a colour.
   Preserve that property when extending.
 - **Accessibility floor:** 17px base, `.tap` class for 44px targets, visible
   keyboard focus, `prefers-reduced-motion` respected. The audience is 38–50.
-- Verify with `npm run build` before committing. It type-checks.
+- Verify with `npm run build` and `npm test` before committing. The build
+  type-checks; `npm run mobile:typecheck` covers the Expo app separately.
+- **`dayOffset` is relative and is re-based on read** by `lib/day-offset.ts`,
+  called from `lib/db.ts`. Anything new that stores a day must either join that
+  module's collection list or carry its own calendar date. A relative offset
+  that nothing re-bases rots silently — that was the bug it exists to fix.
 - After changing `lib/radar.ts` or `lib/seed.ts`, confirm all ten rules still
   fire — the four Radar buckets should all be populated.
 

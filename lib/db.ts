@@ -20,6 +20,7 @@ import { Pool } from "pg";
 import type { StoredAccount } from "./accounts";
 import type { CoachDoc, MemberDoc } from "./persist";
 import { seedCoachDoc, seedMemberDocs } from "./persist";
+import { anchorMemberDoc, rebaseMemberDoc } from "./day-offset";
 
 const BOOTSTRAP_KEY = "demo_cohort";
 const BOOTSTRAP_VERSION = "1";
@@ -215,13 +216,16 @@ export async function readMemberDoc(userId: string): Promise<MemberDoc | null> {
     "select doc from member_state where user_id = $1",
     [userId],
   );
-  return r.rows[0]?.doc ?? null;
+  const doc = r.rows[0]?.doc ?? null;
+  // Relative day offsets are only meaningful next to the day they were written
+  // from. Re-basing here means no caller can read a stale "today".
+  return doc ? rebaseMemberDoc(doc as MemberDoc) : null;
 }
 
 export async function readAllMemberDocs(): Promise<MemberDoc[]> {
   await ensureReady();
   const r = await db().query("select doc from member_state order by name asc");
-  return r.rows.map((row) => row.doc as MemberDoc);
+  return r.rows.map((row) => rebaseMemberDoc(row.doc as MemberDoc));
 }
 
 export async function writeMemberDoc(
@@ -229,6 +233,9 @@ export async function writeMemberDoc(
   doc: MemberDoc,
 ): Promise<void> {
   await ensureReady();
+  // Whoever wrote this document did so with offsets relative to their today.
+  // Recording that day is what lets the next read move them forward.
+  doc = anchorMemberDoc(doc);
   await db().query(
     `insert into member_state (user_id, name, doc, updated_at)
      values ($1, $2, $3, now())
@@ -622,4 +629,67 @@ export async function readAccountNames(): Promise<
     "select user_id, name from account order by created_at asc",
   );
   return r.rows.map((row) => ({ userId: row.user_id, name: row.name }));
+}
+
+/** Every stored file belonging to one member, so deletion can reach the blobs. */
+export async function readOwnedPrivateFilePaths(
+  ownerId: string,
+): Promise<string[]> {
+  await ensureReady();
+  const r = await db().query(
+    "select pathname from private_file where owner_id = $1 and deleted_at is null",
+    [ownerId],
+  );
+  return r.rows.map((row) => row.pathname as string);
+}
+
+/**
+ * Erase an account and everything stored under it, in one transaction.
+ *
+ * A member asking to be deleted is exercising a right, not making a support
+ * request, so this removes the record rather than flagging it: her document,
+ * her file rows, her outstanding reset tokens, and the account itself. The
+ * uploaded blobs are removed by the caller, which is the only layer that knows
+ * about object storage.
+ *
+ * `MEMBERS`-provisioned accounts have no database row — their credentials live
+ * in an environment variable that the running server cannot edit. Their
+ * document is still removed and the caller reports honestly that the sign-in
+ * itself has to be withdrawn by whoever runs the deployment.
+ */
+export async function deleteAccountData(userId: string): Promise<{
+  removedAccount: boolean;
+  removedDocument: boolean;
+}> {
+  await ensureReady();
+  const client = await db().connect();
+  try {
+    await client.query("begin");
+    const doc = await client.query(
+      "delete from member_state where user_id = $1",
+      [userId],
+    );
+    await client.query("delete from private_file where owner_id = $1", [
+      userId,
+    ]);
+    // password_reset_token cascades from account, but a MEMBERS account has no
+    // account row for it to cascade from.
+    await client.query("delete from password_reset_token where user_id = $1", [
+      userId,
+    ]);
+    const account = await client.query(
+      "delete from account where user_id = $1",
+      [userId],
+    );
+    await client.query("commit");
+    return {
+      removedAccount: (account.rowCount ?? 0) > 0,
+      removedDocument: (doc.rowCount ?? 0) > 0,
+    };
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }

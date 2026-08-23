@@ -2,7 +2,15 @@ import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { useEffect, useMemo, useState } from "react";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { ErrorInfo, ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -21,7 +29,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import NetInfo from "@react-native-community/netinfo";
 import {
+  Bell,
   Brain,
   CalendarDays,
   Check,
@@ -29,6 +39,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  CloudOff,
+  Download,
   Dumbbell,
   Footprints,
   HeartPulse,
@@ -39,12 +51,15 @@ import {
   RefreshCw,
   ShieldCheck,
   Sparkles,
+  Trash2,
   UserRound,
   Utensils,
 } from "lucide-react-native";
 import {
   ApiError,
   DEMO_TOKEN,
+  deleteAccount,
+  exportAccount,
   generateRecommendation,
   loadMember,
   login,
@@ -57,6 +72,23 @@ import {
   uploadMemberFile,
 } from "./src/api";
 import { exerciseMediaFor } from "./src/exerciseMedia";
+import { describeMatches, estimateMeal } from "./src/nutrition";
+import {
+  cancelAllReminders,
+  cancelDailyReminder,
+  formatReminderTime,
+  notifyCoachReply,
+  parseReminderTime,
+  scheduleDailyReminder,
+} from "./src/notifications";
+import {
+  clearCache,
+  clearPendingDoc,
+  readCachedDoc,
+  readPendingDoc,
+  writeCachedDoc,
+  writePendingDoc,
+} from "./src/storage";
 import { openHealthSettings, syncHealth } from "./src/health";
 import { LEARNING_ARTICLES } from "./src/learning";
 import { isoDate, offsetFromDate } from "./src/normalize";
@@ -86,6 +118,9 @@ const C = {
   marigoldTint: "#F1E8D5",
   calm: "#3E7182",
 };
+
+const CONNECTED_HEALTH_NAME =
+  Platform.OS === "ios" ? "Apple Health" : "Health Connect";
 
 type Tab = "today" | "plan" | "food" | "coach" | "profile";
 const tabs = [
@@ -809,7 +844,9 @@ function DailySnapshot({
       key: "steps",
       label: "Steps",
       value: steps ? Math.round(steps.value).toLocaleString() : "—",
-      detail: steps ? `Health Connect · ${steps.date}` : "Connect Health",
+      detail: steps
+        ? `${steps.provider === "apple_health" ? "Apple Health" : "Health Connect"} · ${steps.date}`
+        : "Connect health",
       Icon: Footprints,
       onPress: steps ? undefined : onOpenProfile,
     },
@@ -1279,7 +1316,7 @@ function Onboarding({
       <>
         <Text style={s.onboardingTitle}>Choose what you share.</Text>
         <Text style={s.onboardingCopy}>
-          Core wellness consent is required. Health Connect and AI
+          Core wellness consent is required. Connected health and AI
           personalisation are separate and optional.
         </Text>
         <View style={s.consentStack}>
@@ -1297,7 +1334,7 @@ function Onboarding({
           </View>
           <View style={s.consentRow}>
             <View style={s.flex}>
-              <Text style={s.consentTitle}>Android Health Connect</Text>
+              <Text style={s.consentTitle}>{CONNECTED_HEALTH_NAME}</Text>
               <Text style={s.consentCopy}>
                 Permission for each metric is still requested later.
               </Text>
@@ -1963,28 +2000,6 @@ function Progress({ doc }: { doc: MemberDoc }) {
   );
 }
 
-function estimateMeal(description: string) {
-  const text = description.toLowerCase();
-  let calories = 320;
-  let protein = 12;
-  let carbs = 42;
-  let fat = 11;
-  if (/paneer|chicken|fish|egg|tofu/.test(text)) {
-    calories += 120;
-    protein += 18;
-    fat += 5;
-  }
-  if (/rice|roti|poha|upma|bread/.test(text)) {
-    calories += 90;
-    carbs += 20;
-  }
-  if (/salad|vegetable|sabzi|fruit/.test(text)) {
-    calories -= 50;
-    carbs += 6;
-  }
-  return { calories: Math.max(100, calories), protein, carbs, fat };
-}
-
 function Food({
   doc,
   update,
@@ -1995,6 +2010,8 @@ function Food({
   token: string;
 }) {
   const [description, setDescription] = useState("");
+  /** What the last estimate was read from, shown so it can be judged. */
+  const [lastEstimate, setLastEstimate] = useState<string | null>(null);
   const [photoAsset, setPhotoAsset] = useState<ImagePicker.ImagePickerAsset>();
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoUri = photoAsset?.uri;
@@ -2054,6 +2071,27 @@ function Food({
     });
     if (!result.canceled) setPhotoAsset(result.assets[0]);
   };
+  const takePhoto = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        "Camera access is off",
+        "Allow camera access in your phone settings to take a meal photo.",
+      );
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ["images"],
+      quality: 0.7,
+    });
+    if (!result.canceled) setPhotoAsset(result.assets[0]);
+  };
+  const addPhoto = () =>
+    Alert.alert("Add a meal photo", "Choose how you want to add it.", [
+      { text: "Take photo", onPress: takePhoto },
+      { text: "Choose library", onPress: choosePhoto },
+      { text: "Cancel", style: "cancel" },
+    ]);
   const add = async () => {
     if (!description.trim() && !photoUri) return;
     setUploadingPhoto(true);
@@ -2069,7 +2107,9 @@ function Food({
             "meal-photo",
           )
         : null;
-      const estimate = estimateMeal(description || "meal from photo");
+      const { matched, confident, ...estimate } = estimateMeal(
+        description || "meal from photo",
+      );
       const entry: FoodEntry = {
         id: `food-${Date.now()}`,
         memberId: doc.member.id,
@@ -2084,6 +2124,11 @@ function Food({
         createdAt: new Date().toISOString(),
       };
       update({ ...doc, foodEntries: [...doc.foodEntries, entry] });
+      // Say what the estimate was read from. A member who sees "2 x Roti,
+      // 1 x Dal" can tell at a glance whether the number is worth correcting.
+      setLastEstimate(
+        confident ? describeMatches(matched) : "No familiar foods recognised",
+      );
       setDescription("");
       setPhotoAsset(undefined);
     } catch (error) {
@@ -2268,7 +2313,7 @@ function Food({
         <View style={s.captureRow}>
           <Pressable
             style={s.photoButton}
-            onPress={choosePhoto}
+            onPress={addPhoto}
             disabled={uploadingPhoto}
           >
             <Text style={s.photoButtonText}>
@@ -2288,6 +2333,12 @@ function Food({
           </Pressable>
         </View>
         {photoUri && <Image source={{ uri: photoUri }} style={s.mealPhoto} />}
+        {lastEstimate && (
+          <View style={s.estimateBasis}>
+            <Text style={s.estimateBasisLabel}>ESTIMATED FROM</Text>
+            <Text style={s.estimateBasisText}>{lastEstimate}</Text>
+          </View>
+        )}
         <Text style={s.estimateNote}>
           Bharosa labels every estimate. Corrected member values always take
           precedence.
@@ -2377,7 +2428,7 @@ function Food({
                     >
                       {entry.confidence === "member"
                         ? "MEMBER CONFIRMED"
-                        : "✦ AI-ASSISTED ESTIMATE"}
+                        : "STARTER ESTIMATE"}
                     </Text>
                     <Pressable
                       accessibilityLabel="Correct meal estimate"
@@ -2670,6 +2721,7 @@ function HealthConnectionPanel({
 }) {
   const [syncing, setSyncing] = useState(false);
   const connection = doc.healthConnection;
+  const providerName = CONNECTED_HEALTH_NAME;
   const mergeSnapshots = (incoming: MemberDoc["healthSnapshots"]) => {
     const map = new Map(doc.healthSnapshots.map((item) => [item.id, item]));
     incoming.forEach((item) => map.set(item.id, item));
@@ -2723,14 +2775,14 @@ function HealthConnectionPanel({
             />
           </View>
           <View style={s.flex}>
-            <Text style={s.cardTitle}>Android Health Connect</Text>
+            <Text style={s.cardTitle}>{providerName}</Text>
             <Text style={s.healthStatus}>
               {connection.status === "connected"
                 ? "Connected"
                 : connection.status === "partial"
                   ? "Partially connected"
                   : connection.status === "unavailable"
-                    ? "Development build required"
+                    ? `${Platform.OS === "ios" ? "iOS" : "Android"} build required`
                     : "Not connected"}
             </Text>
           </View>
@@ -2745,6 +2797,9 @@ function HealthConnectionPanel({
         <Text style={s.profileCopy}>
           Bharosa reads only the metrics you approve. Availability depends on
           the phone, connected apps and wearable hardware.
+          {Platform.OS === "ios"
+            ? " iOS keeps individual read decisions private, so Bharosa shows Requested rather than claiming access was granted."
+            : ""}
         </Text>
         {connection.message && (
           <View style={s.healthMessage}>
@@ -2761,12 +2816,16 @@ function HealthConnectionPanel({
                 <Text
                   style={[
                     s.permissionState,
-                    connection.permissions[metric] === "granted" &&
+                    ["granted", "requested"].includes(
+                      connection.permissions[metric],
+                    ) &&
                       s.permissionGranted,
                   ]}
                 >
                   {connection.permissions[metric] === "granted"
                     ? "Allowed"
+                    : connection.permissions[metric] === "requested"
+                      ? "Requested"
                     : connection.permissions[metric] === "denied"
                       ? "Not allowed"
                       : "Not asked"}
@@ -2780,6 +2839,9 @@ function HealthConnectionPanel({
               {snapshot && (
                 <Text numberOfLines={1} style={s.healthSource}>
                   {snapshot.date} · {snapshot.source}
+                  {snapshot.measurementMethod
+                    ? ` · ${snapshot.measurementMethod.toUpperCase()}`
+                    : ""}
                 </Text>
               )}
             </View>
@@ -2803,7 +2865,11 @@ function HealthConnectionPanel({
             )}
           </Pressable>
           <Pressable onPress={openHealthSettings} style={s.manageHealthButton}>
-            <Text style={s.manageHealthText}>Manage Health Connect access</Text>
+            <Text style={s.manageHealthText}>
+              {Platform.OS === "ios"
+                ? "Open iPhone settings"
+                : "Manage Health Connect access"}
+            </Text>
           </Pressable>
         </View>
         {connection.lastSyncAt && (
@@ -2827,12 +2893,19 @@ function Profile({
   doc,
   update,
   onLogout,
+  token,
+  onDeleted,
 }: {
   doc: MemberDoc;
   update: (doc: MemberDoc) => void;
   onLogout: () => void;
+  token: string;
+  onDeleted: () => void;
 }) {
   const website = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+  const [busy, setBusy] = useState<"export" | "delete" | null>(null);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const engagement = doc.engagement ?? {
     weeklyGoal: 4,
     circle: {
@@ -2846,14 +2919,109 @@ function Profile({
     Share.share({
       message: `I’m building steadier wellness habits with Bharosa Wellness. Join my private support circle with code ${engagement.circle.inviteCode}. Nothing about my health is shared automatically.`,
     });
-  const toggleReminder = (enabled: boolean) =>
+  const reminderTime = parseReminderTime(engagement.reminders.time);
+  const saveReminder = (enabled: boolean, time = reminderTime) =>
     update({
       ...doc,
       engagement: {
         ...engagement,
-        reminders: { ...engagement.reminders, enabled },
+        reminders: { enabled, time: formatReminderTime(time) },
       },
     });
+
+  /**
+   * The switch schedules a real notification now. If the member declines the
+   * permission prompt it goes back off, rather than sitting on for a reminder
+   * that will never arrive.
+   */
+  const toggleReminder = async (enabled: boolean) => {
+    if (!enabled) {
+      await cancelDailyReminder();
+      saveReminder(false);
+      return;
+    }
+    const scheduled = await scheduleDailyReminder(
+      reminderTime,
+      doc.onboarding.preferredCheckIn ?? "morning",
+    );
+    if (!scheduled) {
+      saveReminder(false);
+      Alert.alert(
+        "Notifications are switched off for Bharosa",
+        "You can turn them back on for Bharosa Wellness in your phone settings whenever you like.",
+        [
+          { text: "Not now", style: "cancel" },
+          { text: "Open settings", onPress: () => Linking.openSettings() },
+        ],
+      );
+      return;
+    }
+    saveReminder(true);
+  };
+
+  /** Half-hour steps, which is as precise as a gentle nudge needs to be. */
+  const shiftReminder = async (deltaMinutes: number) => {
+    const total =
+      (reminderTime.hour * 60 + reminderTime.minute + deltaMinutes + 1440) %
+      1440;
+    const next = { hour: Math.floor(total / 60), minute: total % 60 };
+    if (engagement.reminders.enabled) {
+      const ok = await scheduleDailyReminder(
+        next,
+        doc.onboarding.preferredCheckIn ?? "morning",
+      );
+      if (!ok) {
+        saveReminder(false, next);
+        return;
+      }
+    }
+    saveReminder(engagement.reminders.enabled, next);
+  };
+
+  /**
+   * A member's own copy of her record, handed to the share sheet so she can
+   * keep it wherever she keeps things. Nothing is uploaded anywhere new.
+   */
+  const exportData = async () => {
+    setBusy("export");
+    try {
+      const data = await exportAccount(token);
+      await Share.share({
+        title: "Bharosa Wellness data export",
+        message: JSON.stringify(data, null, 2),
+      });
+    } catch (error) {
+      Alert.alert(
+        "Export not ready",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deletePassword) {
+      Alert.alert("Enter your password", "Deletion needs your password.");
+      return;
+    }
+    setBusy("delete");
+    try {
+      const result = await deleteAccount(token, deletePassword);
+      await cancelAllReminders();
+      await clearCache();
+      setDeletePassword("");
+      Alert.alert("Account deleted", result.message);
+      onDeleted();
+    } catch (error) {
+      Alert.alert(
+        "Not deleted",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
   return (
     <>
       <View style={s.profileBadge}>
@@ -2874,16 +3042,41 @@ function Profile({
           <View style={s.flex}>
             <Text style={s.cardTitle}>Daily gentle reminder</Text>
             <Text style={s.profileCopy}>
-              A quiet prompt at {engagement.reminders.time}. No guilt if you
-              ignore it.
+              A quiet prompt at {formatReminderTime(reminderTime)}. No guilt if
+              you ignore it.
             </Text>
           </View>
           <Switch
+            accessibilityLabel="Daily gentle reminder"
             value={engagement.reminders.enabled}
             onValueChange={toggleReminder}
             trackColor={{ false: C.line, true: C.greenTint }}
             thumbColor={engagement.reminders.enabled ? C.green : C.faint}
           />
+        </View>
+        <View style={s.reminderRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Half an hour earlier"
+            style={s.reminderStep}
+            onPress={() => shiftReminder(-30)}
+          >
+            <ChevronLeft size={18} color={C.green} />
+          </Pressable>
+          <View style={s.reminderTime}>
+            <Bell size={15} color={C.green} />
+            <Text style={s.reminderTimeText}>
+              {formatReminderTime(reminderTime)}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Half an hour later"
+            style={s.reminderStep}
+            onPress={() => shiftReminder(30)}
+          >
+            <ChevronRight size={18} color={C.green} />
+          </Pressable>
         </View>
       </Card>
       <LinearGradient colors={["#E7EFF0", "#F3EBDD"]} style={s.circleCard}>
@@ -2912,11 +3105,82 @@ function Profile({
         </Text>
       </Card>
       <Card>
-        <Text style={s.cardTitle}>Privacy and support</Text>
+        <Text style={s.cardTitle}>Your data</Text>
         <Text style={s.profileCopy}>
-          Your information is used for your coaching journey. You can request an
-          export or deletion at any time.
+          Your information is used for your coaching journey. Take a copy
+          whenever you want it, and delete everything whenever you decide to.
         </Text>
+        <Pressable
+          accessibilityRole="button"
+          style={s.dataButton}
+          onPress={exportData}
+          disabled={busy !== null}
+        >
+          {busy === "export" ? (
+            <ActivityIndicator color={C.green} />
+          ) : (
+            <>
+              <Download size={16} color={C.green} />
+              <Text style={s.dataButtonText}>Download a copy of my data</Text>
+            </>
+          )}
+        </Pressable>
+        {confirmingDelete ? (
+          <View style={s.deleteBox}>
+            <Text style={s.deleteTitle}>
+              This deletes everything, permanently.
+            </Text>
+            <Text style={s.profileCopy}>
+              Your check-ins, meals, photos, reports and messages are removed
+              and cannot be recovered. Your coach will no longer see your
+              record. Enter your password to confirm.
+            </Text>
+            <TextInput
+              style={s.input}
+              value={deletePassword}
+              onChangeText={setDeletePassword}
+              placeholder="Your password"
+              placeholderTextColor={C.faint}
+              secureTextEntry
+              autoCapitalize="none"
+            />
+            <View style={s.deleteActions}>
+              <Pressable
+                accessibilityRole="button"
+                style={s.secondaryButton}
+                onPress={() => {
+                  setConfirmingDelete(false);
+                  setDeletePassword("");
+                }}
+              >
+                <Text style={s.secondaryButtonText}>Keep my account</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                style={s.deleteConfirmButton}
+                onPress={confirmDelete}
+                disabled={busy !== null}
+              >
+                {busy === "delete" ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={s.deleteConfirmText}>Delete permanently</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            style={s.dataButton}
+            onPress={() => setConfirmingDelete(true)}
+          >
+            <Trash2 size={16} color={C.soft} />
+            <Text style={[s.dataButtonText, s.deleteLinkText]}>
+              Delete my account and data
+            </Text>
+          </Pressable>
+        )}
         {website ? (
           <View style={s.policyLinks}>
             <Pressable
@@ -2929,7 +3193,9 @@ function Profile({
               accessibilityRole="link"
               onPress={() => Linking.openURL(`${website}/account-deletion`)}
             >
-              <Text style={s.policyLink}>Delete account</Text>
+              {/* Deletion itself happens above, in the app. This is the
+                  published page describing what it removes. */}
+              <Text style={s.policyLink}>What deletion removes</Text>
             </Pressable>
           </View>
         ) : null}
@@ -2961,84 +3227,263 @@ function MemberApp({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [online, setOnline] = useState(true);
+  /** A change is held on the device, waiting for a connection. */
+  const [queued, setQueued] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  /** The current document, readable from callbacks without a stale closure. */
+  const latest = useRef<MemberDoc | null>(null);
+  /** Coach messages already seen, so only genuinely new ones are announced. */
+  const seenCoachMessages = useRef<Set<string> | null>(null);
+  const mounted = useRef(true);
 
-  const refresh = async () => {
-    try {
-      let next = await loadMember(token);
-      const today = isoDate();
-      const hasTodayRecommendation = next.recommendations.some(
-        (item) => item.createdAt.slice(0, 10) === today,
-      );
-      if (
-        next.onboarding.consent.aiPersonalisation &&
-        !hasTodayRecommendation &&
-        token !== DEMO_TOKEN
-      ) {
-        try {
-          const result = await generateRecommendation(token);
-          if (result?.recommendation)
-            next = {
-              ...next,
-              recommendations: [...next.recommendations, result.recommendation],
-            };
-        } catch {
-          // Today never blocks when the recommendation service is unavailable.
+  const apply = useCallback((next: MemberDoc) => {
+    latest.current = next;
+    setDoc(next);
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await logout();
+    // Her health data should not stay on the device after she leaves, and a
+    // reminder should not keep arriving for an account nobody is signed into.
+    await clearCache();
+    await cancelAllReminders();
+    onSignedOut();
+  }, [onSignedOut]);
+
+  /**
+   * Tell her when the coach has replied. Only messages that were not present
+   * the last time we looked count, so a refresh never re-announces old ones.
+   */
+  const noticeCoachReplies = useCallback((next: MemberDoc) => {
+    const coachIds = next.messages
+      .filter((message) => message.from === "coach")
+      .map((message) => message.id);
+    const known = seenCoachMessages.current;
+    if (known) {
+      const fresh = coachIds.filter((id) => !known.has(id));
+      if (fresh.length)
+        notifyCoachReply(fresh.length).catch(() => {
+          // A missing notification permission is not worth interrupting her.
+        });
+    }
+    seenCoachMessages.current = new Set(coachIds);
+  }, []);
+
+  const refresh = useCallback(
+    async ({ silent = false }: { silent?: boolean } = {}) => {
+      try {
+        let next = await loadMember(token);
+        const today = isoDate();
+        const hasTodayRecommendation = next.recommendations.some(
+          (item) => item.createdAt.slice(0, 10) === today,
+        );
+        if (
+          next.onboarding.consent.aiPersonalisation &&
+          !hasTodayRecommendation &&
+          token !== DEMO_TOKEN
+        ) {
+          try {
+            const result = await generateRecommendation(token);
+            if (result?.recommendation)
+              next = {
+                ...next,
+                recommendations: [
+                  ...next.recommendations,
+                  result.recommendation,
+                ],
+              };
+          } catch {
+            // Today never blocks when the recommendation service is unavailable.
+          }
+        }
+        if (next.healthConnection.syncEnabled) {
+          const result = await syncHealth(false);
+          const merged = new Map(
+            next.healthSnapshots.map((item) => [item.id, item]),
+          );
+          result.snapshots.forEach((item) => merged.set(item.id, item));
+          next = {
+            ...next,
+            healthConnection: result.connection,
+            healthSnapshots: [...merged.values()],
+          };
+          await saveMember(token, next);
+        }
+        if (!mounted.current) return;
+        noticeCoachReplies(next);
+        apply(next);
+        await writeCachedDoc(next);
+        setLastSyncedAt(new Date().toISOString());
+        setOnline(true);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          await signOut();
+          return;
+        }
+        if (!mounted.current) return;
+        setOnline(false);
+        // A cached document is a real answer, not a failure. Only a member
+        // with nothing on screen at all needs to be told something went wrong.
+        if (!latest.current) {
+          const cached = await readCachedDoc();
+          if (cached) {
+            apply(cached.doc);
+            setLastSyncedAt(cached.savedAt);
+          } else if (!silent) {
+            Alert.alert(
+              "Couldn’t load your plan",
+              err instanceof Error ? err.message : "Please try again.",
+            );
+          }
+        }
+      } finally {
+        if (mounted.current) {
+          setLoading(false);
+          setRefreshing(false);
         }
       }
-      if (next.healthConnection.syncEnabled) {
-        const result = await syncHealth(false);
-        const merged = new Map(
-          next.healthSnapshots.map((item) => [item.id, item]),
-        );
-        result.snapshots.forEach((item) => merged.set(item.id, item));
-        next = {
-          ...next,
-          healthConnection: result.connection,
-          healthSnapshots: [...merged.values()],
-        };
-        await saveMember(token, next);
-      }
-      setDoc(next);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        await logout();
-        onSignedOut();
-        return;
-      }
-      Alert.alert(
-        "Couldn’t load your plan",
-        err instanceof Error ? err.message : "Please try again.",
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-  useEffect(() => {
-    refresh();
-  }, [token]);
+    },
+    [token, apply, signOut, noticeCoachReplies],
+  );
 
-  const update = async (next: MemberDoc) => {
-    const previous = doc;
-    setDoc(next);
-    setSaving(true);
+  /** Send anything held on the device while there was no connection. */
+  const flushQueued = useCallback(async () => {
+    if (token === DEMO_TOKEN) return;
+    const pending = await readPendingDoc();
+    if (!pending) return;
     try {
-      await saveMember(token, next);
+      await saveMember(token, pending);
+      await clearPendingDoc();
+      if (mounted.current) setQueued(false);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        await logout();
-        onSignedOut();
-        return;
-      }
-      setDoc(previous);
-      Alert.alert(
-        "Not saved",
-        err instanceof Error ? err.message : "Please try again.",
-      );
-    } finally {
-      setSaving(false);
+      if (err instanceof ApiError && err.status === 401) await signOut();
+      // Anything else: it stays queued and is tried again on the next
+      // connection change or save.
     }
-  };
+  }, [token, signOut]);
+
+  useEffect(() => {
+    mounted.current = true;
+    let cancelled = false;
+    (async () => {
+      // Open on the cached copy first. The app stays usable on a train, in a
+      // lift, and on the kind of connection that takes eight seconds to fail.
+      const cached = await readCachedDoc();
+      if (!cancelled && cached && !latest.current) {
+        apply(cached.doc);
+        setLastSyncedAt(cached.savedAt);
+        setLoading(false);
+      }
+      const pending = await readPendingDoc();
+      if (!cancelled && pending) setQueued(true);
+      if (!cancelled) {
+        await flushQueued();
+        await refresh({ silent: Boolean(cached) });
+      }
+    })();
+    return () => {
+      cancelled = true;
+      mounted.current = false;
+    };
+  }, [token, apply, refresh, flushQueued]);
+
+  useEffect(
+    () =>
+      NetInfo.addEventListener((state) => {
+        const reachable =
+          Boolean(state.isConnected) && state.isInternetReachable !== false;
+        setOnline(reachable);
+        if (reachable) flushQueued();
+      }),
+    [flushQueued],
+  );
+
+  /**
+   * Coach replies used to be invisible until a member happened to pull to
+   * refresh. While the conversation is open, look for new ones.
+   */
+  useEffect(() => {
+    if (tab !== "coach" || token === DEMO_TOKEN) return;
+    refresh({ silent: true });
+    const timer = setInterval(() => refresh({ silent: true }), 60_000);
+    return () => clearInterval(timer);
+  }, [tab, token, refresh]);
+
+  const update = useCallback(
+    async (next: MemberDoc) => {
+      apply(next);
+      await writeCachedDoc(next);
+      if (token === DEMO_TOKEN) return;
+      setSaving(true);
+      try {
+        await saveMember(token, next);
+        await clearPendingDoc();
+        setQueued(false);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          await signOut();
+          return;
+        }
+        if (err instanceof ApiError && err.status < 500) {
+          // The server refused this content. Retrying it forever would not
+          // help, so take the stored record as the truth and say what happened.
+          Alert.alert("Not saved", err.message);
+          await refresh({ silent: true });
+          return;
+        }
+        // Offline, or the server is briefly unavailable. Hold the change and
+        // send it when the connection returns instead of discarding her entry.
+        await writePendingDoc(next);
+        setQueued(true);
+      } finally {
+        if (mounted.current) setSaving(false);
+      }
+    },
+    [token, apply, signOut, refresh],
+  );
+
+  const unreadFromCoach = doc
+    ? doc.messages.filter(
+        (message) => message.from === "coach" && !message.read,
+      ).length
+    : 0;
+
+  /**
+   * Re-assert the reminder against the OS whenever the document loads.
+   *
+   * The member's preference lives in her document; the schedule lives on the
+   * device. A new phone, a reinstall, or a member who cleared the app's data
+   * has the first without the second, and the switch would read "on" while
+   * nothing ever arrived. Scheduling is idempotent — it replaces the one
+   * existing reminder by identifier.
+   */
+  const remindersEnabled = doc?.engagement?.reminders.enabled ?? false;
+  const reminderAt = doc?.engagement?.reminders.time;
+  const preferredCheckIn = doc?.onboarding.preferredCheckIn;
+  useEffect(() => {
+    if (!remindersEnabled) return;
+    scheduleDailyReminder(
+      parseReminderTime(reminderAt),
+      preferredCheckIn ?? "morning",
+    ).catch(() => {
+      // Permission was withdrawn in system settings. Profile shows the switch
+      // and is where she can turn it back on; nothing to interrupt her with.
+    });
+  }, [remindersEnabled, reminderAt, preferredCheckIn]);
+
+  /** Opening the conversation is reading it. */
+  useEffect(() => {
+    if (tab !== "coach" || !unreadFromCoach) return;
+    const current = latest.current;
+    if (!current) return;
+    update({
+      ...current,
+      messages: current.messages.map((message) =>
+        message.from === "coach" ? { ...message, read: true } : message,
+      ),
+    });
+  }, [tab, unreadFromCoach, update]);
 
   if (loading)
     return (
@@ -3051,7 +3496,7 @@ function MemberApp({
     return (
       <View style={s.loading}>
         <Text style={s.error}>Your plan could not be loaded.</Text>
-        <Pressable style={s.primaryButton} onPress={refresh}>
+        <Pressable style={s.primaryButton} onPress={() => refresh()}>
           <Text style={s.primaryButtonText}>Try again</Text>
         </Pressable>
       </View>
@@ -3083,10 +3528,9 @@ function MemberApp({
         <Profile
           doc={doc}
           update={update}
-          onLogout={async () => {
-            await logout();
-            onSignedOut();
-          }}
+          token={token}
+          onLogout={signOut}
+          onDeleted={onSignedOut}
         />
         <HealthConnectionPanel doc={doc} update={update} />
         <Reports doc={doc} update={update} token={token} />
@@ -3115,7 +3559,11 @@ function MemberApp({
           </View>
         </Pressable>
         <View style={s.topActions}>
-          {saving && <Text style={s.saving}>Saving…</Text>}
+          {saving ? (
+            <Text style={s.saving}>Saving…</Text>
+          ) : queued ? (
+            <Text style={s.savingQueued}>Saved on this phone</Text>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Open profile"
@@ -3126,6 +3574,18 @@ function MemberApp({
           </Pressable>
         </View>
       </View>
+      {(!online || queued) && (
+        <View style={s.offlineBar}>
+          <CloudOff size={14} color={C.calm} />
+          <Text style={s.offlineText}>
+            {queued
+              ? "Saved on this phone. It will reach your coach when you are back online."
+              : lastSyncedAt
+                ? `Offline. Showing your plan as of ${new Date(lastSyncedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}.`
+                : "Offline. Showing the last plan saved on this phone."}
+          </Text>
+        </View>
+      )}
       <ScrollView
         style={s.scroll}
         contentContainerStyle={s.content}
@@ -3152,7 +3612,11 @@ function MemberApp({
                 key={item.key}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: active }}
-                accessibilityLabel={`${item.label} tab`}
+                accessibilityLabel={
+                  item.key === "coach" && unreadFromCoach > 0
+                    ? `${item.label} tab, ${unreadFromCoach} unread`
+                    : `${item.label} tab`
+                }
                 style={({ pressed }) => [s.tab, pressed && s.tabPressed]}
                 onPress={() => setTab(item.key)}
               >
@@ -3162,6 +3626,13 @@ function MemberApp({
                     strokeWidth={active ? 2.35 : 1.9}
                     color={active ? C.greenDeep : C.faint}
                   />
+                  {item.key === "coach" && unreadFromCoach > 0 && (
+                    <View style={s.tabBadge}>
+                      <Text style={s.tabBadgeText}>
+                        {unreadFromCoach > 9 ? "9+" : unreadFromCoach}
+                      </Text>
+                    </View>
+                  )}
                 </View>
                 <Text style={[s.tabLabel, active && s.tabLabelActive]}>
                   {item.label}
@@ -3173,6 +3644,53 @@ function MemberApp({
       </View>
     </SafeAreaView>
   );
+}
+
+/**
+ * The last line before a blank screen.
+ *
+ * A render error anywhere in the tree used to leave a member looking at
+ * nothing at all, with no way back except force-quitting the app. This catches
+ * it, keeps her signed in, and offers the one action that actually helps.
+ *
+ * It deliberately does not show the error text. A stack trace is no use to the
+ * member holding the phone, and it can carry fragments of her own data.
+ */
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    // Visible in `adb logcat` and in the development console. There is no
+    // crash reporter wired up yet; when one is added, report it from here.
+    console.error("[bharosa] render failed", error, info.componentStack);
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <View style={s.loading}>
+        <Text style={s.errorTitle}>Something went wrong on this screen.</Text>
+        <Text style={s.loadingText}>
+          Nothing you have logged is lost — it is saved on this phone and with
+          your coach.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          style={s.primaryButton}
+          onPress={() => this.setState({ failed: false })}
+        >
+          <Text style={s.primaryButtonText}>Try again</Text>
+        </Pressable>
+      </View>
+    );
+  }
 }
 
 export default function App() {
@@ -3189,11 +3707,13 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
-      {token ? (
-        <MemberApp token={token} onSignedOut={() => setToken(null)} />
-      ) : (
-        <Login onSuccess={setToken} onDemo={() => setToken(DEMO_TOKEN)} />
-      )}
+      <ErrorBoundary>
+        {token ? (
+          <MemberApp token={token} onSignedOut={() => setToken(null)} />
+        ) : (
+          <Login onSuccess={setToken} onDemo={() => setToken(DEMO_TOKEN)} />
+        )}
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }
@@ -3258,6 +3778,127 @@ const s = StyleSheet.create({
   topAvatarActive: { borderColor: C.green },
   topAvatarText: { color: C.greenDeep, fontSize: 11, fontWeight: "800" },
   saving: { color: C.green, fontSize: 11 },
+  savingQueued: { color: C.calm, fontSize: 11 },
+  errorTitle: {
+    color: C.ink,
+    fontSize: 17,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+
+  /* Offline notice — informative, never a failure state. */
+  offlineBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 20,
+    marginTop: 4,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: 11,
+    backgroundColor: "#E8EFF1",
+  },
+  offlineText: { color: C.calm, flex: 1, fontSize: 11, lineHeight: 16 },
+
+  /* Unread coach replies. */
+  tabBadge: {
+    position: "absolute",
+    top: -2,
+    right: 2,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: C.green,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tabBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
+
+  /* Reminder time control. */
+  reminderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginTop: 14,
+  },
+  reminderStep: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: C.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reminderTime: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    minHeight: 44,
+    borderRadius: 13,
+    backgroundColor: C.greenTint,
+  },
+  reminderTimeText: { color: C.greenDeep, fontSize: 15, fontWeight: "700" },
+
+  /* Export and deletion. */
+  dataButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 46,
+    marginTop: 12,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: C.line,
+  },
+  dataButtonText: { color: C.green, fontSize: 14, fontWeight: "700" },
+  deleteLinkText: { color: C.soft },
+  deleteBox: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: "#F7F8F4",
+    gap: 10,
+  },
+  deleteTitle: { color: C.ink, fontSize: 14, fontWeight: "700" },
+  deleteActions: { flexDirection: "row", gap: 10 },
+  deleteConfirmButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#A34336",
+  },
+  deleteConfirmText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+
+  /* What a meal estimate was read from. */
+  estimateBasis: {
+    marginTop: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: 11,
+    backgroundColor: C.greenTint,
+  },
+  estimateBasisLabel: {
+    color: C.green,
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+  estimateBasisText: {
+    color: C.greenDeep,
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 3,
+  },
   loginPage: { flex: 1, backgroundColor: C.paper },
   authScroll: { flexGrow: 1, paddingBottom: 28 },
   authHero: {

@@ -35,6 +35,12 @@ import type {
 
 export interface MemberDoc {
   member: Member;
+  /**
+   * The calendar date this document's relative `dayOffset` values were written
+   * from. Set on every write and used by `lib/day-offset.ts` to move them onto
+   * today when the document is read. See that module for why.
+   */
+  dayOffsetAnchor?: string;
   actions: DailyAction[];
   pulses: PulseEntry[];
   workoutLogs: WorkoutLog[];

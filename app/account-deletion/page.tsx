@@ -11,10 +11,28 @@ export default function AccountDeletion() {
       <p className="label text-effort-stretch">BHAROSA WELLNESS</p>
       <h1 className="mt-3 font-display text-4xl">Delete your account</h1>
       <p className="mt-5 text-[16px] leading-7 text-ink-soft">
-        Send your coach an account-deletion request through the coaching
-        conversation inside the app. Include the username used to sign in. For
-        security, the coach will confirm the request with you before removing
-        the account.
+        You can delete your account yourself, from inside the app. Open{" "}
+        <strong className="font-semibold text-ink">You</strong>, find{" "}
+        <strong className="font-semibold text-ink">Your data</strong>, and
+        choose{" "}
+        <strong className="font-semibold text-ink">
+          Delete my account and data
+        </strong>
+        . You will be asked for your password to confirm. Deletion happens
+        immediately and cannot be undone.
+      </p>
+      <p className="mt-4 text-[16px] leading-7 text-ink-soft">
+        The same screen offers{" "}
+        <strong className="font-semibold text-ink">
+          Download a copy of my data
+        </strong>
+        , so you can keep your own record before you remove it.
+      </p>
+      <p className="mt-4 text-[16px] leading-7 text-ink-soft">
+        If you would rather not do it yourself, send your coach an
+        account-deletion request through the coaching conversation in the app,
+        including the username used to sign in. For security, the coach will
+        confirm the request with you before removing the account.
       </p>
       <div className="mt-8 rounded-2xl bg-paper-sunk p-5">
         <h2 className="font-semibold">What will be deleted</h2>
