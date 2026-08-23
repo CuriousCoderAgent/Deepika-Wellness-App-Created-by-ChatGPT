@@ -24,6 +24,7 @@ import {
 } from "@/lib/db";
 import type { CoachDoc, MemberDoc } from "@/lib/persist";
 import type { Report } from "@/lib/types";
+import { evaluateReadiness, type ReadinessState } from "@/lib/readiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,6 +83,26 @@ function normalizeIncomingReport(
  * copy. This also keeps a newly arrived coach message when a member saves an
  * older screen a moment later.
  */
+/**
+ * Her answers are hers; the outcome is not.
+ *
+ * The screen decides whether a movement plan is offered at all, so the verdict
+ * is recomputed here from the answers rather than accepted from the client. An
+ * app that posted `outcome: "clear"` would otherwise unlock movements for
+ * someone the screen had held back.
+ */
+function mergeReadiness(
+  existing: ReadinessState | undefined,
+  incoming: ReadinessState | undefined,
+): ReadinessState | undefined {
+  const source = incoming ?? existing;
+  if (!source) return undefined;
+  return {
+    ...source,
+    ...evaluateReadiness(source.answers ?? {}),
+  };
+}
+
 function mergeMemberUpdate(
   existing: MemberDoc,
   incoming: MemberDoc,
@@ -196,6 +217,7 @@ function mergeMemberUpdate(
       ...entry,
       memberId,
     })),
+    readiness: mergeReadiness(existing.readiness, incoming.readiness),
     healthConnection: incoming.healthConnection ?? existing.healthConnection,
     healthSnapshots: incoming.healthSnapshots ?? existing.healthSnapshots ?? [],
     recommendations: incoming.recommendations ?? existing.recommendations ?? [],

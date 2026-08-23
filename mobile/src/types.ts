@@ -328,6 +328,8 @@ export interface CircleState {
   requests: { incoming: CircleRequest[]; outgoing: CircleRequest[] };
 }
 
+import type { ReadinessState } from "./readiness";
+
 export interface MemberDoc {
   member: Member;
   actions: DailyAction[];
@@ -341,6 +343,8 @@ export interface MemberDoc {
   healthSnapshots: HealthSnapshot[];
   recommendations: AiRecommendation[];
   onboarding: OnboardingState;
+  /** Pre-exercise readiness answers. The server recomputes the outcome. */
+  readiness?: ReadinessState;
   hydrationLogs?: HydrationLog[];
   habits?: HabitDefinition[];
   habitLogs?: HabitLog[];

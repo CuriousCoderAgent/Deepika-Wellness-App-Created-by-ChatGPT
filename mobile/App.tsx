@@ -85,6 +85,13 @@ import { exerciseMediaFor } from "./src/exerciseMedia";
 import { subscribeToConnectivity } from "./src/net";
 import { describeMatches, estimateMeal } from "./src/nutrition";
 import {
+  READINESS_QUESTIONS,
+  evaluateReadiness,
+  readinessIsComplete,
+  readinessMessage,
+  type ReadinessAnswer,
+} from "./src/readiness";
+import {
   DEFAULT_HYDRATION_TARGET,
   SUGGESTED_HABITS,
   activeHabits,
@@ -1077,6 +1084,9 @@ function Onboarding({
   const [checkIn, setCheckIn] = useState<"morning" | "evening">(
     saved?.preferredCheckIn ?? "morning",
   );
+  const [readinessAnswers, setReadinessAnswers] = useState<
+    Record<string, ReadinessAnswer>
+  >(doc.readiness?.answers ?? {});
   const [wellnessConsent, setWellnessConsent] = useState(
     saved?.consent.wellness ?? false,
   );
@@ -1127,9 +1137,14 @@ function Onboarding({
             ]
           : doc.member.constraints,
       },
+      readiness: {
+        answers: readinessAnswers,
+        completedAt: new Date().toISOString(),
+        ...evaluateReadiness(readinessAnswers),
+      },
       onboarding: {
         completed: true,
-        currentStep: 6,
+        currentStep: 7,
         goals,
         customGoal: goals.find((goal) => !goalOptions.includes(goal)),
         activityLevel: activity,
@@ -1149,8 +1164,10 @@ function Onboarding({
       : step === 1
         ? Boolean(activity)
         : step === 5
-          ? wellnessConsent
-          : true;
+          ? readinessIsComplete(readinessAnswers)
+          : step === 6
+            ? wellnessConsent
+            : true;
 
   let question: React.ReactNode;
   if (step === 0)
@@ -1338,6 +1355,73 @@ function Onboarding({
         </View>
       </>
     );
+  else if (step === 5)
+    question = (
+      <>
+        <Text style={s.onboardingTitle}>
+          A few questions before you start moving
+        </Text>
+        <Text style={s.onboardingCopy}>
+          These are the standard checks before starting any exercise plan. They
+          decide which movements you are offered — not whether you can use
+          Bharosa. If you are not sure about one, say so.
+        </Text>
+        <View style={s.optionStack}>
+          {READINESS_QUESTIONS.map((item) => (
+            <View key={item.id} style={s.readinessBlock}>
+              <Text style={s.readinessPrompt}>{item.prompt}</Text>
+              {item.hint ? (
+                <Text style={s.readinessHint}>{item.hint}</Text>
+              ) : null}
+              <View style={s.readinessRow}>
+                {(["no", "yes", "unsure"] as const).map((value) => {
+                  const active = readinessAnswers[item.id] === value;
+                  return (
+                    <Pressable
+                      key={value}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={`${item.prompt} — ${value === "unsure" ? "not sure" : value}`}
+                      style={[s.readinessChoice, active && s.optionActive]}
+                      onPress={() =>
+                        setReadinessAnswers((current) => ({
+                          ...current,
+                          [item.id]: value,
+                        }))
+                      }
+                    >
+                      <Text style={[s.optionText, active && s.optionTextActive]}>
+                        {value === "unsure"
+                          ? "Not sure"
+                          : value === "yes"
+                            ? "Yes"
+                            : "No"}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ))}
+        </View>
+        {readinessIsComplete(readinessAnswers) && (
+          <View style={s.readinessOutcome}>
+            <Text style={s.readinessOutcomeTitle}>
+              {
+                readinessMessage(evaluateReadiness(readinessAnswers).outcome)
+                  .title
+              }
+            </Text>
+            <Text style={s.readinessOutcomeBody}>
+              {
+                readinessMessage(evaluateReadiness(readinessAnswers).outcome)
+                  .body
+              }
+            </Text>
+          </View>
+        )}
+      </>
+    );
   else
     question = (
       <>
@@ -1386,11 +1470,11 @@ function Onboarding({
       <Text style={s.eyebrow}>LET’S PERSONALISE YOUR START</Text>
       <Text style={s.hero}>A plan that fits your real week.</Text>
       <Text style={s.heroCopy}>
-        Six focused questions help Bharosa and your coach avoid generic
-        recommendations.
+        A few focused questions so your plan fits your week, your body and the
+        time you actually have.
       </Text>
       <View style={s.onboardingProgress}>
-        {[0, 1, 2, 3, 4, 5].map((value) => (
+        {[0, 1, 2, 3, 4, 5, 6].map((value) => (
           <View
             key={value}
             style={[
@@ -1410,11 +1494,11 @@ function Onboarding({
           )}
           <Pressable
             disabled={!canContinue}
-            onPress={() => (step === 5 ? finish() : setStep(step + 1))}
+            onPress={() => (step === 6 ? finish() : setStep(step + 1))}
             style={[s.continueButton, !canContinue && s.disabledButton]}
           >
             <Text style={s.continueButtonText}>
-              {step === 5 ? "Create my starting plan" : "Continue"}
+              {step === 6 ? "Create my starting plan" : "Continue"}
             </Text>
           </Pressable>
         </View>
@@ -4482,6 +4566,39 @@ const s = StyleSheet.create({
   topAvatarText: { color: C.greenDeep, fontSize: 11, fontWeight: "800" },
   saving: { color: C.green, fontSize: 11 },
   savingQueued: { color: C.calm, fontSize: 11 },
+
+  /* Readiness screen. Plain, unhurried, nothing red. */
+  readinessBlock: {
+    marginBottom: 6,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: C.line,
+  },
+  readinessPrompt: { color: C.ink, fontSize: 15, lineHeight: 22 },
+  readinessHint: { color: C.faint, fontSize: 12, lineHeight: 17, marginTop: 5 },
+  readinessRow: { flexDirection: "row", gap: 8, marginTop: 11 },
+  readinessChoice: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  readinessOutcome: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 13,
+    backgroundColor: C.greenTint,
+  },
+  readinessOutcomeTitle: { color: C.greenDeep, fontSize: 15, fontWeight: "700" },
+  readinessOutcomeBody: {
+    color: C.greenDeep,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6,
+  },
 
   /* Water — a row of glasses that fill. No target line, no shortfall. */
   waterRow: {

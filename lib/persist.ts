@@ -16,6 +16,7 @@
  */
 
 import * as seed from "./seed";
+import type { ReadinessState } from "./readiness";
 import { radarRules, type RadarRule } from "./radar";
 import type {
   DailyAction,
@@ -59,6 +60,8 @@ export interface MemberDoc {
   hydrationLogs?: HydrationLog[];
   habits?: HabitDefinition[];
   habitLogs?: HabitLog[];
+  /** Pre-exercise readiness answers and the outcome derived from them. */
+  readiness?: ReadinessState;
 }
 
 type MemberExtensions = Pick<
@@ -70,6 +73,7 @@ type MemberExtensions = Pick<
   | "hydrationLogs"
   | "habits"
   | "habitLogs"
+  | "readiness"
 >;
 
 export interface CoachDoc {
@@ -153,6 +157,7 @@ export function stateFromMemberDoc<S extends PersistedState>(
         hydrationLogs: doc.hydrationLogs,
         habits: doc.habits,
         habitLogs: doc.habitLogs,
+        readiness: doc.readiness,
       },
     },
     activeMemberId: doc.member.id,
@@ -187,6 +192,7 @@ export function stateFromDocs<S extends PersistedState>(
           hydrationLogs: doc.hydrationLogs,
           habits: doc.habits,
           habitLogs: doc.habitLogs,
+          readiness: doc.readiness,
         },
       ]),
     ),

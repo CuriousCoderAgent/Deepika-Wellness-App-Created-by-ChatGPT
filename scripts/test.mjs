@@ -316,3 +316,135 @@ test("the same habit is not added twice", () => {
   doc = withHabitAdded(doc, "  stretch ");
   assert.equal(doc.habits.length, 1);
 });
+
+import {
+  READINESS_QUESTIONS,
+  evaluateReadiness,
+  readinessIsComplete,
+} from "../lib/readiness.ts";
+import {
+  EXERCISES,
+  EXERCISE_BY_ID,
+  eligibleExercises,
+  loadsToAvoid,
+  cautionNeedsReview,
+} from "../lib/exercise-library.ts";
+
+const allNo = Object.fromEntries(READINESS_QUESTIONS.map((q) => [q.id, "no"]));
+
+test("a clean readiness screen clears the movement plan", () => {
+  const result = evaluateReadiness(allNo);
+  assert.equal(result.outcome, "clear");
+  assert.deepEqual(result.conditions, []);
+});
+
+test("chest pain on exertion holds the plan for a doctor", () => {
+  const result = evaluateReadiness({ ...allNo, "chest-pain": "yes" });
+  assert.equal(result.outcome, "consult_first");
+});
+
+test("\"not sure\" is treated exactly like yes", () => {
+  // Someone who does not know is the person who most needs to be asked to
+  // check. Being wrong in this direction costs a conversation, not an injury.
+  const unsure = evaluateReadiness({ ...allNo, "heart-condition": "unsure" });
+  const yes = evaluateReadiness({ ...allNo, "heart-condition": "yes" });
+  assert.equal(unsure.outcome, "consult_first");
+  assert.deepEqual(unsure, yes);
+});
+
+test("pregnancy modifies the plan rather than blocking it", () => {
+  const result = evaluateReadiness({ ...allNo, pregnancy: "yes" });
+  assert.equal(result.outcome, "modified");
+  assert.ok(result.conditions.includes("pregnancy"));
+  assert.ok(result.avoidLoads.includes("pelvic_floor"));
+});
+
+test("a blocking answer wins over a modifying one", () => {
+  const result = evaluateReadiness({
+    ...allNo,
+    pregnancy: "yes",
+    "chest-pain": "yes",
+  });
+  assert.equal(result.outcome, "consult_first");
+});
+
+test("the screen is not complete until every question is answered", () => {
+  assert.ok(readinessIsComplete(allNo));
+  const { pregnancy, ...missing } = allNo;
+  assert.ok(!readinessIsComplete(missing));
+});
+
+test("a stated knee problem removes every knee-loading movement", () => {
+  const avoid = loadsToAvoid("bad left knee, hurts on stairs");
+  assert.deepEqual(avoid, ["knee"]);
+  const offered = eligibleExercises({ avoidLoads: avoid });
+  assert.ok(offered.length > 0, "she should still have a plan");
+  assert.ok(
+    offered.every((e) => !e.loads.includes("knee")),
+    "a knee-loading movement survived the filter",
+  );
+});
+
+test("common ways of describing a bad back are all caught", () => {
+  for (const phrase of ["lower back pain", "slipped disc", "sciatica", "spine issue"]) {
+    assert.deepEqual(loadsToAvoid(phrase), ["lower_back"], phrase);
+  }
+});
+
+test("a caution we cannot interpret is flagged for a human", () => {
+  // Silently ignoring what she wrote is the failure mode worth preventing.
+  assert.ok(cautionNeedsReview("I get tired very easily since my illness"));
+  assert.ok(!cautionNeedsReview("dodgy knee"));
+  assert.ok(!cautionNeedsReview(""));
+});
+
+test("readiness conditions actually remove exercises", () => {
+  const withPregnancy = eligibleExercises({ conditions: ["pregnancy"] });
+  const without = eligibleExercises({});
+  assert.ok(withPregnancy.length < without.length);
+  assert.ok(withPregnancy.every((e) => !e.avoidIf.includes("pregnancy")));
+});
+
+test("equipment she does not have is never offered", () => {
+  const noBand = eligibleExercises({ equipment: ["none", "chair", "wall"] });
+  assert.ok(noBand.every((e) => !e.equipment.includes("band")));
+  assert.ok(noBand.length > 10, "a chair and a wall should still be plenty");
+});
+
+test("even the most restricted member still gets a usable plan", () => {
+  // Everything flagged at once: the app must still have something to offer,
+  // or it will quietly show her an empty day.
+  const offered = eligibleExercises({
+    avoidLoads: ["knee", "lower_back", "shoulder", "balance"],
+    conditions: ["pregnancy", "high_blood_pressure", "osteoporosis", "dizziness"],
+    equipment: ["none", "chair", "wall"],
+    maxTier: 1,
+  });
+  assert.ok(offered.length >= 3, `only ${offered.length} movements left`);
+});
+
+test("every progression and regression points at a real exercise", () => {
+  for (const exercise of EXERCISES) {
+    for (const link of [exercise.progressesTo, exercise.regressesTo]) {
+      if (!link) continue;
+      assert.ok(EXERCISE_BY_ID.has(link), `${exercise.id} points at missing ${link}`);
+    }
+  }
+});
+
+test("a progression is never easier than what it progresses from", () => {
+  for (const exercise of EXERCISES) {
+    const harder = exercise.progressesTo && EXERCISE_BY_ID.get(exercise.progressesTo);
+    if (harder) assert.ok(harder.tier >= exercise.tier, `${exercise.id} -> ${harder.id}`);
+    const easier = exercise.regressesTo && EXERCISE_BY_ID.get(exercise.regressesTo);
+    if (easier) assert.ok(easier.tier <= exercise.tier, `${exercise.id} -> ${easier.id}`);
+  }
+});
+
+test("every exercise has five frames and a cue", () => {
+  for (const exercise of EXERCISES) {
+    assert.equal(exercise.frames.length, 5, exercise.id);
+    assert.ok(exercise.cue.length > 10, exercise.id);
+    assert.ok(exercise.why.length > 10, exercise.id);
+  }
+});
