@@ -19,6 +19,14 @@ import {
   todayIso,
 } from "../lib/day-offset.ts";
 import { estimateMeal } from "../mobile/src/nutrition.ts";
+import {
+  buildCoachContext,
+  COACH_NAME,
+  matchRefusal,
+  matchUrgent,
+  sanitiseReply,
+} from "../lib/coach-ai.ts";
+import { COACH_NAME as MOBILE_COACH_NAME } from "../mobile/src/coach.ts";
 
 const AUG_23 = new Date("2026-08-23T06:00:00Z");
 
@@ -921,4 +929,99 @@ test("the circle total adds and never subtracts", () => {
   assert.equal(total.people, 2);
   // A quiet member dilutes the shared figure; she never reduces it.
   assert.ok(total.activeDays >= circleTotal([busy]).activeDays);
+});
+
+/* ------------------------------------------------------------------ */
+/* Vera's boundaries                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * These matter more than they look. The urgent gate is the one part of the
+ * conversation that must work with the model switched off, the key missing and
+ * the member's own text trying to steer things — so it is code, and code gets
+ * tested. The false-positive tests are as important as the true ones: a gate
+ * that fires on "chest press" gets ignored, and an ignored gate protects
+ * nobody.
+ */
+test("an emergency is caught before any model is asked", () => {
+  for (const [text, category] of [
+    ["I have chest pain and it goes down my left arm", "cardiac"],
+    ["I can't breathe properly even sitting still", "breathing"],
+    ["I fainted this morning", "neurological"],
+    ["I am bleeding heavily, 7 months pregnant", "pregnancy"],
+    ["sometimes I want to die", "self_harm"],
+    ["my throat is closing after lunch", "allergic"],
+  ]) {
+    const match = matchUrgent(text);
+    assert.ok(match, `missed: ${text}`);
+    assert.equal(match.category, category);
+    assert.match(match.reply, /112|14416/);
+  }
+});
+
+test("ordinary training talk is not treated as an emergency", () => {
+  for (const text of [
+    "the chest press felt hard today",
+    "I was out of breath at the end of the walk, is that normal?",
+    "my head hurts a bit after the session",
+    "I felt a stretch in my shoulder",
+    "should I do the squat or skip it",
+    "I killed it today!",
+  ]) {
+    assert.equal(matchUrgent(text), null, `false positive: ${text}`);
+  }
+});
+
+test("diagnosis and dosing go to a clinician, always the same way", () => {
+  assert.ok(matchRefusal("do I have PCOS?"));
+  assert.ok(matchRefusal("should I increase my thyroxine dose"));
+  assert.equal(matchRefusal("why is today's plan shorter than yesterday"), null);
+});
+
+test("a reply that prescribes is replaced, not published", () => {
+  // The model was told not to. If it does anyway, the member must not see a
+  // number that contradicts what the plan generator decided.
+  assert.doesNotMatch(sanitiseReply("Try 3 sets of 12 reps."), /3 sets/);
+  assert.doesNotMatch(sanitiseReply("Add 5 kg to the squat."), /5 kg/);
+  // Nor a claim to have done something it cannot do.
+  assert.doesNotMatch(
+    sanitiseReply("I've updated your plan for tomorrow."),
+    /updated your plan/,
+  );
+  assert.doesNotMatch(
+    sanitiseReply("I'll let your coach know about this."),
+    /let your coach know/,
+  );
+  // An ordinary answer passes through untouched.
+  const plain = "Today is lighter because your sleep has been low all week.";
+  assert.equal(sanitiseReply(plain), plain);
+});
+
+test("Vera is only given facts the app actually holds", () => {
+  const context = buildCoachContext({
+    member: { name: "Asha Rao", week: 3, phase: "Stabilise" },
+    actions: [
+      { dayOffset: 0, domain: "movement", title: "Chair squat", completed: "target" },
+      { dayOffset: 0, domain: "walking", title: "Walk after a meal", completed: null },
+      { dayOffset: -1, domain: "movement", title: "Yesterday", completed: "minimum" },
+    ],
+    readiness: { outcome: "modified" },
+    coaching: { mode: "none" },
+  });
+  assert.match(context, /Asha/);
+  assert.match(context, /1 of 2 done/);
+  assert.match(context, /Chair squat/);
+  // Yesterday is not today's plan.
+  assert.doesNotMatch(context, /Yesterday/);
+  assert.match(context, /modified/);
+  assert.match(context, /does not have a human coach/);
+  // Nothing leaks that was never put in.
+  assert.doesNotMatch(context, /Rao/);
+});
+
+test("the phone and the server call her the same thing", () => {
+  // The name is duplicated because the Expo build does not import from lib/.
+  // Drift would show a member two coaches, so it is asserted rather than
+  // trusted to a comment.
+  assert.equal(MOBILE_COACH_NAME, COACH_NAME);
 });

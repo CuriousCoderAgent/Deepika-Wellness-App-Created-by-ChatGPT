@@ -126,7 +126,8 @@ export interface PulseEntry {
 export interface Message {
   id: string;
   memberId: string;
-  from: "coach" | "member" | "system";
+  /** "ai" is Vera. Kept distinct from "coach" so a human is never impersonated. */
+  from: "coach" | "member" | "system" | "ai";
   kind: "text" | "voice" | "plan_update";
   body: string;
   dayOffset: number;
@@ -363,6 +364,8 @@ export interface MemberDoc {
   readiness?: ReadinessState;
   /** Set by the server the day a plan was last built. */
   planGeneratedOn?: string;
+  /** Absent means un-coached, which is the default. A coach outranks Vera. */
+  coaching?: { mode: "none" | "coached"; ownedDomains?: ActionDomain[] };
   doseSteps?: Record<string, number>;
   pausedExerciseIds?: string[];
   hydrationLogs?: HydrationLog[];

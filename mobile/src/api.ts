@@ -295,7 +295,11 @@ export async function deleteAccount(token: string, password: string) {
   });
   const body = await parse(response);
   await SecureStore.deleteItemAsync(TOKEN_KEY);
-  return body as { deleted: boolean; credentialRemoved: boolean; message: string };
+  return body as {
+    deleted: boolean;
+    credentialRemoved: boolean;
+    message: string;
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -470,5 +474,36 @@ export async function loadNudges(token: string) {
   });
   return parse(response) as Promise<{
     nudges: { from: string; message: string; at: string }[];
+  }>;
+}
+
+/**
+ * Ask Vera a question.
+ *
+ * Never throws for the member's benefit: an unreachable server, a missing key
+ * and a model having a bad day all arrive as a reply she can read, because a
+ * coach who returns an error dialog is worse than one who says she cannot
+ * help right now. Genuine transport failures still surface so the caller can
+ * decide — but the caller here treats them the same way.
+ */
+export async function askCoach(
+  token: string,
+  message: string,
+  history: { role: "user" | "assistant"; content: string }[],
+) {
+  const response = await request("/api/coach/ask", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ message, history }),
+  });
+  return parse(response) as Promise<{
+    reply: string;
+    urgent?: boolean;
+    refused?: boolean;
+    unavailable?: boolean;
+    throttled?: boolean;
   }>;
 }

@@ -4,7 +4,9 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import {
   Component,
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -66,6 +68,7 @@ import {
   ApiError,
   DEMO_TOKEN,
   answerConnection,
+  askCoach,
   deleteAccount,
   discoverCircle,
   estimateMealPhoto,
@@ -136,6 +139,7 @@ import {
   writePendingDoc,
 } from "./src/storage";
 import { openHealthSettings, syncHealth } from "./src/health";
+import { COACH_NAME, COACH_OPENERS } from "./src/coach";
 import { LEARNING_ARTICLES } from "./src/learning";
 import { isoDate, offsetFromDate } from "./src/normalize";
 import { PHASES, weekPlansFor } from "./src/plan";
@@ -148,6 +152,7 @@ import type {
   FoodEntry,
   HealthMetric,
   MemberDoc,
+  Message,
   PulseEntry,
 } from "./src/types";
 
@@ -393,6 +398,26 @@ function Login({
       </ScrollView>
     </KeyboardAvoidingView>
   );
+}
+
+/**
+ * Scrolling back to the top when the screen changes.
+ *
+ * Every screen renders into one ScrollView that is never remounted, so React
+ * Native keeps whatever offset the last screen was left at. Opening the record
+ * from a scrolled-down Plan tab landed the member at the bottom of it, with the
+ * heading somewhere above her — and the same happened for the movement session
+ * and for opening an article.
+ *
+ * Only the ScrollView can reset its own offset, so it publishes the reset here
+ * and screens that swap in place call it as they navigate. Tab and section
+ * changes are handled centrally in the shell; this is for the screens that
+ * change inside a tab, where the shell cannot see it happen.
+ */
+const ScrollTopContext = createContext<() => void>(() => {});
+
+function useScrollToTop() {
+  return useContext(ScrollTopContext);
 }
 
 function Card({
@@ -1829,6 +1854,7 @@ function Today({
   token: string;
 }) {
   const [openSession, setOpenSession] = useState(false);
+  const scrollToTop = useScrollToTop();
   /** Which single-action domain is expanded in place. Only one at a time. */
   const [expandedDomain, setExpandedDomain] = useState<ActionDomain | null>(
     null,
@@ -1951,7 +1977,10 @@ function Today({
         doc={doc}
         actions={movementActions}
         onComplete={complete}
-        onBack={() => setOpenSession(false)}
+        onBack={() => {
+          setOpenSession(false);
+          scrollToTop();
+        }}
       />
     );
 
@@ -2012,8 +2041,10 @@ function Today({
                 total={inDomain.length}
                 expanded={expandedDomain === domain}
                 onPress={() => {
-                  if (isMovement && inDomain.length > 1) setOpenSession(true);
-                  else
+                  if (isMovement && inDomain.length > 1) {
+                    setOpenSession(true);
+                    scrollToTop();
+                  } else
                     setExpandedDomain(
                       expandedDomain === domain ? null : domain,
                     );
@@ -2529,11 +2560,16 @@ function Journey({ doc }: { doc: MemberDoc }) {
 function LearningLibrary({ weekFocus }: { weekFocus?: string[] }) {
   const [articleId, setArticleId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const scrollToTop = useScrollToTop();
+  const openArticle = (id: string | null) => {
+    setArticleId(id);
+    scrollToTop();
+  };
   const article = LEARNING_ARTICLES.find((item) => item.id === articleId);
   if (article)
     return (
       <View style={s.learningDetail}>
-        <Pressable onPress={() => setArticleId(null)}>
+        <Pressable onPress={() => openArticle(null)}>
           <Text style={s.learningBack}>‹ All articles</Text>
         </Pressable>
         <Text style={s.learningCategory}>
@@ -2606,7 +2642,7 @@ function LearningLibrary({ weekFocus }: { weekFocus?: string[] }) {
           <Pressable
             accessibilityRole="button"
             key={item.id}
-            onPress={() => setArticleId(item.id)}
+            onPress={() => openArticle(item.id)}
             style={({ pressed }) => [s.articleCard, pressed && s.pressed]}
           >
             <View style={s.articleMeta}>
@@ -3479,48 +3515,125 @@ function Food({
   );
 }
 
+/**
+ * The Coach tab.
+ *
+ * The human coach is a paid extra almost nobody has yet, which left this
+ * screen as a message box that nothing answered. Vera answers it — grounded in
+ * the member's own plan, and bounded by the rules in `lib/coach-ai.ts`.
+ *
+ * Two things are load-bearing in how this is presented:
+ *
+ * **She is never disguised as a person.** Her bubbles are labelled, her
+ * avatar is not a photograph, and the first thing the screen says is that she
+ * is part of the app. A member who thinks a nurse is reading this will tell it
+ * things she should be telling a clinic.
+ *
+ * **A human coach outranks her.** Where one exists, their messages sit in the
+ * same conversation, marked as theirs, and Vera says so when asked to make a
+ * decision that is theirs to make.
+ *
+ * The conversation lives in `doc.messages`, which the phone already owns and
+ * syncs. Vera has no route that can write to the derived plan state.
+ */
 function Coach({
   doc,
   update,
+  token,
 }: {
   doc: MemberDoc;
   update: (doc: MemberDoc) => void;
+  token: string;
 }) {
   const [draft, setDraft] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const scrollToTop = useScrollToTop();
   const messages = [...doc.messages].sort((a, b) => a.dayOffset - b.dayOffset);
+  const hasHumanCoach = doc.coaching?.mode === "coached";
   const next = [...doc.sessions]
     .filter((x) => x.status === "scheduled" && x.dayOffset >= 0)
     .sort((a, b) => a.dayOffset - b.dayOffset)[0];
-  const send = () => {
-    if (!draft.trim()) return;
-    update({
-      ...doc,
-      messages: [
-        ...doc.messages,
-        {
-          id: `message-${Date.now()}`,
-          memberId: doc.member.id,
-          from: "member",
-          kind: "text",
-          body: draft.trim(),
-          dayOffset: 0,
-          time: "just now",
-          read: false,
-        },
-      ],
-    });
+
+  const append = (
+    current: MemberDoc,
+    from: Message["from"],
+    body: string,
+  ): MemberDoc => ({
+    ...current,
+    messages: [
+      ...current.messages,
+      {
+        id: `message-${from}-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+        memberId: current.member.id,
+        from,
+        kind: "text",
+        body,
+        dayOffset: 0,
+        time: "just now",
+        read: from === "member",
+      },
+    ],
+  });
+
+  const ask = async (text: string) => {
+    const question = text.trim();
+    if (!question || thinking) return;
     setDraft("");
+    const withQuestion = append(doc, "member", question);
+    update(withQuestion);
+    if (token === DEMO_TOKEN) {
+      update(
+        append(
+          withQuestion,
+          "ai",
+          "This is the sample account, so I am not connected here. Sign in with your own account and I can answer from your plan.",
+        ),
+      );
+      return;
+    }
+    setThinking(true);
+    try {
+      // Only the conversation goes back — the server builds her context from
+      // the stored document rather than trusting anything the phone sends.
+      const history = withQuestion.messages
+        .filter((m) => m.from === "member" || m.from === "ai")
+        .slice(-12)
+        .map((m) => ({
+          role: (m.from === "member" ? "user" : "assistant") as
+            | "user"
+            | "assistant",
+          content: m.body,
+        }));
+      const result = await askCoach(token, question, history.slice(0, -1));
+      update(append(withQuestion, "ai", result.reply));
+    } catch {
+      update(
+        append(
+          withQuestion,
+          "ai",
+          "I could not reach my side of things just then. Your plan is unaffected — please try again in a moment.",
+        ),
+      );
+    } finally {
+      setThinking(false);
+    }
   };
+
   return (
     <>
-      <Text style={s.eyebrow}>YOUR COACH</Text>
-      <Text style={s.hero}>A human in your corner.</Text>
-      <Text style={s.heroCopy}>
-        Ask questions, share context, and see plan changes from your coach.
-      </Text>
-      {next && (
+      <View style={s.coachHead}>
+        <View style={s.coachAvatar}>
+          <Sparkles size={20} color={C.greenDeep} />
+        </View>
+        <View style={s.flex}>
+          <Text style={s.coachName}>{COACH_NAME}</Text>
+          <Text style={s.coachRole}>Your coach in the app · always here</Text>
+        </View>
+      </View>
+
+      {hasHumanCoach && next && (
         <View style={s.session}>
-          <Text style={s.sessionLabel}>NEXT SESSION</Text>
+          <Text style={s.sessionLabel}>NEXT SESSION WITH YOUR COACH</Text>
           <Text style={s.sessionTitle}>{next.type}</Text>
           <Text style={s.sessionMeta}>
             {next.dayOffset === 0
@@ -3530,62 +3643,123 @@ function Coach({
           </Text>
         </View>
       )}
-      <Text style={s.sectionTitle}>Conversation</Text>
-      {messages.length ? (
-        messages.slice(-12).map((m) => (
+
+      {messages.length === 0 && (
+        <Card>
+          <Text style={s.coachIntro}>
+            I can explain what your plan is doing and why, help you decide what
+            to do on a hard day, and answer the ordinary questions. I am part of
+            the app, not a doctor — and I cannot change your plan, because that
+            follows what you log.
+          </Text>
+        </Card>
+      )}
+
+      {messages.slice(-20).map((m) => {
+        const mine = m.from === "member";
+        const who =
+          m.from === "member"
+            ? "You"
+            : m.from === "ai"
+              ? COACH_NAME
+              : m.from === "coach"
+                ? "Your coach"
+                : "Bharosa";
+        return (
           <View
             key={m.id}
             style={[
               s.messageBubble,
-              m.from === "member" ? s.memberBubble : s.coachBubble,
+              mine ? s.memberBubble : s.coachBubble,
+              m.from === "coach" && s.humanCoachBubble,
             ]}
           >
             <View style={s.rowBetween}>
               <Text
                 style={[
                   s.messageFrom,
-                  m.from === "coach" && s.messageFromCoach,
+                  !mine && s.messageFromCoach,
+                  m.from === "coach" && s.messageFromHuman,
                 ]}
               >
-                {m.from === "coach" ? "Coach" : "You"}
+                {who}
               </Text>
               <Text style={s.messageTime}>{m.time}</Text>
             </View>
-            <Text
-              style={[
-                s.messageBody,
-                m.from === "member" && s.memberMessageText,
-              ]}
-            >
+            <Text style={[s.messageBody, mine && s.memberMessageText]}>
               {m.body}
             </Text>
           </View>
-        ))
-      ) : (
-        <Card>
-          <Text style={s.empty}>No messages yet.</Text>
-        </Card>
+        );
+      })}
+
+      {thinking && (
+        <View style={[s.messageBubble, s.coachBubble]}>
+          <Text style={s.messageFromCoach}>{COACH_NAME}</Text>
+          <View style={s.rowInline}>
+            <ActivityIndicator size="small" color={C.green} />
+            <Text style={s.thinkingText}>Reading your plan…</Text>
+          </View>
+        </View>
       )}
+
+      {messages.length === 0 && !thinking && (
+        <View style={s.openerWrap}>
+          {COACH_OPENERS.map((opener) => (
+            <Pressable
+              key={opener}
+              accessibilityRole="button"
+              style={({ pressed }) => [s.opener, pressed && s.pressed]}
+              onPress={() => ask(opener)}
+            >
+              <Text style={s.openerText}>{opener}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       <View style={s.composer}>
         <TextInput
           style={s.composerInput}
           value={draft}
           onChangeText={setDraft}
-          placeholder="Write to your coach…"
+          placeholder={`Ask ${COACH_NAME} anything…`}
           placeholderTextColor={C.faint}
           multiline
+          editable={!thinking}
+          onSubmitEditing={() => ask(draft)}
         />
-        <Pressable style={s.sendButton} onPress={send}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Send"
+          disabled={thinking || !draft.trim()}
+          style={[s.sendButton, (thinking || !draft.trim()) && s.sendDisabled]}
+          onPress={() => ask(draft)}
+        >
           <Text style={s.sendButtonText}>↑</Text>
         </Pressable>
       </View>
+
+      {messages.length > 6 && (
+        <Pressable
+          accessibilityRole="button"
+          style={s.secondaryButton}
+          onPress={scrollToTop}
+        >
+          <Text style={s.secondaryButtonText}>Back to the top</Text>
+        </Pressable>
+      )}
+
       <Text style={s.responseNote}>
-        Your coach replies between sessions. This is not an emergency channel.
+        {COACH_NAME} is software, and she is not a substitute for medical care.
+        For anything urgent, call 112. This is not an emergency channel.
+        {hasHumanCoach
+          ? " Where your coach has set something, that stands."
+          : ""}
       </Text>
     </>
   );
 }
-
 function Reports({
   doc,
   update,
@@ -4619,7 +4793,7 @@ function YouHub({
       </Text>
 
       <Card style={s.glanceCard}>
-        {rows.map((row) => (
+        {rows.map((row, index) => (
           <Pressable
             key={row.key}
             accessibilityRole="button"
@@ -4630,6 +4804,7 @@ function YouHub({
             }
             style={({ pressed }) => [
               s.domainRow,
+              index === 0 && s.domainRowFirst,
               pressed && s.domainRowPressed,
             ]}
             onPress={() => onOpen(row.key)}
@@ -5023,6 +5198,16 @@ function MemberApp({
   >(null);
   /** Progress opens on its own; null is the plan itself. */
   const [planSection, setPlanSection] = useState<null | "progress">(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollToTop = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, []);
+  // Every change of screen starts at the top of it. Without this the offset
+  // from the previous screen is inherited, which reads as a page opening
+  // half-way down.
+  useEffect(() => {
+    scrollToTop();
+  }, [tab, planSection, youSection, scrollToTop]);
   /** The current document, readable from callbacks without a stale closure. */
   const latest = useRef<MemberDoc | null>(null);
   /** Coach messages already seen, so only genuinely new ones are announced. */
@@ -5345,6 +5530,7 @@ function MemberApp({
               accessibilityLabel="See how it has been going"
               style={({ pressed }) => [
                 s.domainRow,
+                s.domainRowFirst,
                 pressed && s.domainRowPressed,
               ]}
               onPress={() => setPlanSection("progress")}
@@ -5365,7 +5551,8 @@ function MemberApp({
       );
   else if (tab === "food")
     content = <Food doc={doc} update={update} token={token} />;
-  else if (tab === "coach") content = <Coach doc={doc} update={update} />;
+  else if (tab === "coach")
+    content = <Coach doc={doc} update={update} token={token} />;
   else
     content = (
       <>
@@ -5462,6 +5649,7 @@ function MemberApp({
         </View>
       )}
       <ScrollView
+        ref={scrollRef}
         style={s.scroll}
         contentContainerStyle={s.content}
         refreshControl={
@@ -5475,7 +5663,9 @@ function MemberApp({
           />
         }
       >
-        {content}
+        <ScrollTopContext.Provider value={scrollToTop}>
+          {content}
+        </ScrollTopContext.Provider>
         <View style={{ height: 30 + insets.bottom }} />
       </ScrollView>
       <View style={[s.tabShell, { paddingBottom: Math.max(7, insets.bottom) }]}>
@@ -5688,11 +5878,46 @@ const s = StyleSheet.create({
   historyDotWater: { backgroundColor: "#8FBDB0" },
   historyItem: { color: C.ink, fontSize: 14, lineHeight: 20 },
   historyMeta: { color: C.faint, fontSize: 12, lineHeight: 17, marginTop: 1 },
+  /* The Coach tab. Vera is labelled, never dressed up as a person. */
+  coachHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+    marginBottom: 16,
+  },
+  coachAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: C.greenTint,
+    borderWidth: 1,
+    borderColor: C.line,
+  },
+  coachName: { color: C.ink, fontSize: 21, fontWeight: "700" },
+  coachRole: { color: C.soft, fontSize: 13, marginTop: 1 },
+  coachIntro: { color: C.soft, fontSize: 14, lineHeight: 21 },
+  humanCoachBubble: { borderLeftWidth: 3, borderLeftColor: C.marigold },
+  messageFromHuman: { color: C.marigold },
+  thinkingText: { color: C.soft, fontSize: 13, marginLeft: 8 },
+  openerWrap: { gap: 8, marginTop: 4, marginBottom: 4 },
+  opener: {
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: C.card,
+  },
+  openerText: { color: C.greenDeep, fontSize: 14, fontWeight: "600" },
+  sendDisabled: { opacity: 0.4 },
   learnToggle: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     minHeight: 62,
+    marginBottom: 12,
     paddingHorizontal: 16,
     borderRadius: 15,
     borderWidth: 1,
@@ -5817,6 +6042,8 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: C.line,
   },
+  /** First row in a glance card: the divider has nothing to divide. */
+  domainRowFirst: { borderTopWidth: 0 },
   domainRowPressed: { opacity: 0.6 },
   domainRowIcon: {
     width: 34,

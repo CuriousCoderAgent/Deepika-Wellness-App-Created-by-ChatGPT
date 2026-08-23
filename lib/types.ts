@@ -283,7 +283,8 @@ export interface CoachModule {
 export interface Message {
   id: string;
   memberId: string;
-  from: "coach" | "member" | "system";
+  /** "ai" is Vera. Kept distinct from "coach" so a human is never impersonated. */
+  from: "coach" | "member" | "system" | "ai";
   kind: "text" | "voice" | "plan_update";
   body: string;
   seconds?: number;
