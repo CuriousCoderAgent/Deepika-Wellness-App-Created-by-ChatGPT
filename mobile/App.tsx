@@ -2398,6 +2398,207 @@ function LearningLibrary({ weekFocus }: { weekFocus?: string[] }) {
   );
 }
 
+/**
+ * The record of what actually happened.
+ *
+ * Progress used to be four summary cards — a fortnight of dots, two averages
+ * and a symptom count. That answers "roughly how has it been", which is a
+ * smaller question than the one a member has after eight weeks: *what did I
+ * actually do?*
+ *
+ * This is the whole record, one day at a time: the movements completed and how
+ * they felt, the meals logged with their protein, the check-in, and water.
+ * Everything the app has ever stored about her, arranged by the day it
+ * happened.
+ *
+ * Fourteen days are shown, because that is a fortnight of real detail rather
+ * than an unreadable wall, and the rest loads on request. A ninety-day
+ * programme is ninety days of record; it just does not all need rendering
+ * before she has asked for it.
+ *
+ * The tone rules matter here more than anywhere. This is the screen most likely
+ * to be read as a report card, so an empty day says "nothing recorded" and
+ * stops there. No red, no "missed", no gaps counted up. A quiet Tuesday in
+ * March is not a failure to be reminded of in June.
+ */
+function History({ doc }: { doc: MemberDoc }) {
+  const [days, setDays] = useState(14);
+
+  const dayOf = (offset: number) => {
+    const date = new Date();
+    date.setDate(date.getDate() + offset);
+    return isoDate(date);
+  };
+
+  /** How far back there is anything at all, so "show more" can stop. */
+  const oldest = Math.min(
+    0,
+    ...(doc.actions ?? []).map((a) => a.dayOffset),
+    ...(doc.pulses ?? []).map((p) => p.dayOffset),
+    ...(doc.foodEntries ?? []).map((f) => f.dayOffset ?? 0),
+  );
+  const available = Math.max(14, Math.abs(oldest) + 1);
+
+  const rows = Array.from({ length: Math.min(days, available) }, (_, i) => {
+    const offset = -i;
+    const date = dayOf(offset);
+    const actions = (doc.actions ?? []).filter(
+      (a) => a.dayOffset === offset && a.completed,
+    );
+    const meals = (doc.foodEntries ?? []).filter((f) => f.loggedDate === date);
+    const pulse = (doc.pulses ?? []).find((p) => p.dayOffset === offset);
+    const logs = (doc.workoutLogs ?? []).filter((log) => {
+      const at = String(
+        (log as unknown as Record<string, unknown>).completedAt ?? "",
+      );
+      return at.slice(0, 10) === date;
+    });
+    const water = doc.hydrationLogs?.find((entry) => entry.date === date);
+    return { offset, date, actions, meals, pulse, logs, water };
+  }).filter(
+    (row) =>
+      row.offset === 0 ||
+      row.actions.length ||
+      row.meals.length ||
+      row.pulse ||
+      row.water,
+  );
+
+  const protein = (row: (typeof rows)[number]) =>
+    row.meals.reduce((sum, meal) => sum + (meal.protein ?? 0), 0);
+
+  return (
+    <>
+      <Text style={s.eyebrow}>YOUR RECORD</Text>
+      <Text style={s.hero}>Everything, day by day.</Text>
+      <Text style={s.heroCopy}>
+        What you did, what you ate and how you felt — kept so you can look back,
+        not so anything can be scored.
+      </Text>
+
+      {rows.length === 0 && (
+        <Card>
+          <Text style={s.empty}>
+            Your record starts the first day you log something.
+          </Text>
+        </Card>
+      )}
+
+      {rows.map((row) => {
+        const label =
+          row.offset === 0
+            ? "Today"
+            : row.offset === -1
+              ? "Yesterday"
+              : new Date(`${row.date}T12:00:00`).toLocaleDateString(undefined, {
+                  weekday: "short",
+                  day: "numeric",
+                  month: "short",
+                });
+        const nothing =
+          !row.actions.length && !row.meals.length && !row.pulse && !row.water;
+        return (
+          <Card key={row.date} style={s.historyDay}>
+            <View style={s.rowBetween}>
+              <Text style={s.historyDate}>{label}</Text>
+              {row.actions.length > 0 && (
+                <Text style={s.historyCount}>
+                  {row.actions.length} completed
+                </Text>
+              )}
+            </View>
+
+            {nothing ? (
+              <Text style={s.historyQuiet}>Nothing recorded.</Text>
+            ) : null}
+
+            {row.actions.map((action) => {
+              const log = row.logs.find(
+                (item) =>
+                  String(
+                    (item as unknown as Record<string, unknown>).actionId ?? "",
+                  ) === action.id,
+              );
+              const effort = log
+                ? Number(
+                    (log as unknown as Record<string, unknown>)
+                      .perceivedEffort ?? 0,
+                  )
+                : 0;
+              return (
+                <View key={action.id} style={s.historyLine}>
+                  <View style={s.historyDot} />
+                  <View style={s.flex}>
+                    <Text style={s.historyItem}>{action.title}</Text>
+                    <Text style={s.historyMeta}>
+                      {action.completed === "rest"
+                        ? "Rest — which counts"
+                        : `${action.completed}${effort ? ` · felt ${["", "very easy", "easy", "steady", "hard", "very hard"][effort]}` : ""}`}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+
+            {row.meals.length > 0 && (
+              <View style={s.historyLine}>
+                <View style={[s.historyDot, s.historyDotFood]} />
+                <View style={s.flex}>
+                  <Text style={s.historyItem}>
+                    {row.meals.length} meal{row.meals.length === 1 ? "" : "s"}
+                    {protein(row) ? ` · ${Math.round(protein(row))}g protein` : ""}
+                  </Text>
+                  <Text style={s.historyMeta} numberOfLines={2}>
+                    {row.meals.map((meal) => meal.description).join(" · ")}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {row.pulse && (
+              <View style={s.historyLine}>
+                <View style={[s.historyDot, s.historyDotPulse]} />
+                <View style={s.flex}>
+                  <Text style={s.historyItem}>Check-in</Text>
+                  <Text style={s.historyMeta}>
+                    {[
+                      row.pulse.energy ? `energy ${row.pulse.energy}/5` : "",
+                      row.pulse.sleep ? `sleep ${row.pulse.sleep}/5` : "",
+                      row.pulse.stress ? `stress ${row.pulse.stress}/5` : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {row.water && row.water.glasses > 0 && (
+              <View style={s.historyLine}>
+                <View style={[s.historyDot, s.historyDotWater]} />
+                <Text style={s.historyItem}>
+                  {row.water.glasses} glass
+                  {row.water.glasses === 1 ? "" : "es"} of water
+                </Text>
+              </View>
+            )}
+          </Card>
+        );
+      })}
+
+      {days < available && (
+        <Pressable
+          accessibilityRole="button"
+          style={s.secondaryButton}
+          onPress={() => setDays((value) => value + 28)}
+        >
+          <Text style={s.secondaryButtonText}>Show earlier days</Text>
+        </Pressable>
+      )}
+    </>
+  );
+}
+
 function Progress({ doc }: { doc: MemberDoc }) {
   const days = Array.from({ length: 14 }, (_, i) => i - 13);
   const active = days.filter((d) =>
@@ -4897,6 +5098,7 @@ function MemberApp({
             <Text style={s.backRowText}>Plan</Text>
           </Pressable>
           <Progress doc={doc} />
+          <History doc={doc} />
         </>
       ) : (
         <>
@@ -4918,7 +5120,7 @@ function MemberApp({
               <View style={s.flex}>
                 <Text style={s.domainRowTitle}>How it has been going</Text>
                 <Text style={s.domainRowDetail}>
-                  Your check-ins and completed days, week by week
+                  Your whole record — every day, what you did and how it felt
                 </Text>
               </View>
               <ChevronRight size={17} color={C.faint} />
@@ -5226,6 +5428,31 @@ const s = StyleSheet.create({
   topAvatarText: { color: C.greenDeep, fontSize: 11, fontWeight: "800" },
   saving: { color: C.green, fontSize: 11 },
   savingQueued: { color: C.calm, fontSize: 11 },
+
+  /* The record. Deliberately plain — this is the screen most likely to be read
+     as a report card, so there is no colour that could mean "bad". */
+  historyDay: { gap: 2 },
+  historyDate: { color: C.ink, fontSize: 15, fontWeight: "700" },
+  historyCount: { color: C.green, fontSize: 12, fontWeight: "700" },
+  historyQuiet: { color: C.faint, fontSize: 13, marginTop: 6 },
+  historyLine: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+    alignItems: "flex-start",
+  },
+  historyDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    marginTop: 6,
+    backgroundColor: C.green,
+  },
+  historyDotFood: { backgroundColor: C.marigold },
+  historyDotPulse: { backgroundColor: C.calm },
+  historyDotWater: { backgroundColor: "#8FBDB0" },
+  historyItem: { color: C.ink, fontSize: 14, lineHeight: 20 },
+  historyMeta: { color: C.faint, fontSize: 12, lineHeight: 17, marginTop: 1 },
   learnToggle: {
     flexDirection: "row",
     alignItems: "center",
