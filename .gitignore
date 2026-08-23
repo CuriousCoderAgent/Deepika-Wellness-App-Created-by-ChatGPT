@@ -25,3 +25,6 @@ yarn-error.log*
 next-env.d.ts
 .vercel
 .env*
+
+# Built APKs — ~85 MB each. Kept locally; the real copies live on EAS.
+builds/*.apk
