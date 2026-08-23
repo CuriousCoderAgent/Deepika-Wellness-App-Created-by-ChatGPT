@@ -4,6 +4,12 @@ const isDevelopmentBuild =
 module.exports = ({ config }) => ({
   ...config,
   name: isDevelopmentBuild ? "Bharosa Wellness Dev" : config.name,
+  ios: {
+    ...config.ios,
+    bundleIdentifier: isDevelopmentBuild
+      ? `${config.ios.bundleIdentifier}.dev`
+      : config.ios.bundleIdentifier,
+  },
   android: {
     ...config.android,
     package: isDevelopmentBuild

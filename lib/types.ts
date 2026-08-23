@@ -450,6 +450,12 @@ export type HealthMetric =
   | "heartRateVariability"
   | "vo2Max";
 
+export type HealthPermissionState =
+  | "not_requested"
+  | "requested"
+  | "granted"
+  | "denied";
+
 export interface HealthSnapshot {
   id: string;
   date: string;
@@ -457,6 +463,9 @@ export interface HealthSnapshot {
   value: number;
   unit: "count" | "bpm" | "ms" | "ml/kg/min";
   source: string;
+  provider?: "android_health_connect" | "apple_health";
+  /** Apple Health uses SDNN; Android Health Connect currently uses RMSSD. */
+  measurementMethod?: "rmssd" | "sdnn";
   recordedAt: string;
   available: boolean;
   provenance: Provenance;
@@ -466,7 +475,7 @@ export interface HealthConnection {
   platform: "android_health_connect" | "apple_health" | "none";
   status: "unavailable" | "disconnected" | "partial" | "connected" | "error";
   syncEnabled: boolean;
-  permissions: Record<HealthMetric, "not_requested" | "granted" | "denied">;
+  permissions: Record<HealthMetric, HealthPermissionState>;
   lastSyncAt?: string;
   message?: string;
 }

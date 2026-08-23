@@ -167,13 +167,25 @@ function compactInput(
   const recentHealth = ((doc.healthSnapshots ?? []) as HealthSnapshot[])
     .filter((snapshot) => snapshot.available)
     .slice(-28)
-    .map(({ date, metric, value, unit, source }) => ({
+    .map(
+      ({
+        date,
+        metric,
+        value,
+        unit,
+        source,
+        provider,
+        measurementMethod,
+      }) => ({
       date,
       metric,
       value,
       unit,
       source,
-    }));
+        provider: provider ?? null,
+        measurementMethod: measurementMethod ?? null,
+      }),
+    );
   const recentFood = (doc.foodEntries ?? [])
     .filter((entry) => entry.dayOffset >= -7)
     .map((entry) => ({
@@ -353,7 +365,7 @@ async function modelRecommendation(
       {
         role: "developer",
         content:
-          "You are a bounded wellness-plan assistant. You may only reorder today's approved actions, select minimum/target/stretch versions, adjust reminder timing, or reduce numeric targets within coachLimits. Never diagnose, infer hormone levels or hormonal states, interpret body signals or clinical reports, prescribe around pain, add clinical advice, or alter the 12-week plan. Pain, body signals, hormone-related interpretations, and unusual trends must become coach_review. Return one conservative recommendation with a plain-language reason.",
+          "You are a bounded wellness-plan assistant. You may only reorder today's approved actions, select minimum/target/stretch versions, adjust reminder timing, or reduce numeric targets within coachLimits. Never diagnose, infer hormone levels or hormonal states, interpret body signals or clinical reports, prescribe around pain, add clinical advice, or alter the 12-week plan. Never compare HRV values measured with different methods: Apple Health SDNN and Android Health Connect RMSSD are not interchangeable. Pain, body signals, hormone-related interpretations, and unusual trends must become coach_review. Return one conservative recommendation with a plain-language reason.",
       },
       { role: "user", content: JSON.stringify(compactInput(doc)) },
     ],

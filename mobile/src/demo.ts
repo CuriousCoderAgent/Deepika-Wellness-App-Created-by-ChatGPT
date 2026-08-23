@@ -51,7 +51,7 @@ export function createDemoMember(): MemberDoc {
       { id: "demo-food-3", memberId, dayOffset: -3, loggedDate: dateFromOffset(-3), meal: "Dinner", description: "Paneer bhurji with two rotis", calories: 620, protein: 32, carbs: 65, fat: 24, confidence: "estimated", createdAt: new Date(Date.now() - 3 * 86400000).toISOString() },
     ],
     healthConnection: {
-      platform: "android_health_connect",
+      platform: "none",
       status: "disconnected",
       syncEnabled: false,
       permissions: { steps: "not_requested", restingHeartRate: "not_requested", heartRateVariability: "not_requested", vo2Max: "not_requested" },

@@ -1,8 +1,9 @@
-import { Platform } from "react-native";
+import { Linking, Platform } from "react-native";
 import { isoDate } from "./normalize";
 import type { HealthConnection, HealthMetric, HealthSnapshot } from "./types";
 
 type HealthConnectModule = typeof import("react-native-health-connect");
+type HealthKitModule = typeof import("@kingstinct/react-native-healthkit");
 
 const RECORDS: Record<
   HealthMetric,
@@ -21,6 +22,29 @@ const METRIC_LABELS: Record<HealthMetric, string> = {
   vo2Max: "VO₂ max",
 };
 
+const APPLE_RECORDS = {
+  steps: "HKQuantityTypeIdentifierStepCount",
+  restingHeartRate: "HKQuantityTypeIdentifierRestingHeartRate",
+  heartRateVariability: "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
+  vo2Max: "HKQuantityTypeIdentifierVO2Max",
+} as const;
+
+const APPLE_UNITS: Record<HealthMetric, string> = {
+  steps: "count",
+  restingHeartRate: "count/min",
+  heartRateVariability: "ms",
+  vo2Max: "ml/(kg*min)",
+};
+
+const APPLE_SNAPSHOT_UNITS: Record<HealthMetric, HealthSnapshot["unit"]> = {
+  steps: "count",
+  restingHeartRate: "bpm",
+  heartRateVariability: "ms",
+  vo2Max: "ml/kg/min",
+};
+
+const APPLE_READ_TYPES = Object.values(APPLE_RECORDS);
+
 function emptyPermissions(): HealthConnection["permissions"] {
   return {
     steps: "not_requested",
@@ -35,6 +59,17 @@ function nativeModule(): HealthConnectModule | null {
   try {
     // Kept behind a runtime guard so Expo Go remains usable for non-native UI work.
     return require("react-native-health-connect") as HealthConnectModule;
+  } catch {
+    return null;
+  }
+}
+
+function appleNativeModule(): HealthKitModule | null {
+  if (Platform.OS !== "ios") return null;
+  try {
+    // HealthKit needs a custom development/TestFlight build; Expo Go cannot
+    // load this native module.
+    return require("@kingstinct/react-native-healthkit") as HealthKitModule;
   } catch {
     return null;
   }
@@ -65,19 +100,24 @@ function snapshot(
     | "windowStart"
     | "windowEnd"
     | "sourceOrigins"
-  >,
+  > &
+    Pick<HealthSnapshot, "provider" | "measurementMethod">,
 ): HealthSnapshot {
   const observedAt =
     metadata.observedAt ?? metadata.syncedAt ?? new Date().toISOString();
   const syncedAt = metadata.syncedAt ?? new Date().toISOString();
   return {
-    id: `health-${metric}-${date}`,
+    id:
+      metadata.provider === "apple_health"
+        ? `health-apple-${metric}-${date}`
+        : `health-${metric}-${date}`,
     date,
     metric,
     value,
     unit,
     source,
     ...metadata,
+    provider: metadata.provider ?? "android_health_connect",
     observedAt,
     syncedAt,
     recordedAt: observedAt,
@@ -234,6 +274,7 @@ async function readLatestHeartRateVariability(
         syncedAt,
         aggregation: "latest_record",
         sourceOrigins: [source],
+        measurementMethod: "rmssd",
       },
     ),
   ];
@@ -266,9 +307,284 @@ async function readLatestVo2Max(
   ];
 }
 
+type AppleSource = { name: string; bundleIdentifier: string };
+type AppleStatisticsResult = {
+  sumQuantity?: { quantity: number; unit: string };
+  sources: readonly AppleSource[];
+};
+type AppleQuantitySample = {
+  quantity: number;
+  unit: string;
+  startDate: Date;
+  endDate: Date;
+  sourceRevision: { source: AppleSource };
+};
+type AppleDateQuery = {
+  limit: number;
+  ascending?: boolean;
+  unit?: string;
+  filter: {
+    date: {
+      startDate: Date;
+      endDate: Date;
+      strictStartDate?: boolean;
+      strictEndDate?: boolean;
+    };
+  };
+};
+
+function requestedApplePermissions(): HealthConnection["permissions"] {
+  return (Object.keys(APPLE_RECORDS) as HealthMetric[]).reduce<
+    HealthConnection["permissions"]
+  >((permissions, metric) => {
+    // HealthKit intentionally does not reveal whether read access was granted
+    // or denied for a data type. "requested" is the honest member-facing state.
+    permissions[metric] = "requested";
+    return permissions;
+  }, emptyPermissions());
+}
+
+function appleSourceDetails(sources: readonly AppleSource[]) {
+  const names = [...new Set(sources.map((source) => source.name).filter(Boolean))];
+  const origins = [
+    ...new Set(
+      sources.map((source) => source.bundleIdentifier).filter(Boolean),
+    ),
+  ];
+  return {
+    source: names.join(", ") || "Apple Health",
+    origins,
+  };
+}
+
+async function readAppleStepAggregates(
+  health: HealthKitModule,
+  syncedAt: string,
+): Promise<HealthSnapshot[]> {
+  const query = health.queryStatisticsForQuantity as unknown as (
+    identifier: string,
+    statistics: readonly string[],
+    options: Omit<AppleDateQuery, "limit" | "ascending">,
+  ) => Promise<AppleStatisticsResult>;
+  const snapshots: HealthSnapshot[] = [];
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - offset);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    const syncDate = new Date(syncedAt);
+    const windowEnd = end > syncDate ? syncDate : end;
+    const result = await query(APPLE_RECORDS.steps, ["cumulativeSum"], {
+      unit: APPLE_UNITS.steps,
+      filter: {
+        date: {
+          startDate: start,
+          endDate: windowEnd,
+          strictStartDate: true,
+          strictEndDate: true,
+        },
+      },
+    });
+    if (typeof result.sumQuantity?.quantity !== "number") continue;
+    const details = appleSourceDetails(result.sources);
+    snapshots.push(
+      snapshot(
+        "steps",
+        isoDate(start),
+        result.sumQuantity.quantity,
+        APPLE_SNAPSHOT_UNITS.steps,
+        details.source,
+        {
+          provider: "apple_health",
+          observedAt: windowEnd.toISOString(),
+          syncedAt,
+          aggregation: "daily_sum",
+          windowStart: start.toISOString(),
+          windowEnd: windowEnd.toISOString(),
+          sourceOrigins: details.origins,
+        },
+      ),
+    );
+  }
+  return snapshots;
+}
+
+async function readLatestAppleMetric(
+  health: HealthKitModule,
+  metric: Exclude<HealthMetric, "steps">,
+  syncedAt: string,
+): Promise<HealthSnapshot[]> {
+  const query = health.queryQuantitySamples as unknown as (
+    identifier: string,
+    options: AppleDateQuery,
+  ) => Promise<readonly AppleQuantitySample[]>;
+  const days = metric === "vo2Max" ? 90 : 30;
+  const end = new Date(syncedAt);
+  const start = new Date(end);
+  start.setDate(start.getDate() - days);
+  const samples = await query(APPLE_RECORDS[metric], {
+    limit: 1,
+    ascending: false,
+    unit: APPLE_UNITS[metric],
+    filter: {
+      date: {
+        startDate: start,
+        endDate: end,
+        strictStartDate: true,
+        strictEndDate: true,
+      },
+    },
+  });
+  const latest = samples[0];
+  if (!latest) return [];
+  const details = appleSourceDetails([latest.sourceRevision.source]);
+  const observedAt = new Date(latest.endDate).toISOString();
+  return [
+    snapshot(
+      metric,
+      isoDate(new Date(latest.startDate)),
+      latest.quantity,
+      APPLE_SNAPSHOT_UNITS[metric],
+      details.source,
+      {
+        provider: "apple_health",
+        observedAt,
+        syncedAt,
+        aggregation: "latest_record",
+        sourceOrigins: details.origins,
+        measurementMethod:
+          metric === "heartRateVariability" ? "sdnn" : undefined,
+      },
+    ),
+  ];
+}
+
+async function syncAppleHealth(
+  requestPermissions: boolean,
+): Promise<{ connection: HealthConnection; snapshots: HealthSnapshot[] }> {
+  let knownPermissions = emptyPermissions();
+  const health = appleNativeModule();
+  if (!health) {
+    return {
+      connection: {
+        platform: "apple_health",
+        status: "unavailable",
+        syncEnabled: false,
+        permissions: knownPermissions,
+        message:
+          "Install the Bharosa iOS development or TestFlight build to connect Apple Health. Expo Go cannot load this native feature.",
+      },
+      snapshots: [],
+    };
+  }
+
+  try {
+    if (!(await health.isHealthDataAvailableAsync())) {
+      return {
+        connection: {
+          platform: "apple_health",
+          status: "unavailable",
+          syncEnabled: false,
+          permissions: knownPermissions,
+          message: "Apple Health is not available on this device.",
+        },
+        snapshots: [],
+      };
+    }
+
+    const authorization = { toRead: APPLE_READ_TYPES };
+    const requestStatus =
+      await health.getRequestStatusForAuthorization(authorization);
+    if (
+      !requestPermissions &&
+      requestStatus !== health.AuthorizationRequestStatus.unnecessary
+    ) {
+      return {
+        connection: {
+          platform: "apple_health",
+          status: "disconnected",
+          syncEnabled: false,
+          permissions: knownPermissions,
+          message:
+            "Open Connected health and tap Connect before Bharosa reads Apple Health on this iPhone.",
+        },
+        snapshots: [],
+      };
+    }
+
+    knownPermissions = requestedApplePermissions();
+    if (requestPermissions) {
+      const requestCompleted = await health.requestAuthorization(authorization);
+      if (!requestCompleted) {
+        throw new Error("Apple Health could not finish the access request.");
+      }
+    }
+
+    const syncTime = new Date().toISOString();
+    const snapshots: HealthSnapshot[] = [];
+    const readErrors: HealthMetric[] = [];
+    const readMetric = async (
+      metric: HealthMetric,
+      reader: () => Promise<HealthSnapshot[]>,
+    ) => {
+      try {
+        snapshots.push(...(await reader()));
+      } catch {
+        readErrors.push(metric);
+      }
+    };
+    await readMetric("steps", () => readAppleStepAggregates(health, syncTime));
+    await readMetric("restingHeartRate", () =>
+      readLatestAppleMetric(health, "restingHeartRate", syncTime),
+    );
+    await readMetric("heartRateVariability", () =>
+      readLatestAppleMetric(health, "heartRateVariability", syncTime),
+    );
+    await readMetric("vo2Max", () =>
+      readLatestAppleMetric(health, "vo2Max", syncTime),
+    );
+    const failedLabels = [...new Set(readErrors)]
+      .map((metric) => METRIC_LABELS[metric])
+      .join(", ");
+    return {
+      connection: {
+        platform: "apple_health",
+        status: readErrors.length ? "partial" : "connected",
+        syncEnabled: true,
+        permissions: knownPermissions,
+        lastSyncAt: syncTime,
+        message: readErrors.length
+          ? `Some Apple Health data could not be refreshed (${failedLabels}). Other accessible metrics remain usable.`
+          : snapshots.length
+            ? undefined
+            : "Apple Health returned no accessible recent data. This can mean no data, limited history, or access not shared; iOS does not reveal which.",
+      },
+      snapshots,
+    };
+  } catch (error) {
+    return {
+      connection: {
+        platform: "apple_health",
+        status: "error",
+        syncEnabled: Object.values(knownPermissions).some(
+          (permission) => permission === "requested",
+        ),
+        permissions: knownPermissions,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Apple Health could not be reached.",
+      },
+      snapshots: [],
+    };
+  }
+}
+
 export async function syncHealth(
   requestPermissions: boolean,
 ): Promise<{ connection: HealthConnection; snapshots: HealthSnapshot[] }> {
+  if (Platform.OS === "ios") return syncAppleHealth(requestPermissions);
   let knownPermissions = emptyPermissions();
   const health = nativeModule();
   if (!health) {
@@ -385,7 +701,11 @@ export async function syncHealth(
   }
 }
 
-export function openHealthSettings() {
+export async function openHealthSettings() {
   const health = nativeModule();
-  if (health) health.openHealthConnectSettings();
+  if (health) {
+    health.openHealthConnectSettings();
+    return;
+  }
+  if (Platform.OS === "ios") await Linking.openSettings();
 }

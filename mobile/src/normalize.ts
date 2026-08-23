@@ -246,7 +246,7 @@ function normalizeReport(entry: Record<string, unknown>): HealthReport {
 }
 
 export const EMPTY_HEALTH_CONNECTION: HealthConnection = {
-  platform: "android_health_connect",
+  platform: "none",
   status: "disconnected",
   syncEnabled: false,
   permissions: {

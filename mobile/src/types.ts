@@ -166,7 +166,11 @@ export type HealthMetric =
   | "restingHeartRate"
   | "heartRateVariability"
   | "vo2Max";
-export type HealthPermissionState = "not_requested" | "granted" | "denied";
+export type HealthPermissionState =
+  | "not_requested"
+  | "requested"
+  | "granted"
+  | "denied";
 
 export interface HealthSnapshot {
   id: string;
@@ -175,16 +179,20 @@ export interface HealthSnapshot {
   value: number;
   unit: "count" | "bpm" | "ms" | "ml/kg/min";
   source: string;
-  /** When Health Connect says the measurement or aggregate occurred. */
+  /** Native source used to read this snapshot. */
+  provider?: "android_health_connect" | "apple_health";
+  /** HRV methods differ by platform and must never be compared as equivalents. */
+  measurementMethod?: "rmssd" | "sdnn";
+  /** When the native health store says the measurement or aggregate occurred. */
   observedAt?: string;
-  /** When Bharosa most recently read this value from Health Connect. */
+  /** When Bharosa most recently read this value from the native health store. */
   syncedAt?: string;
   /** How the stored value was selected from the provider's records. */
   aggregation?: "daily_sum" | "latest_record";
   /** Present for windowed aggregates such as a calendar day's step total. */
   windowStart?: string;
   windowEnd?: string;
-  /** Every Health Connect origin included in an aggregate. */
+  /** Every native source included in an aggregate. */
   sourceOrigins?: string[];
   /** Legacy timestamp retained while older member documents are migrated. */
   recordedAt: string;
