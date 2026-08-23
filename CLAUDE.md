@@ -191,12 +191,14 @@ Keep it that way.
 ```
 app/
   page.tsx                  Landing / role chooser
-  member/                   Mobile-first, phone shell, 5 tabs, persona switcher
-    page.tsx                Today (M06) — the most important screen
-    journey|movement|progress|coach/
-    action/[id]/            Minimum→Target→Stretch completion
-    workout/[id]/           Session + RPE + pain flag
-    module/[id]/  reflection/
+  member/page.tsx           A signpost. The member app is the phone app —
+                            `mobile/`. The browser member app was retired on
+                            23 Aug 2026: it had fallen behind the pivot, had no
+                            readiness screen before offering exercise, and its
+                            consent copy still promised data was seen by
+                            "you and Deepika, nobody else", which the circle
+                            made untrue. Do not rebuild it without deciding to
+                            maintain two member front-ends.
   coach/                    Sidebar console
     page.tsx                Radar (C01) — the screen that makes this valuable
     members/[id]/           Member 360 + Assessment + Journey builder
