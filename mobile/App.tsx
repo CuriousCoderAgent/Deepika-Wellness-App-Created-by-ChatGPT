@@ -613,6 +613,7 @@ function ActionCard({
   };
   return (
     <Card style={[s.actionCard, inline && s.actionCardInline]}>
+      {!inline && (
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded }}
@@ -643,6 +644,7 @@ function ActionCard({
           <ChevronDown size={18} color={C.faint} />
         )}
       </Pressable>
+      )}
       {expanded && (
         <>
           <View style={s.whyBlock}>
@@ -1564,6 +1566,7 @@ function DomainRow({
   done,
   total,
   onPress,
+  expanded,
 }: {
   meta: { label: string; Icon: typeof Home };
   title: string;
@@ -1571,11 +1574,14 @@ function DomainRow({
   done: number;
   total: number;
   onPress: () => void;
+  /** Open, with its detail directly beneath. Undefined for rows that navigate. */
+  expanded?: boolean;
 }) {
   const complete = total > 0 && done >= total;
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ expanded }}
       accessibilityLabel={`${meta.label}: ${title}${total > 1 ? `, ${done} of ${total} done` : complete ? ", done" : ""}`}
       style={({ pressed }) => [s.domainRow, pressed && s.domainRowPressed]}
       onPress={onPress}
@@ -1599,7 +1605,11 @@ function DomainRow({
           {done}/{total}
         </Text>
       )}
-      <ChevronRight size={17} color={C.faint} />
+      {expanded ? (
+        <ChevronUp size={17} color={C.faint} />
+      ) : (
+        <ChevronRight size={17} color={C.faint} />
+      )}
     </Pressable>
   );
 }
@@ -1990,6 +2000,7 @@ function Today({
               }
               done={doneCount}
               total={inDomain.length}
+              expanded={expandedDomain === domain}
               onPress={() => {
                 if (isMovement && inDomain.length > 1) setOpenSession(true);
                 else setExpandedDomain(expandedDomain === domain ? null : domain);
