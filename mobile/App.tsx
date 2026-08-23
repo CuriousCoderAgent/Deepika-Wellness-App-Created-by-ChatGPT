@@ -39,7 +39,6 @@ import {
   ChevronRight,
   ChevronUp,
   CloudOff,
-  Droplets,
   Download,
   Dumbbell,
   Footprints,
@@ -112,18 +111,6 @@ import {
   readinessMessage,
   type ReadinessAnswer,
 } from "./src/readiness";
-import {
-  DEFAULT_HYDRATION_TARGET,
-  SUGGESTED_HABITS,
-  activeHabits,
-  habitDaysThisWeek,
-  habitDoneOn,
-  hydrationFor,
-  withHabitAdded,
-  withHabitArchived,
-  withHabitToggled,
-  withHydration,
-} from "./src/daily";
 import {
   cancelAllReminders,
   cancelDailyReminder,
@@ -959,12 +946,13 @@ function DailySnapshot({
             ]}
           >
             <View style={s.snapshotIcon}>
-              <tile.Icon size={15} color={C.greenDeep} />
+              <tile.Icon size={12} color={C.greenDeep} />
             </View>
-            <Text style={s.snapshotLabel}>{tile.label}</Text>
-            <Text style={s.snapshotValue}>{tile.value}</Text>
-            <Text numberOfLines={2} style={s.snapshotDetail}>
-              {tile.detail}
+            <Text numberOfLines={1} style={s.snapshotLabel}>
+              {tile.label}
+            </Text>
+            <Text numberOfLines={1} style={s.snapshotValue}>
+              {tile.value}
             </Text>
           </Pressable>
         ))}
@@ -1692,184 +1680,115 @@ function MovementSession({
 }
 
 /**
- * Water and habits.
+ * The circle, on Today.
  *
- * Both are one tap. Neither shows a streak, a target missed, or a number in
- * red: six glasses is six glasses, and the product's whole argument is that a
- * small thing done most days beats a perfect week done once.
+ * Connecting to other members is one of the reasons this app exists, and it was
+ * buried three taps deep under You. It belongs on the screen someone opens
+ * every morning.
+ *
+ * Deliberately small: names, how many days each has shown up this month, and a
+ * way in. No ranking and no numbers anyone can lose at — the evidence on
+ * activity apps is consistent that comparison drives beginners out, and this is
+ * the most-seen screen in the product, so it is the last place to put a ladder.
+ *
+ * It fails quietly. A member with no connections, no network, or a server
+ * having a bad morning sees nothing here rather than an error on the screen she
+ * opens to find out what to do today.
  */
-function DailyExtras({
-  doc,
-  update,
+function CircleToday({
+  token,
+  onOpenCircle,
 }: {
-  doc: MemberDoc;
-  update: (doc: MemberDoc) => void;
+  token: string;
+  onOpenCircle: () => void;
 }) {
-  const [newHabit, setNewHabit] = useState("");
-  const [adding, setAdding] = useState(false);
-  const glasses = hydrationFor(doc);
-  const habits = activeHabits(doc);
-  const today = isoDate();
-  const habitDays = habitDaysThisWeek(doc);
+  const [state, setState] = useState<CircleState | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (token === DEMO_TOKEN) return;
+    loadCircle(token)
+      .then((next) => {
+        if (!cancelled && next) setState(next);
+      })
+      .catch(() => {
+        // Today is not the place to report that the circle is unreachable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  if (!state) return null;
+  const waiting = state.requests.incoming.length;
+  const people = state.circle;
 
   return (
-    <>
-      <Card>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={
+        waiting
+          ? `Your circle, ${waiting} request${waiting === 1 ? "" : "s"} waiting`
+          : "Your circle"
+      }
+      onPress={onOpenCircle}
+    >
+      <Card style={s.circleTodayCard}>
         <View style={s.rowBetween}>
-          <View style={s.flex}>
-            <Text style={s.cardTitle}>Water today</Text>
-            <Text style={s.profileCopy}>
-              {glasses === 0
-                ? "Add a glass whenever you have one."
-                : `${glasses} glass${glasses === 1 ? "" : "es"} so far · about ${glasses * 250}ml`}
-            </Text>
+          <View style={s.rowInline}>
+            <Users size={16} color={C.greenDeep} />
+            <Text style={s.cardTitle}>Your circle</Text>
           </View>
-          <Droplets size={20} color={C.calm} />
-        </View>
-        <View style={s.waterRow}>
-          {Array.from({ length: DEFAULT_HYDRATION_TARGET }, (_, index) => {
-            const filled = index < glasses;
-            return (
-              <Pressable
-                key={index}
-                accessibilityRole="button"
-                accessibilityLabel={`${index + 1} glass${index === 0 ? "" : "es"}`}
-                accessibilityState={{ selected: filled }}
-                // Tapping the glass you are already on removes it, so a
-                // mis-tap is undone the same way it was made.
-                onPress={() =>
-                  update(
-                    withHydration(doc, glasses === index + 1 ? index : index + 1),
-                  )
-                }
-                style={[s.waterGlass, filled && s.waterGlassFilled]}
-              />
-            );
-          })}
-        </View>
-        {glasses > DEFAULT_HYDRATION_TARGET && (
-          <Text style={s.waterExtra}>
-            +{glasses - DEFAULT_HYDRATION_TARGET} more
-          </Text>
-        )}
-        <Pressable
-          accessibilityRole="button"
-          style={s.waterAdd}
-          onPress={() => update(withHydration(doc, glasses + 1))}
-        >
-          <Text style={s.waterAddText}>＋ Add a glass</Text>
-        </Pressable>
-      </Card>
-
-      <Card>
-        <View style={s.rowBetween}>
-          <View style={s.flex}>
-            <Text style={s.cardTitle}>Small habits</Text>
-            <Text style={s.profileCopy}>
-              {habits.length
-                ? habitDays
-                  ? `Ticked something on ${habitDays} of the last 7 days.`
-                  : "Nothing yet this week. Today is as good as any."
-                : "Add one small thing you would like to do most days."}
-            </Text>
-          </View>
-        </View>
-        {habits.map((habit) => {
-          const done = habitDoneOn(doc, habit.id, today);
-          return (
-            <View key={habit.id} style={s.habitRow}>
-              <Pressable
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: done }}
-                accessibilityLabel={habit.label}
-                style={s.habitTap}
-                onPress={() => update(withHabitToggled(doc, habit.id, today))}
-              >
-                <View style={[s.habitBox, done && s.habitBoxDone]}>
-                  {done && <Check size={13} color="#fff" strokeWidth={3} />}
-                </View>
-                <Text style={[s.habitLabel, done && s.habitLabelDone]}>
-                  {habit.label}
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Remove ${habit.label}`}
-                hitSlop={10}
-                onPress={() =>
-                  Alert.alert(
-                    "Remove this habit?",
-                    "The days you already ticked stay in your history.",
-                    [
-                      { text: "Keep it", style: "cancel" },
-                      {
-                        text: "Remove",
-                        style: "destructive",
-                        onPress: () => update(withHabitArchived(doc, habit.id)),
-                      },
-                    ],
-                  )
-                }
-              >
-                <Text style={s.habitRemove}>×</Text>
-              </Pressable>
+          {waiting ? (
+            <View style={s.tabBadge}>
+              <Text style={s.tabBadgeText}>{waiting > 9 ? "9+" : waiting}</Text>
             </View>
-          );
-        })}
-        {adding ? (
-          <View style={s.habitAddRow}>
-            <TextInput
-              style={[s.input, s.flex]}
-              value={newHabit}
-              onChangeText={setNewHabit}
-              placeholder="e.g. take my supplements"
-              placeholderTextColor={C.faint}
-              autoFocus
-              onSubmitEditing={() => {
-                update(withHabitAdded(doc, newHabit));
-                setNewHabit("");
-                setAdding(false);
-              }}
-            />
-            <Pressable
-              accessibilityRole="button"
-              style={s.habitAddButton}
-              onPress={() => {
-                update(withHabitAdded(doc, newHabit));
-                setNewHabit("");
-                setAdding(false);
-              }}
-            >
-              <Text style={s.habitAddButtonText}>Add</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <>
-            {!habits.length && (
-              <View style={s.habitSuggestions}>
-                {SUGGESTED_HABITS.slice(0, 3).map((label) => (
-                  <Pressable
-                    key={label}
-                    accessibilityRole="button"
-                    style={s.habitChip}
-                    onPress={() => update(withHabitAdded(doc, label))}
-                  >
-                    <Text style={s.habitChipText}>＋ {label}</Text>
-                  </Pressable>
-                ))}
+          ) : (
+            <ChevronRight size={17} color={C.faint} />
+          )}
+        </View>
+
+        {waiting > 0 ? (
+          <Text style={s.profileCopy}>
+            {waiting === 1
+              ? "Someone would like to connect with you."
+              : `${waiting} people would like to connect with you.`}
+          </Text>
+        ) : people.length ? (
+          <View style={s.circleTodayRow}>
+            {people.slice(0, 4).map((person) => (
+              <View key={person.memberId} style={s.circleTodayPerson}>
+                <View style={s.circleTodayAvatar}>
+                  <Text style={s.circleTodayInitial}>
+                    {person.displayName.trim().charAt(0).toUpperCase() || "?"}
+                  </Text>
+                </View>
+                <Text numberOfLines={1} style={s.circleTodayName}>
+                  {person.displayName.split(" ")[0]}
+                </Text>
+                <Text style={s.circleTodayDays}>
+                  {person.consistency?.activeDays ?? 0}d
+                </Text>
+              </View>
+            ))}
+            {people.length > 4 && (
+              <View style={s.circleTodayPerson}>
+                <View style={[s.circleTodayAvatar, s.circleTodayMore]}>
+                  <Text style={s.circleTodayInitial}>
+                    +{people.length - 4}
+                  </Text>
+                </View>
               </View>
             )}
-            <Pressable
-              accessibilityRole="button"
-              style={s.waterAdd}
-              onPress={() => setAdding(true)}
-            >
-              <Text style={s.waterAddText}>＋ Add a habit</Text>
-            </Pressable>
-          </>
+          </View>
+        ) : (
+          <Text style={s.profileCopy}>
+            Bharosa connects members going through the same thing. It is easier
+            with company.
+          </Text>
         )}
       </Card>
-    </>
+    </Pressable>
   );
 }
 
@@ -1878,11 +1797,13 @@ function Today({
   update,
   onOpenCoach,
   onOpenProfile,
+  token,
 }: {
   doc: MemberDoc;
   update: (doc: MemberDoc) => void;
   onOpenCoach: () => void;
   onOpenProfile: () => void;
+  token: string;
 }) {
   const [openSession, setOpenSession] = useState(false);
   /** Which single-action domain is expanded in place. Only one at a time. */
@@ -2036,8 +1957,6 @@ function Today({
           above the day rather than below it. */}
       <DailySnapshot doc={doc} onOpenProfile={onOpenProfile} />
 
-      <Pulse doc={doc} onChange={update} />
-
       <Card style={s.glanceCard}>
         <View style={s.rowBetween}>
           <Text style={s.cardTitle}>Your day</Text>
@@ -2100,7 +2019,13 @@ function Today({
             />
           ))}
 
-      <DailyExtras doc={doc} update={update} />
+      {/* The circle is a headline feature, not a setting buried under You. */}
+      <CircleToday token={token} onOpenCircle={onOpenProfile} />
+
+      {/* The check-in asks something of her, so it sits below what the app can
+          already tell her. */}
+      <Pulse doc={doc} onChange={update} />
+
       <DailyInsight doc={doc} />
       {coachNeedsAttention && (
         <CoachConnectionCard doc={doc} onOpenCoach={onOpenCoach} />
@@ -2322,7 +2247,6 @@ function Journey({ doc }: { doc: MemberDoc }) {
           );
         })}
       </View>
-      <LearningLibrary />
     </>
   );
 }
@@ -4857,6 +4781,7 @@ function MemberApp({
       <Today
         doc={doc}
         update={update}
+        token={token}
         onOpenCoach={() => setTab("coach")}
         onOpenProfile={() => setTab("profile")}
       />
@@ -4879,7 +4804,7 @@ function MemberApp({
       ) : (
         <>
           <Journey doc={doc} />
-          <EngagementPanel doc={doc} />
+          <LearningLibrary />
           <Card style={s.glanceCard}>
             <Pressable
               accessibilityRole="button"
@@ -5204,6 +5129,22 @@ const s = StyleSheet.create({
   topAvatarText: { color: C.greenDeep, fontSize: 11, fontWeight: "800" },
   saving: { color: C.green, fontSize: 11 },
   savingQueued: { color: C.calm, fontSize: 11 },
+  rowInline: { flexDirection: "row", alignItems: "center", gap: 8 },
+  circleTodayCard: { gap: 10 },
+  circleTodayRow: { flexDirection: "row", gap: 14, marginTop: 2 },
+  circleTodayPerson: { alignItems: "center", width: 56 },
+  circleTodayAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: C.greenTint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  circleTodayMore: { backgroundColor: C.line },
+  circleTodayInitial: { color: C.greenDeep, fontSize: 15, fontWeight: "800" },
+  circleTodayName: { color: C.ink, fontSize: 11, marginTop: 5 },
+  circleTodayDays: { color: C.faint, fontSize: 10, marginTop: 1 },
   calendarToggle: {
     flexDirection: "row",
     alignItems: "center",
@@ -5848,31 +5789,31 @@ const s = StyleSheet.create({
   snapshotIntro: { color: C.faint, fontSize: 10, marginTop: 3 },
   snapshotGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 14,
+    gap: 6,
+    marginTop: 12,
   },
   snapshotTile: {
-    width: "48.5%",
-    minHeight: 112,
-    borderRadius: 15,
+    flex: 1,
+    minHeight: 74,
+    borderRadius: 13,
     backgroundColor: C.paper,
-    padding: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
   },
   snapshotTileAction: { borderWidth: 1, borderColor: C.greenTint },
   snapshotIcon: {
-    width: 29,
-    height: 29,
-    borderRadius: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 8,
     backgroundColor: C.greenTint,
     alignItems: "center",
     justifyContent: "center",
   },
-  snapshotLabel: { color: C.faint, fontSize: 9, marginTop: 9 },
+  snapshotLabel: { color: C.faint, fontSize: 8, marginTop: 6 },
   snapshotValue: {
     color: C.ink,
-    fontSize: 19,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: "800",
     marginTop: 2,
   },
