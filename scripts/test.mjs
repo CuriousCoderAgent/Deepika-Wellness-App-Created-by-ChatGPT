@@ -703,3 +703,115 @@ test("the generator tolerates nonsense minutes without producing a nonsense day"
     assert.ok(session.length >= 1 && session.length <= 6, `${minutes} -> ${session.length}`);
   }
 });
+
+import { selectDailyActions, DAILY_ACTIONS } from "../lib/daily-actions-library.ts";
+
+const noSignals = {
+  goals: [],
+  poorSleep: false,
+  highStress: false,
+  lowFoodLogging: false,
+  lowProtein: false,
+  stepsConnected: false,
+};
+
+test("all four non-movement domains are always filled", () => {
+  const chosen = selectDailyActions(noSignals);
+  assert.deepEqual(
+    chosen.map((c) => c.domain).sort(),
+    ["mindset", "nutrition", "recovery", "walking"],
+  );
+});
+
+test("poor sleep changes what recovery offers", () => {
+  const rested = selectDailyActions(noSignals).find((c) => c.domain === "recovery");
+  const tired = selectDailyActions({ ...noSignals, poorSleep: true }).find(
+    (c) => c.domain === "recovery",
+  );
+  assert.notEqual(rested.id, tired.id);
+  assert.equal(tired.id, "rec-winddown");
+});
+
+test("poor sleep also reaches the walking domain", () => {
+  // Morning daylight is one of the few things that shifts sleep that night, so
+  // the signal is allowed to cross domains.
+  const tired = selectDailyActions({ ...noSignals, poorSleep: true }).find(
+    (c) => c.domain === "walking",
+  );
+  assert.equal(tired.id, "walk-morning-light");
+});
+
+test("a connected step source changes the walking action", () => {
+  const without = selectDailyActions(noSignals).find((c) => c.domain === "walking");
+  const with_ = selectDailyActions({ ...noSignals, stepsConnected: true }).find(
+    (c) => c.domain === "walking",
+  );
+  assert.equal(without.id, "walk-after-meal");
+  assert.equal(with_.id, "walk-steps");
+});
+
+test("low protein is what surfaces the protein action", () => {
+  const chosen = selectDailyActions({ ...noSignals, lowProtein: true }).find(
+    (c) => c.domain === "nutrition",
+  );
+  assert.equal(chosen.id, "nut-protein-anchor");
+});
+
+test("high stress changes the mindset action", () => {
+  const calm = selectDailyActions(noSignals).find((c) => c.domain === "mindset");
+  const stressed = selectDailyActions({ ...noSignals, highStress: true }).find(
+    (c) => c.domain === "mindset",
+  );
+  assert.notEqual(calm.id, stressed.id);
+});
+
+test("goals alone change what she is offered", () => {
+  const generic = selectDailyActions(noSignals).find((c) => c.domain === "recovery");
+  const sleepGoal = selectDailyActions({
+    ...noSignals,
+    goals: ["Sleep more consistently"],
+  }).find((c) => c.domain === "recovery");
+  assert.notEqual(generic.id, sleepGoal.id);
+});
+
+test("yesterday's action is not repeated when an alternative exists", () => {
+  const first = selectDailyActions({ ...noSignals, highStress: true }).find(
+    (c) => c.domain === "mindset",
+  );
+  const second = selectDailyActions({
+    ...noSignals,
+    highStress: true,
+    recentlyOffered: [first.id],
+  }).find((c) => c.domain === "mindset");
+  assert.notEqual(first.id, second.id);
+});
+
+test("a repeat is still better than nothing when there is no alternative", () => {
+  // Every id excluded: she must still be given a real action rather than a gap.
+  const chosen = selectDailyActions({
+    ...noSignals,
+    recentlyOffered: DAILY_ACTIONS.map((t) => t.id),
+  });
+  assert.equal(chosen.length, 4);
+  assert.ok(chosen.every(Boolean));
+});
+
+test("no domain action mentions a coach, a streak, or a missed day", () => {
+  // These were written for a coach-led product and now run un-coached. Copy
+  // that apologises for an absent coach is the bug this library replaced.
+  for (const template of DAILY_ACTIONS) {
+    const text = [template.title, template.why, template.minimum, template.target, template.stretch]
+      .join(" ")
+      .toLowerCase();
+    for (const word of ["coach", "streak", "missed", "failed", "behind"]) {
+      assert.ok(!text.includes(word), `${template.id} says "${word}"`);
+    }
+  }
+});
+
+test("every domain template offers a real minimum, not a thought", () => {
+  for (const template of DAILY_ACTIONS) {
+    assert.ok(template.minimum.length > 3, template.id);
+    assert.ok(template.why.length > 20, template.id);
+  }
+});

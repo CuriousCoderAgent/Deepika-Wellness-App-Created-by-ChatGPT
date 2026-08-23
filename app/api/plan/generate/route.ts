@@ -31,6 +31,11 @@ import {
   type GeneratorInput,
 } from "@/lib/plan-generator";
 import {
+  selectDailyActions,
+  type DailyActionTemplate,
+  type DomainSignals,
+} from "@/lib/daily-actions-library";
+import {
   nextDose,
   verdictFor,
   weekPostureFor,
@@ -161,6 +166,79 @@ function applyAdaptation(doc: MemberDoc, records: SessionRecord[]) {
     if (verdict.adjustment !== "hold") notes.push(verdict.reason);
   }
   return { steps, paused: [...paused], posture, notes };
+}
+
+/**
+ * What the other four domains should look like today.
+ *
+ * Every signal here was already being collected and read by nothing. Poor sleep
+ * ratings now change what recovery offers; consistently low protein changes
+ * what nutrition offers; whether a step source is connected decides between a
+ * step target and a timed walk.
+ */
+function domainSignals(doc: MemberDoc, signals: DailySignal[]): DomainSignals {
+  const week = signals.slice(-7);
+  const rated = (pick: (s: DailySignal) => number | undefined) =>
+    week.map(pick).filter((v): v is number => typeof v === "number" && v > 0);
+  const sleep = rated((s) => s.sleep);
+  const stress = rated((s) => s.stress);
+
+  const today = todayIso();
+  const recentFood = (doc.foodEntries ?? []).filter((entry) => {
+    const raw = entry as unknown as Record<string, unknown>;
+    const date = String(raw.loggedDate ?? "");
+    return date >= shiftDate(today, -3);
+  });
+  const protein = recentFood.reduce(
+    (sum, entry) => sum + Number((entry as unknown as Record<string, unknown>).protein ?? 0),
+    0,
+  );
+
+  return {
+    goals: doc.onboarding?.goals ?? [],
+    // Two or more poor nights in the last week, not a single bad one.
+    poorSleep: sleep.filter((value) => value <= 2).length >= 2,
+    highStress: stress.filter((value) => value <= 2).length >= 2,
+    lowFoodLogging: recentFood.length < 3,
+    // Only claimed when she has logged enough for the figure to mean anything.
+    lowProtein: recentFood.length >= 3 && protein / 3 < 40,
+    stepsConnected: Boolean(doc.healthConnection?.syncEnabled),
+    recentlyOffered: (doc.actions ?? [])
+      .filter((action) => action.dayOffset >= -3 && action.dayOffset < 0)
+      .map((action) => action.moduleId ?? "")
+      .filter(Boolean),
+  };
+}
+
+function shiftDate(date: string, days: number): string {
+  const base = Date.parse(`${date}T12:00:00Z`);
+  return new Date(base + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** A domain template becomes an action the existing Today screen understands. */
+function toDomainAction(
+  memberId: string,
+  template: DailyActionTemplate,
+): DailyAction {
+  return {
+    id: `generated-${memberId}-${template.id}-${todayIso()}`,
+    memberId,
+    dayOffset: 0,
+    moduleId: template.id,
+    domain: template.domain,
+    title: template.title,
+    why: template.why,
+    minimum: { label: template.minimum, minutes: 0 },
+    target: { label: template.target, minutes: 0 },
+    stretch: { label: template.stretch, minutes: 0 },
+    measurement: template.measurement,
+    completed: null,
+    provenance: {
+      source: "system_derived",
+      enteredBy: "bharosa",
+      at: new Date().toISOString(),
+    },
+  } as unknown as DailyAction;
 }
 
 /** A generated exercise becomes an action the existing Today screen understands. */
@@ -294,9 +372,15 @@ export async function POST() {
         !action.id.startsWith(`generated-${user.sub}-`) ||
         Boolean(action.completed),
     );
-    const generated = plan.session.map((item, index) =>
-      toAction(user.sub, item, index, why),
-    );
+    const coachOwned = new Set(coachAuthoredDomains(doc));
+    const domains = selectDailyActions(domainSignals(doc, dailySignals(doc)))
+      .filter((template) => !coachOwned.has(template.domain))
+      .map((template) => toDomainAction(user.sub, template));
+
+    const generated = [
+      ...plan.session.map((item, index) => toAction(user.sub, item, index, why)),
+      ...domains,
+    ];
     const alreadyThere = new Set(keep.map((a) => a.id));
 
     const next: MemberDoc = {
@@ -311,6 +395,7 @@ export async function POST() {
 
     return NextResponse.json({
       generated: generated.length,
+      domains: domains.length,
       posture: plan.posture,
       rationale: why,
       movementHeld: plan.movementHeld ?? null,
