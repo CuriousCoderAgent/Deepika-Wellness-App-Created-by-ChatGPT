@@ -240,15 +240,17 @@ function Login({
   };
 
   return (
-    <KeyboardAvoidingView
-      style={s.loginPage}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <ScrollView
-        contentContainerStyle={s.authScroll}
-        keyboardShouldPersistTaps="handled"
+    <SafeAreaView style={s.loginPage} edges={["left", "right", "bottom"]}>
+      <StatusBar style="light" />
+      <KeyboardAvoidingView
+        style={s.loginPage}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <LinearGradient colors={[C.greenDeep, "#0A6264"]} style={s.authHero}>
+        <ScrollView
+          contentContainerStyle={s.authScroll}
+          keyboardShouldPersistTaps="handled"
+        >
+          <LinearGradient colors={[C.greenDeep, "#0A6264"]} style={s.authHero}>
           <Image source={require("./assets/icon-v2.png")} style={s.brandIcon} />
           <Text style={s.brand}>BHAROSA WELLNESS</Text>
           <Text style={s.loginTitle}>
@@ -386,14 +388,15 @@ function Login({
             </Pressable>
           )}
         </View>
-        <Text style={s.privacyNote}>
-          Your wellness information is visible only to you and your authorised
-          coach. If you choose to join a circle, the people you accept see how
-          much of your plan you have done — never your meals, reports,
-          check-ins or messages.
-        </Text>
-      </ScrollView>
-    </KeyboardAvoidingView>
+          <Text style={s.privacyNote}>
+            Your wellness information is visible only to you and your authorised
+            coach. If you choose to join a circle, the people you accept see how
+            much of your plan you have done — never your meals, reports,
+            check-ins or messages.
+          </Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -4518,7 +4521,14 @@ function MemberApp({
     .join("")
     .slice(0, 2);
   return (
-    <SafeAreaView style={s.app} edges={["top", "left", "right"]}>
+    <SafeAreaView
+      style={s.app}
+      edges={
+        Platform.OS === "ios"
+          ? ["top", "left", "right", "bottom"]
+          : ["top", "left", "right"]
+      }
+    >
       <StatusBar style="dark" />
       <View style={s.topBar}>
         <Pressable
