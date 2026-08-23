@@ -91,7 +91,10 @@ import {
 import { exerciseMediaFor } from "./src/exerciseMedia";
 import { subscribeToConnectivity } from "./src/net";
 import { currentCell } from "./src/location";
-import { consistencySentence, type ConsistencySummary } from "./src/consistency";
+import {
+  consistencySentence,
+  type ConsistencySummary,
+} from "./src/consistency";
 
 /**
  * The whole vocabulary of encouragement.
@@ -384,8 +387,8 @@ function Login({
         <Text style={s.privacyNote}>
           Your wellness information is visible only to you and your authorised
           coach. If you choose to join a circle, the people you accept see how
-          much of your plan you have done — never your meals, reports,
-          check-ins or messages.
+          much of your plan you have done — never your meals, reports, check-ins
+          or messages.
         </Text>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -622,36 +625,38 @@ function ActionCard({
   return (
     <Card style={[s.actionCard, inline && s.actionCardInline]}>
       {!inline && (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-        style={s.actionTop}
-        onPress={() => setExpanded((value) => !value)}
-      >
-        <View style={s.domainIcon}>
-          <domain.Icon size={17} color={C.greenDeep} strokeWidth={2} />
-        </View>
-        <View style={s.actionText}>
-          <Text style={s.domainLabel}>{domain.label.toUpperCase()}</Text>
-          <Text style={s.actionTitle}>{action.title}</Text>
-          <Text style={s.actionOutcome}>{action.target.label}</Text>
-        </View>
-        <View style={[s.actionStatus, action.completed && s.actionStatusDone]}>
-          {action.completed ? (
-            <Check
-              style={{ margin: 4 }}
-              size={16}
-              strokeWidth={2.6}
-              color="white"
-            />
-          ) : null}
-        </View>
-        {expanded ? (
-          <ChevronUp size={18} color={C.faint} />
-        ) : (
-          <ChevronDown size={18} color={C.faint} />
-        )}
-      </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          style={s.actionTop}
+          onPress={() => setExpanded((value) => !value)}
+        >
+          <View style={s.domainIcon}>
+            <domain.Icon size={17} color={C.greenDeep} strokeWidth={2} />
+          </View>
+          <View style={s.actionText}>
+            <Text style={s.domainLabel}>{domain.label.toUpperCase()}</Text>
+            <Text style={s.actionTitle}>{action.title}</Text>
+            <Text style={s.actionOutcome}>{action.target.label}</Text>
+          </View>
+          <View
+            style={[s.actionStatus, action.completed && s.actionStatusDone]}
+          >
+            {action.completed ? (
+              <Check
+                style={{ margin: 4 }}
+                size={16}
+                strokeWidth={2.6}
+                color="white"
+              />
+            ) : null}
+          </View>
+          {expanded ? (
+            <ChevronUp size={18} color={C.faint} />
+          ) : (
+            <ChevronDown size={18} color={C.faint} />
+          )}
+        </Pressable>
       )}
       {expanded && (
         <>
@@ -706,7 +711,7 @@ function ActionCard({
                 <Text style={s.exerciseSets}>{action.exercise.sets}</Text>
                 <Text style={s.exerciseCue}>FORM GUIDE</Text>
               </View>
-{/* The id is exact; the name is the fallback for a coach-authored action.
+              {/* The id is exact; the name is the fallback for a coach-authored action.
                   A movement with no photograph renders nothing rather than a
                   broken frame — the numbered steps below are the instructions
                   either way. */}
@@ -1426,7 +1431,9 @@ function Onboarding({
                         }))
                       }
                     >
-                      <Text style={[s.optionText, active && s.optionTextActive]}>
+                      <Text
+                        style={[s.optionText, active && s.optionTextActive]}
+                      >
                         {value === "unsure"
                           ? "Not sure"
                           : value === "yes"
@@ -1646,10 +1653,7 @@ function MovementSession({
   onBack: () => void;
 }) {
   const done = actions.filter((a) => a.completed).length;
-  const minutes = actions.reduce(
-    (sum, a) => sum + (a.target?.minutes ?? 0),
-    0,
-  );
+  const minutes = actions.reduce((sum, a) => sum + (a.target?.minutes ?? 0), 0);
   return (
     <>
       <Pressable
@@ -1795,9 +1799,7 @@ function CircleToday({
             {people.length > 4 && (
               <View style={s.circleTodayPerson}>
                 <View style={[s.circleTodayAvatar, s.circleTodayMore]}>
-                  <Text style={s.circleTodayInitial}>
-                    +{people.length - 4}
-                  </Text>
+                  <Text style={s.circleTodayInitial}>+{people.length - 4}</Text>
                 </View>
               </View>
             )}
@@ -1994,44 +1996,47 @@ function Today({
           const only = inDomain[0]!;
           return (
             <View key={domain}>
-            <DomainRow
-              meta={meta}
-              title={
-                isMovement && inDomain.length > 1
-                  ? `${inDomain.length} movements`
-                  : only.title
-              }
-              detail={
-                isMovement && inDomain.length > 1
-                  ? `About ${inDomain.reduce((sum, a) => sum + (a.target?.minutes ?? 0), 0)} minutes`
-                  : only.target?.label
-              }
-              done={doneCount}
-              total={inDomain.length}
-              expanded={expandedDomain === domain}
-              onPress={() => {
-                if (isMovement && inDomain.length > 1) setOpenSession(true);
-                else setExpandedDomain(expandedDomain === domain ? null : domain);
-              }}
-            />
-            {expandedDomain === domain &&
-              inDomain.map((a) => (
-                <ActionCard
-                  key={a.id}
-                  action={a}
-                  inline
-                  recommendation={[...doc.recommendations]
-                    .reverse()
-                    .find(
-                      (item) =>
-                        item.actionId === a.id &&
-                        ["applied", "approved"].includes(item.status),
-                    )}
-                  onComplete={(level, effort, pain) =>
-                    complete(a.id, level, effort, pain)
-                  }
-                />
-              ))}
+              <DomainRow
+                meta={meta}
+                title={
+                  isMovement && inDomain.length > 1
+                    ? `${inDomain.length} movements`
+                    : only.title
+                }
+                detail={
+                  isMovement && inDomain.length > 1
+                    ? `About ${inDomain.reduce((sum, a) => sum + (a.target?.minutes ?? 0), 0)} minutes`
+                    : only.target?.label
+                }
+                done={doneCount}
+                total={inDomain.length}
+                expanded={expandedDomain === domain}
+                onPress={() => {
+                  if (isMovement && inDomain.length > 1) setOpenSession(true);
+                  else
+                    setExpandedDomain(
+                      expandedDomain === domain ? null : domain,
+                    );
+                }}
+              />
+              {expandedDomain === domain &&
+                inDomain.map((a) => (
+                  <ActionCard
+                    key={a.id}
+                    action={a}
+                    inline
+                    recommendation={[...doc.recommendations]
+                      .reverse()
+                      .find(
+                        (item) =>
+                          item.actionId === a.id &&
+                          ["applied", "approved"].includes(item.status),
+                      )}
+                    onComplete={(level, effort, pain) =>
+                      complete(a.id, level, effort, pain)
+                    }
+                  />
+                ))}
             </View>
           );
         })}
@@ -2052,6 +2057,297 @@ function Today({
   );
 }
 
+/**
+ * Awards.
+ *
+ * Fitness apps hand out three kinds of badge: cumulative volume (Peloton's 1,
+ * 10, 25, 50, 100 classes), consistency held over time, and one-off firsts.
+ * All three are here — with one rule that is ours. Nothing rewards intensity,
+ * and nothing can ever be taken away. A badge that disappears is a streak
+ * wearing a different hat, and this product is built against streaks.
+ *
+ * Three awards was too few to be a collection. Most members saw two grey
+ * circles and nothing within reach. Seventeen means something is nearly always
+ * close, and they arrive across walking, food, check-ins, rest and the circle
+ * rather than only for training hard — so the member who cannot train this
+ * month still has somewhere to go.
+ */
+interface AwardMetrics {
+  actions: number;
+  activeDays: number;
+  wholeDays: number;
+  movements: number;
+  walks: number;
+  meals: number;
+  checkIns: number;
+  rests: number;
+  circleSize: number;
+  healthConnected: boolean;
+}
+
+const AWARDS: {
+  id: string;
+  Icon: typeof Sparkles;
+  title: string;
+  copy: string;
+  /** Earned when this returns true. Pure, so it stays easy to reason about. */
+  earned: (m: AwardMetrics) => boolean;
+  /** How far along she is, shown only while it is still unearned. */
+  progress?: (m: AwardMetrics) => string;
+}[] = [
+  {
+    id: "first-step",
+    Icon: Sparkles,
+    title: "First step",
+    copy: "Your first completed action. Everything else is built on this one.",
+    earned: (m) => m.actions >= 1,
+  },
+  {
+    id: "five-actions",
+    Icon: Check,
+    title: "Finding a rhythm",
+    copy: "Five actions — proof that small efforts accumulate.",
+    earned: (m) => m.actions >= 5,
+    progress: (m) => `${m.actions} of 5 actions`,
+  },
+  {
+    id: "twelve-actions",
+    Icon: Trophy,
+    title: "Showing up",
+    copy: "Twelve actions, across real-life days rather than perfect ones.",
+    earned: (m) => m.actions >= 12,
+    progress: (m) => `${m.actions} of 12 actions`,
+  },
+  {
+    id: "fifty-actions",
+    Icon: Trophy,
+    title: "Fifty in",
+    copy: "Fifty completed actions. This is a habit now, not an experiment.",
+    earned: (m) => m.actions >= 50,
+    progress: (m) => `${m.actions} of 50 actions`,
+  },
+  {
+    id: "hundred-actions",
+    Icon: Trophy,
+    title: "One hundred",
+    copy: "A hundred actions. Very few people who start ever reach this.",
+    earned: (m) => m.actions >= 100,
+    progress: (m) => `${m.actions} of 100 actions`,
+  },
+  {
+    id: "week-active",
+    Icon: CalendarDays,
+    title: "A full week",
+    copy: "Seven separate days with something completed on them.",
+    earned: (m) => m.activeDays >= 7,
+    progress: (m) => `${m.activeDays} of 7 days`,
+  },
+  {
+    id: "month-active",
+    Icon: CalendarDays,
+    title: "A month of days",
+    copy: "Twenty-eight days with something on them. They did not have to be in a row.",
+    earned: (m) => m.activeDays >= 28,
+    progress: (m) => `${m.activeDays} of 28 days`,
+  },
+  {
+    id: "whole-day",
+    Icon: Home,
+    title: "The whole day",
+    copy: "One day where every part of the plan got something — movement, walking, food, rest and mind.",
+    earned: (m) => m.wholeDays >= 1,
+  },
+  {
+    id: "movement-ten",
+    Icon: Dumbbell,
+    title: "Ten sessions",
+    copy: "Ten movement sessions completed.",
+    earned: (m) => m.movements >= 10,
+    progress: (m) => `${m.movements} of 10 sessions`,
+  },
+  {
+    id: "movement-thirty",
+    Icon: Dumbbell,
+    title: "Thirty sessions",
+    copy: "Thirty movement sessions. Your body has had time to change.",
+    earned: (m) => m.movements >= 30,
+    progress: (m) => `${m.movements} of 30 sessions`,
+  },
+  {
+    id: "walk-ten",
+    Icon: Footprints,
+    title: "Walking it off",
+    copy: "Ten walks completed — the ten minutes after a meal that do the most work.",
+    earned: (m) => m.walks >= 10,
+    progress: (m) => `${m.walks} of 10 walks`,
+  },
+  {
+    id: "first-meal",
+    Icon: Utensils,
+    title: "First meal logged",
+    copy: "One meal written down tells you more than a week you tried to remember.",
+    earned: (m) => m.meals >= 1,
+  },
+  {
+    id: "meals-twenty",
+    Icon: Utensils,
+    title: "Twenty meals",
+    copy: "Enough meals recorded for your own patterns to become visible.",
+    earned: (m) => m.meals >= 20,
+    progress: (m) => `${m.meals} of 20 meals`,
+  },
+  {
+    id: "checkins-ten",
+    Icon: HeartPulse,
+    title: "Paying attention",
+    copy: "Ten check-ins. Noticing how you feel is its own skill.",
+    earned: (m) => m.checkIns >= 10,
+    progress: (m) => `${m.checkIns} of 10 check-ins`,
+  },
+  {
+    id: "rest-taken",
+    Icon: MoonStar,
+    title: "Rest counts",
+    copy: "You chose rest and recorded it. That is a decision, not a gap.",
+    earned: (m) => m.rests >= 1,
+  },
+  {
+    id: "health-connected",
+    Icon: ShieldCheck,
+    title: "Connected",
+    copy: "Your health source is linked, so steps count themselves.",
+    earned: (m) => m.healthConnected,
+  },
+  {
+    id: "circle-joined",
+    Icon: Users,
+    title: "Not alone",
+    copy: "Someone is in your circle. Company makes this considerably easier.",
+    earned: (m) => m.circleSize >= 1,
+  },
+];
+
+function awardMetrics(doc: MemberDoc): AwardMetrics {
+  const done = (doc.actions ?? []).filter((action) => action.completed);
+  const domainsByDay = new Map<number, Set<string>>();
+  for (const action of done) {
+    if (!domainsByDay.has(action.dayOffset))
+      domainsByDay.set(action.dayOffset, new Set());
+    domainsByDay.get(action.dayOffset)!.add(action.domain);
+  }
+  const health = doc.healthConnection?.status;
+  return {
+    actions: done.filter((action) => action.completed !== "rest").length,
+    activeDays: domainsByDay.size,
+    wholeDays: [...domainsByDay.values()].filter((set) => set.size >= 5).length,
+    movements: done.filter((action) => action.domain === "movement").length,
+    walks: done.filter((action) => action.domain === "walking").length,
+    meals: doc.foodEntries?.length ?? 0,
+    checkIns: doc.pulses?.length ?? 0,
+    rests: done.filter((action) => action.completed === "rest").length,
+    circleSize: doc.engagement?.circle?.memberCount ?? 0,
+    healthConnected: health === "connected" || health === "partial",
+  };
+}
+
+/**
+ * One row that scrolls sideways, with the description inside the same card.
+ *
+ * The first version stacked a full-width card per award and opened the
+ * description underneath all of them, which both added scrolling — the thing
+ * this whole redesign exists to remove — and made the description read as an
+ * unrelated panel. Everything is one card now: the strip along the top, and
+ * whatever is selected directly beneath it, so the tap and its answer are
+ * never more than a few pixels apart.
+ *
+ * Earned awards sort to the front, so the collection is what she sees first
+ * and the next thing to reach for sits immediately after it.
+ */
+function Awards({ doc }: { doc: MemberDoc }) {
+  const metrics = awardMetrics(doc);
+  const ordered = [...AWARDS].sort(
+    (a, b) => Number(b.earned(metrics)) - Number(a.earned(metrics)),
+  );
+  const earnedCount = AWARDS.filter((award) => award.earned(metrics)).length;
+  // Open on the next thing within reach rather than something already won.
+  const suggested =
+    ordered.find((award) => !award.earned(metrics)) ?? ordered[0]!;
+  const [selectedId, setSelectedId] = useState<string>(suggested.id);
+  const selected = AWARDS.find((award) => award.id === selectedId) ?? suggested;
+  const isEarned = selected.earned(metrics);
+
+  return (
+    <>
+      <View style={s.sectionHead}>
+        <Text style={s.sectionHeadTitle}>Awards</Text>
+        <Text style={s.sectionMeta}>
+          {earnedCount} of {AWARDS.length} earned
+        </Text>
+      </View>
+      <Card style={s.awardsCard}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.awardStrip}
+        >
+          {ordered.map((award) => {
+            const earned = award.earned(metrics);
+            const active = award.id === selectedId;
+            return (
+              <Pressable
+                key={award.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${award.title}. ${
+                  earned ? "Earned." : "Not yet earned."
+                }`}
+                style={s.awardItem}
+                onPress={() => setSelectedId(award.id)}
+              >
+                <View
+                  style={[
+                    s.awardBadge,
+                    earned && s.awardBadgeEarned,
+                    active && s.awardBadgeActive,
+                  ]}
+                >
+                  <award.Icon
+                    size={23}
+                    color={earned ? C.marigold : C.faint}
+                    strokeWidth={earned ? 2 : 1.5}
+                  />
+                </View>
+                <Text
+                  numberOfLines={2}
+                  style={[
+                    s.awardLabel,
+                    earned && s.awardLabelEarned,
+                    active && s.awardLabelActive,
+                  ]}
+                >
+                  {award.title}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <View style={[s.awardDetail, isEarned && s.awardDetailEarned]}>
+          <Text style={s.awardDetailTitle}>{selected.title}</Text>
+          <Text style={s.awardDetailCopy}>{selected.copy}</Text>
+          <Text
+            style={[s.awardDetailState, isEarned && s.awardDetailStateEarned]}
+          >
+            {isEarned
+              ? "Earned"
+              : (selected.progress?.(metrics) ?? "Not yet earned")}
+          </Text>
+        </View>
+      </Card>
+    </>
+  );
+}
+
 function Journey({ doc }: { doc: MemberDoc }) {
   const plans = weekPlansFor(doc.member);
   const [selectedWeek, setSelectedWeek] = useState(doc.member.week);
@@ -2059,9 +2355,6 @@ function Journey({ doc }: { doc: MemberDoc }) {
     plans.find((plan) => plan.week === selectedWeek) ??
     plans[doc.member.week - 1] ??
     plans[0]!;
-  const completed = doc.actions.filter(
-    (action) => action.completed && action.completed !== "rest",
-  ).length;
   const weekEndOffset = (selectedWeek - doc.member.week) * 7;
   const weekStartOffset = weekEndOffset - 6;
   const selectedActions = doc.actions.filter(
@@ -2077,27 +2370,6 @@ function Journey({ doc }: { doc: MemberDoc }) {
       : selectedWeek === doc.member.week
         ? "current"
         : "future";
-  const milestones = [
-    {
-      at: 1,
-      Icon: Sparkles,
-      title: "First step",
-      copy: "You completed your first supportive action.",
-    },
-    {
-      at: 5,
-      Icon: HeartPulse,
-      title: "Finding a rhythm",
-      copy: "Five actions—proof that small efforts accumulate.",
-    },
-    {
-      at: 12,
-      Icon: Trophy,
-      title: "Showing up",
-      copy: "Twelve actions across real-life days.",
-    },
-  ];
-  const [openMilestone, setOpenMilestone] = useState<number | null>(null);
   return (
     <>
       <Text style={s.eyebrow}>YOUR 12-WEEK JOURNEY</Text>
@@ -2249,62 +2521,7 @@ function Journey({ doc }: { doc: MemberDoc }) {
           </View>
         )}
       </Card>
-      <Text style={s.sectionTitle}>Milestones, not streaks</Text>
-      <View style={s.milestoneRow}>
-        {milestones.map((milestone) => {
-          const unlocked = completed >= milestone.at;
-          const open = openMilestone === milestone.at;
-          return (
-            <Pressable
-              key={milestone.at}
-              accessibilityRole="button"
-              accessibilityState={{ selected: open }}
-              accessibilityLabel={`${milestone.title}. ${
-                unlocked ? "Earned." : `Earned at ${milestone.at} actions.`
-              }`}
-              style={s.milestone}
-              onPress={() =>
-                setOpenMilestone(open ? null : milestone.at)
-              }
-            >
-              <View
-                style={[
-                  s.milestoneBadge,
-                  unlocked && s.milestoneBadgeEarned,
-                  open && s.milestoneBadgeOpen,
-                ]}
-              >
-                <milestone.Icon
-                  size={22}
-                  color={unlocked ? C.marigold : C.faint}
-                  strokeWidth={unlocked ? 2 : 1.6}
-                />
-              </View>
-              <Text
-                numberOfLines={2}
-                style={[s.milestoneTitle, unlocked && s.milestoneTitleUnlocked]}
-              >
-                {milestone.title}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      {openMilestone !== null && (
-        <View style={s.milestoneDetail}>
-          <Text style={s.milestoneDetailTitle}>
-            {milestones.find((m) => m.at === openMilestone)?.title}
-          </Text>
-          <Text style={s.milestoneCopy}>
-            {milestones.find((m) => m.at === openMilestone)?.copy}
-          </Text>
-          <Text style={s.milestoneDetailWhen}>
-            {completed >= openMilestone
-              ? "Earned."
-              : `Earned at ${openMilestone} completed actions — you are at ${completed}.`}
-          </Text>
-        </View>
-      )}
+      <Awards doc={doc} />
     </>
   );
 }
@@ -2348,7 +2565,8 @@ function LearningLibrary({ weekFocus }: { weekFocus?: string[] }) {
       if (
         (category === "recovery" && /sleep|rest|recover/.test(focus)) ||
         (category === "movement" && /strength|walk|move|mobil/.test(focus)) ||
-        (category === "nutrition" && /protein|meal|food|nutrition/.test(focus)) ||
+        (category === "nutrition" &&
+          /protein|meal|food|nutrition/.test(focus)) ||
         (category === "mindset" && /stress|reflect|mind/.test(focus))
       )
         return 2;
@@ -2359,6 +2577,10 @@ function LearningLibrary({ weekFocus }: { weekFocus?: string[] }) {
 
   return (
     <View>
+      <View style={s.sectionHead}>
+        <Text style={s.sectionHeadTitle}>Reading for this week</Text>
+        <Text style={s.sectionMeta}>{relevant.length} guides</Text>
+      </View>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
@@ -2366,9 +2588,11 @@ function LearningLibrary({ weekFocus }: { weekFocus?: string[] }) {
         onPress={() => setOpen((value) => !value)}
       >
         <View style={s.flex}>
-          <Text style={s.cardTitle}>Reading for this week</Text>
+          <Text style={s.cardTitle}>
+            {open ? "Hide the reading list" : "Open the reading list"}
+          </Text>
           <Text style={s.domainRowDetail}>
-            {relevant.length} short guides, the most relevant first
+            Chosen for where you are now — most relevant first
           </Text>
         </View>
         {open ? (
@@ -2379,21 +2603,23 @@ function LearningLibrary({ weekFocus }: { weekFocus?: string[] }) {
       </Pressable>
       {open &&
         relevant.map((item) => (
-        <Pressable
-          accessibilityRole="button"
-          key={item.id}
-          onPress={() => setArticleId(item.id)}
-          style={({ pressed }) => [s.articleCard, pressed && s.pressed]}
-        >
-          <View style={s.articleMeta}>
-            <Text style={s.articleCategory}>{item.category.toUpperCase()}</Text>
-            <Text style={s.articleMinutes}>{item.readMinutes} min</Text>
-          </View>
-          <Text style={s.articleTitle}>{item.title}</Text>
-          <Text style={s.articleSummary}>{item.summary}</Text>
-          <Text style={s.articleOpen}>Read guide ›</Text>
-        </Pressable>
-      ))}
+          <Pressable
+            accessibilityRole="button"
+            key={item.id}
+            onPress={() => setArticleId(item.id)}
+            style={({ pressed }) => [s.articleCard, pressed && s.pressed]}
+          >
+            <View style={s.articleMeta}>
+              <Text style={s.articleCategory}>
+                {item.category.toUpperCase()}
+              </Text>
+              <Text style={s.articleMinutes}>{item.readMinutes} min</Text>
+            </View>
+            <Text style={s.articleTitle}>{item.title}</Text>
+            <Text style={s.articleSummary}>{item.summary}</Text>
+            <Text style={s.articleOpen}>Read guide ›</Text>
+          </Pressable>
+        ))}
     </View>
   );
 }
@@ -2546,7 +2772,9 @@ function History({ doc }: { doc: MemberDoc }) {
                 <View style={s.flex}>
                   <Text style={s.historyItem}>
                     {row.meals.length} meal{row.meals.length === 1 ? "" : "s"}
-                    {protein(row) ? ` · ${Math.round(protein(row))}g protein` : ""}
+                    {protein(row)
+                      ? ` · ${Math.round(protein(row))}g protein`
+                      : ""}
                   </Text>
                   <Text style={s.historyMeta} numberOfLines={2}>
                     {row.meals.map((meal) => meal.description).join(" · ")}
@@ -2963,9 +3191,7 @@ function Food({
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: showCalendar }}
-        accessibilityLabel={
-          showCalendar ? "Hide the month" : "See another day"
-        }
+        accessibilityLabel={showCalendar ? "Hide the month" : "See another day"}
         style={s.calendarToggle}
         onPress={() => setShowCalendar((value) => !value)}
       >
@@ -2985,89 +3211,89 @@ function Food({
         )}
       </Pressable>
       {showCalendar && (
-      <Card style={s.calendarCard}>
-        <View style={s.calendarHeader}>
-          <Pressable
-            accessibilityLabel="Previous month"
-            style={s.calendarArrow}
-            onPress={() => changeMonth(-1)}
-          >
-            <ChevronLeft size={20} color={C.greenDeep} />
-          </Pressable>
-          <Text style={s.calendarMonth}>
-            {month.toLocaleDateString(undefined, {
-              month: "long",
-              year: "numeric",
-            })}
-          </Text>
-          <Pressable
-            accessibilityLabel="Next month"
-            style={s.calendarArrow}
-            onPress={() => changeMonth(1)}
-          >
-            <ChevronRight size={20} color={C.greenDeep} />
-          </Pressable>
-        </View>
-        <View style={s.calendarGrid}>
-          {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
-            <Text key={`${day}-${index}`} style={s.weekday}>
-              {day}
+        <Card style={s.calendarCard}>
+          <View style={s.calendarHeader}>
+            <Pressable
+              accessibilityLabel="Previous month"
+              style={s.calendarArrow}
+              onPress={() => changeMonth(-1)}
+            >
+              <ChevronLeft size={20} color={C.greenDeep} />
+            </Pressable>
+            <Text style={s.calendarMonth}>
+              {month.toLocaleDateString(undefined, {
+                month: "long",
+                year: "numeric",
+              })}
             </Text>
-          ))}
-          {calendar.map((cell, index) =>
-            cell ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: selectedDate === cell.date }}
-                key={cell.date}
-                onPress={() => setSelectedDate(cell.date)}
-                style={[
-                  s.calendarDay,
-                  selectedDate === cell.date && s.calendarDaySelected,
-                ]}
-              >
-                <Text
+            <Pressable
+              accessibilityLabel="Next month"
+              style={s.calendarArrow}
+              onPress={() => changeMonth(1)}
+            >
+              <ChevronRight size={20} color={C.greenDeep} />
+            </Pressable>
+          </View>
+          <View style={s.calendarGrid}>
+            {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
+              <Text key={`${day}-${index}`} style={s.weekday}>
+                {day}
+              </Text>
+            ))}
+            {calendar.map((cell, index) =>
+              cell ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: selectedDate === cell.date }}
+                  key={cell.date}
+                  onPress={() => setSelectedDate(cell.date)}
                   style={[
-                    s.calendarDayNumber,
-                    selectedDate === cell.date && s.calendarDayNumberSelected,
+                    s.calendarDay,
+                    selectedDate === cell.date && s.calendarDaySelected,
                   ]}
                 >
-                  {cell.day}
-                </Text>
-                {dailyTotals[cell.date] ? (
-                  <>
-                    <Text
-                      style={[
-                        s.calendarKcal,
-                        selectedDate === cell.date &&
-                          s.calendarDayNumberSelected,
-                      ]}
-                    >
-                      {dailyTotals[cell.date]?.calories ?? 0}k
-                    </Text>
-                    <View
-                      style={[
-                        s.proteinDot,
-                        (dailyTotals[cell.date]?.protein ?? 0) >= 20 &&
-                          s.proteinDotFull,
-                      ]}
-                    />
-                  </>
-                ) : null}
-              </Pressable>
-            ) : (
-              <View key={`blank-${index}`} style={s.calendarDay} />
-            ),
-          )}
-        </View>
-        <View style={s.calendarLegend}>
-          <View style={s.legendDot} />
-          <Text style={s.legendText}>Protein logged</Text>
-          <Text style={s.legendText}>
-            · figures are neutral estimates, not good/bad scores
-          </Text>
-        </View>
-      </Card>
+                  <Text
+                    style={[
+                      s.calendarDayNumber,
+                      selectedDate === cell.date && s.calendarDayNumberSelected,
+                    ]}
+                  >
+                    {cell.day}
+                  </Text>
+                  {dailyTotals[cell.date] ? (
+                    <>
+                      <Text
+                        style={[
+                          s.calendarKcal,
+                          selectedDate === cell.date &&
+                            s.calendarDayNumberSelected,
+                        ]}
+                      >
+                        {dailyTotals[cell.date]?.calories ?? 0}k
+                      </Text>
+                      <View
+                        style={[
+                          s.proteinDot,
+                          (dailyTotals[cell.date]?.protein ?? 0) >= 20 &&
+                            s.proteinDotFull,
+                        ]}
+                      />
+                    </>
+                  ) : null}
+                </Pressable>
+              ) : (
+                <View key={`blank-${index}`} style={s.calendarDay} />
+              ),
+            )}
+          </View>
+          <View style={s.calendarLegend}>
+            <View style={s.legendDot} />
+            <Text style={s.legendText}>Protein logged</Text>
+            <Text style={s.legendText}>
+              · figures are neutral estimates, not good/bad scores
+            </Text>
+          </View>
+        </Card>
       )}
       <Card>
         <View style={s.rowBetween}>
@@ -3616,17 +3842,16 @@ function HealthConnectionPanel({
                     s.permissionState,
                     ["granted", "requested"].includes(
                       connection.permissions[metric],
-                    ) &&
-                      s.permissionGranted,
+                    ) && s.permissionGranted,
                   ]}
                 >
                   {connection.permissions[metric] === "granted"
                     ? "Allowed"
                     : connection.permissions[metric] === "requested"
                       ? "Requested"
-                    : connection.permissions[metric] === "denied"
-                      ? "Not allowed"
-                      : "Not asked"}
+                      : connection.permissions[metric] === "denied"
+                        ? "Not allowed"
+                        : "Not asked"}
                 </Text>
               </View>
               <Text style={s.healthValue}>
@@ -3830,7 +4055,10 @@ function Circle({
                 "You can turn it on in your phone settings, or find members by city instead.",
                 [
                   { text: "Not now", style: "cancel" },
-                  { text: "Open settings", onPress: () => Linking.openSettings() },
+                  {
+                    text: "Open settings",
+                    onPress: () => Linking.openSettings(),
+                  },
                 ],
               );
               return;
@@ -3887,7 +4115,10 @@ function Circle({
     }
   };
 
-  const answer = async (memberId: string, decision: "accepted" | "declined") => {
+  const answer = async (
+    memberId: string,
+    decision: "accepted" | "declined",
+  ) => {
     setBusy(true);
     try {
       await answerConnection(token, memberId, decision);
@@ -4319,7 +4550,8 @@ function YouHub({
     .join("")
     .slice(0, 2);
   const health = doc.healthConnection;
-  const connected = health?.status === "connected" || health?.status === "partial";
+  const connected =
+    health?.status === "connected" || health?.status === "partial";
   const latestSteps = [...(doc.healthSnapshots ?? [])]
     .filter((snapshot) => snapshot.metric === "steps" && snapshot.available)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
@@ -4396,7 +4628,10 @@ function YouHub({
                 ? `${row.label}, ${row.badge} waiting`
                 : `${row.label}. ${row.detail}`
             }
-            style={({ pressed }) => [s.domainRow, pressed && s.domainRowPressed]}
+            style={({ pressed }) => [
+              s.domainRow,
+              pressed && s.domainRowPressed,
+            ]}
             onPress={() => onOpen(row.key)}
           >
             <View style={s.domainRowIcon}>
@@ -4633,8 +4868,8 @@ function Profile({
         </Text>
         <Text style={s.profileCopy}>
           Add other members for encouragement, below. Your meals, check-ins,
-          reports and messages are never shared — only how much of your plan
-          you have done, and only with people you accept.
+          reports and messages are never shared — only how much of your plan you
+          have done, and only with people you accept.
         </Text>
         <View style={s.inviteCode}>
           <Text style={s.inviteCodeLabel}>YOUR CODE</Text>
@@ -5458,7 +5693,6 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     minHeight: 62,
-    marginTop: 14,
     paddingHorizontal: 16,
     borderRadius: 15,
     borderWidth: 1,
@@ -5466,40 +5700,67 @@ const s = StyleSheet.create({
     backgroundColor: C.card,
   },
 
-  /* Milestones — a badge each, grey until earned, marigold once it is. */
-  milestoneBadge: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+  /* Awards — one sideways row, with the description inside the same card. */
+  awardsCard: {
+    paddingHorizontal: 0,
+    paddingTop: 15,
+    paddingBottom: 0,
+    overflow: "hidden",
+  },
+  awardStrip: { flexDirection: "row", gap: 6, paddingHorizontal: 13 },
+  awardItem: { width: 74, alignItems: "center" },
+  awardBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     borderWidth: 1.5,
     borderColor: C.line,
-    backgroundColor: C.card,
+    backgroundColor: "#F7F8F4",
     alignItems: "center",
     justifyContent: "center",
   },
-  milestoneBadgeEarned: {
-    borderColor: C.marigold,
+  awardBadgeEarned: {
+    borderColor: "#DDC994",
     backgroundColor: C.marigoldTint,
   },
-  milestoneBadgeOpen: { borderWidth: 2.5 },
-  milestoneDetail: {
-    marginTop: 12,
-    padding: 16,
-    borderRadius: 14,
-    backgroundColor: C.marigoldTint,
+  awardBadgeActive: { borderWidth: 2.5, borderColor: C.marigold },
+  awardLabel: {
+    color: C.faint,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: 7,
   },
-  milestoneDetailTitle: {
+  awardLabelEarned: { color: C.soft },
+  awardLabelActive: { color: C.ink, fontWeight: "700" },
+  awardDetail: {
+    marginTop: 15,
+    paddingHorizontal: 17,
+    paddingVertical: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.line,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    backgroundColor: "#F7F8F4",
+  },
+  awardDetailEarned: { backgroundColor: C.marigoldTint },
+  awardDetailTitle: {
     color: C.ink,
     fontSize: 15,
     fontWeight: "700",
-    marginBottom: 5,
+    marginBottom: 4,
   },
-  milestoneDetailWhen: {
-    color: C.marigold,
-    fontSize: 12,
+  awardDetailCopy: { color: C.soft, fontSize: 13, lineHeight: 19 },
+  awardDetailState: {
+    color: C.faint,
+    fontSize: 11,
     fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
     marginTop: 8,
   },
+  awardDetailStateEarned: { color: C.marigold },
   actionCardInline: {
     backgroundColor: "transparent",
     borderWidth: 0,
@@ -5538,7 +5799,12 @@ const s = StyleSheet.create({
     borderColor: C.line,
     backgroundColor: C.card,
   },
-  calendarToggleText: { color: C.green, flex: 1, fontSize: 14, fontWeight: "700" },
+  calendarToggleText: {
+    color: C.green,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+  },
 
   /* Today at a glance — five rows instead of ten stacked cards. */
   glanceCard: { paddingVertical: 6 },
@@ -5658,7 +5924,11 @@ const s = StyleSheet.create({
     borderRadius: 13,
     backgroundColor: C.greenTint,
   },
-  readinessOutcomeTitle: { color: C.greenDeep, fontSize: 15, fontWeight: "700" },
+  readinessOutcomeTitle: {
+    color: C.greenDeep,
+    fontSize: 15,
+    fontWeight: "700",
+  },
   readinessOutcomeBody: {
     color: C.greenDeep,
     fontSize: 13,
@@ -5737,7 +6007,12 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   habitAddButtonText: { color: C.greenDeep, fontSize: 14, fontWeight: "700" },
-  habitSuggestions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
+  habitSuggestions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+  },
   habitChip: {
     paddingVertical: 9,
     paddingHorizontal: 12,
@@ -5796,7 +6071,12 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   requestDeclineText: { color: C.soft, fontSize: 13, fontWeight: "600" },
-  settingLabel: { color: C.ink, fontSize: 14, fontWeight: "700", marginTop: 14 },
+  settingLabel: {
+    color: C.ink,
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 14,
+  },
   settingCopy: { color: C.faint, fontSize: 11, lineHeight: 16, marginTop: 4 },
   errorTitle: {
     color: C.ink,
@@ -6073,6 +6353,7 @@ const s = StyleSheet.create({
     marginTop: 16,
     marginBottom: 10,
   },
+  sectionHeadTitle: { color: C.ink, fontSize: 17, fontWeight: "700" },
   sectionMeta: { color: C.faint, fontSize: 12 },
   empty: { color: C.soft, fontSize: 14, lineHeight: 20, textAlign: "center" },
   planChange: {
@@ -6473,27 +6754,6 @@ const s = StyleSheet.create({
   listRow: { flexDirection: "row", gap: 10, marginTop: 13 },
   bullet: { color: C.green, fontSize: 15, fontWeight: "700" },
   listText: { flex: 1, color: C.ink, fontSize: 15, lineHeight: 21 },
-  milestoneRow: { gap: 9 },
-  milestone: {
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: C.line,
-    padding: 15,
-    backgroundColor: "#F7F8F4",
-  },
-  milestoneUnlocked: {
-    backgroundColor: C.marigoldTint,
-    borderColor: "#DDC994",
-  },
-  milestoneIcon: { color: C.marigold, fontSize: 18 },
-  milestoneTitle: {
-    color: C.faint,
-    fontSize: 14,
-    fontWeight: "700",
-    marginTop: 7,
-  },
-  milestoneTitleUnlocked: { color: C.ink },
-  milestoneCopy: { color: C.soft, fontSize: 12, lineHeight: 17, marginTop: 3 },
   dotRow: {
     flexDirection: "row",
     justifyContent: "space-between",
