@@ -255,6 +255,79 @@ export interface OnboardingState {
   primaryGoal?: string;
 }
 
+/**
+ * Hydration and habits carry a calendar `date` and no `dayOffset`.
+ *
+ * Relative offsets have to be re-based on read and rot silently when nothing
+ * does it — that was a real bug. Anything added from here on stores the day it
+ * happened and derives the rest.
+ */
+export interface HydrationLog {
+  id: string;
+  memberId: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  /** Glasses of roughly 250ml. A member counts glasses, not millilitres. */
+  glasses: number;
+}
+
+export interface HabitDefinition {
+  id: string;
+  memberId: string;
+  label: string;
+  createdAt: string;
+  /** Kept rather than deleted, so past completions stay meaningful. */
+  archived?: boolean;
+}
+
+export interface HabitLog {
+  id: string;
+  memberId: string;
+  habitId: string;
+  /** YYYY-MM-DD. */
+  date: string;
+}
+
+/** Her own circle settings. Both sharing switches start off. */
+export interface CircleProfile {
+  displayName: string;
+  city?: string;
+  discoverable: boolean;
+  shareActivity: boolean;
+  shareSteps: boolean;
+}
+
+/**
+ * Everything one member may see about another.
+ *
+ * Built server-side in `lib/circle.ts` field by field. Meals, photos, reports,
+ * mood, symptoms and coach messages are never part of it.
+ */
+export interface CircleActivity {
+  memberId: string;
+  displayName: string;
+  actionsCompleted: number;
+  actionsTotal: number;
+  activeDays: number;
+  steps?: number;
+  hydrationGlasses?: number;
+  city?: string;
+}
+
+export interface CircleRequest {
+  memberId: string;
+  displayName: string;
+  city?: string;
+  requestedAt: string;
+}
+
+export interface CircleState {
+  profile: CircleProfile;
+  me: CircleActivity;
+  circle: CircleActivity[];
+  requests: { incoming: CircleRequest[]; outgoing: CircleRequest[] };
+}
+
 export interface MemberDoc {
   member: Member;
   actions: DailyAction[];
@@ -268,6 +341,9 @@ export interface MemberDoc {
   healthSnapshots: HealthSnapshot[];
   recommendations: AiRecommendation[];
   onboarding: OnboardingState;
+  hydrationLogs?: HydrationLog[];
+  habits?: HabitDefinition[];
+  habitLogs?: HabitLog[];
   engagement?: {
     weeklyGoal: number;
     activeChallenge?: {

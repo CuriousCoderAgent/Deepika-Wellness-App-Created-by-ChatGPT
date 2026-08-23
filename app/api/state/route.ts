@@ -183,6 +183,19 @@ function mergeMemberUpdate(
         memberId,
       }),
     ),
+    // Hydration, habits and their logs are hers alone: the coach console has
+    // no editor for them, so the member's copy is authoritative.
+    hydrationLogs: (incoming.hydrationLogs ?? existing.hydrationLogs ?? []).map(
+      (entry) => ({ ...entry, memberId }),
+    ),
+    habits: (incoming.habits ?? existing.habits ?? []).map((entry) => ({
+      ...entry,
+      memberId,
+    })),
+    habitLogs: (incoming.habitLogs ?? existing.habitLogs ?? []).map((entry) => ({
+      ...entry,
+      memberId,
+    })),
     healthConnection: incoming.healthConnection ?? existing.healthConnection,
     healthSnapshots: incoming.healthSnapshots ?? existing.healthSnapshots ?? [],
     recommendations: incoming.recommendations ?? existing.recommendations ?? [],

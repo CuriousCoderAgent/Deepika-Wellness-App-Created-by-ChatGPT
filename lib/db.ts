@@ -182,6 +182,34 @@ async function init(): Promise<void> {
     );
     create index if not exists private_file_owner_idx
       on private_file (owner_id, created_at desc) where deleted_at is null;
+
+    create table if not exists circle_profile (
+      user_id        text primary key,
+      display_name   text not null default '',
+      city           text,
+      discoverable   boolean not null default false,
+      share_activity boolean not null default false,
+      share_steps    boolean not null default false,
+      updated_at     timestamptz not null default now()
+    );
+    -- Discovery only ever queries by city, and only rows that opted in.
+    create index if not exists circle_profile_city_idx
+      on circle_profile (lower(city)) where discoverable;
+
+    create table if not exists circle_connection (
+      requester_id text not null,
+      addressee_id text not null,
+      status       text not null
+        check (status in ('pending', 'accepted', 'declined', 'blocked')),
+      created_at   timestamptz not null default now(),
+      responded_at timestamptz,
+      primary key (requester_id, addressee_id),
+      check (requester_id <> addressee_id)
+    );
+    create index if not exists circle_connection_addressee_idx
+      on circle_connection (addressee_id, status);
+    create index if not exists circle_connection_requester_idx
+      on circle_connection (requester_id, status);
   `);
 
   // The marker, not a row count, decides whether to seed. Counting would
@@ -672,6 +700,15 @@ export async function deleteAccountData(userId: string): Promise<{
     await client.query("delete from private_file where owner_id = $1", [
       userId,
     ]);
+    // Deletion must not leave her in anyone else's circle, or on a discovery
+    // list, after her record is gone.
+    await client.query(
+      "delete from circle_connection where requester_id = $1 or addressee_id = $1",
+      [userId],
+    );
+    await client.query("delete from circle_profile where user_id = $1", [
+      userId,
+    ]);
     // password_reset_token cascades from account, but a MEMBERS account has no
     // account row for it to cascade from.
     await client.query("delete from password_reset_token where user_id = $1", [
@@ -692,4 +729,234 @@ export async function deleteAccountData(userId: string): Promise<{
   } finally {
     client.release();
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Circle — member-to-member connections                               */
+/* ------------------------------------------------------------------ */
+
+export interface StoredCircleProfile {
+  userId: string;
+  displayName: string;
+  city: string | null;
+  discoverable: boolean;
+  shareActivity: boolean;
+  shareSteps: boolean;
+}
+
+const EMPTY_PROFILE = (userId: string): StoredCircleProfile => ({
+  userId,
+  displayName: "",
+  city: null,
+  // Both default off. A member joins a circle by choosing to, not by
+  // signing up.
+  discoverable: false,
+  shareActivity: false,
+  shareSteps: false,
+});
+
+function toProfile(row: Record<string, unknown>): StoredCircleProfile {
+  return {
+    userId: String(row.user_id),
+    displayName: String(row.display_name ?? ""),
+    city: (row.city as string | null) ?? null,
+    discoverable: Boolean(row.discoverable),
+    shareActivity: Boolean(row.share_activity),
+    shareSteps: Boolean(row.share_steps),
+  };
+}
+
+export async function readCircleProfile(
+  userId: string,
+): Promise<StoredCircleProfile> {
+  await ensureReady();
+  const r = await db().query(
+    "select * from circle_profile where user_id = $1",
+    [userId],
+  );
+  return r.rows[0] ? toProfile(r.rows[0]) : EMPTY_PROFILE(userId);
+}
+
+export async function readCircleProfiles(
+  userIds: string[],
+): Promise<Map<string, StoredCircleProfile>> {
+  if (!userIds.length) return new Map();
+  await ensureReady();
+  const r = await db().query(
+    "select * from circle_profile where user_id = any($1::text[])",
+    [userIds],
+  );
+  const found = new Map<string, StoredCircleProfile>(
+    r.rows.map((row) => [String(row.user_id), toProfile(row)]),
+  );
+  // A member with no row has simply never opened the screen. Return the
+  // all-off default rather than nothing, so callers need no special case.
+  for (const id of userIds) if (!found.has(id)) found.set(id, EMPTY_PROFILE(id));
+  return found;
+}
+
+export async function writeCircleProfile(
+  profile: StoredCircleProfile,
+): Promise<void> {
+  await ensureReady();
+  await db().query(
+    `insert into circle_profile
+       (user_id, display_name, city, discoverable, share_activity, share_steps, updated_at)
+     values ($1, $2, $3, $4, $5, $6, now())
+     on conflict (user_id) do update set
+       display_name = excluded.display_name,
+       city = excluded.city,
+       discoverable = excluded.discoverable,
+       share_activity = excluded.share_activity,
+       share_steps = excluded.share_steps,
+       updated_at = now()`,
+    [
+      profile.userId,
+      profile.displayName,
+      profile.city,
+      profile.discoverable,
+      profile.shareActivity,
+      profile.shareSteps,
+    ],
+  );
+}
+
+export interface StoredConnection {
+  requesterId: string;
+  addresseeId: string;
+  status: "pending" | "accepted" | "declined" | "blocked";
+  createdAt: string;
+  respondedAt: string | null;
+}
+
+function toConnection(row: Record<string, unknown>): StoredConnection {
+  return {
+    requesterId: String(row.requester_id),
+    addresseeId: String(row.addressee_id),
+    status: row.status as StoredConnection["status"],
+    createdAt: new Date(row.created_at as string).toISOString(),
+    respondedAt: row.responded_at
+      ? new Date(row.responded_at as string).toISOString()
+      : null,
+  };
+}
+
+/** Every connection this member is either side of. */
+export async function readConnectionsFor(
+  userId: string,
+): Promise<StoredConnection[]> {
+  await ensureReady();
+  const r = await db().query(
+    `select * from circle_connection
+     where requester_id = $1 or addressee_id = $1
+     order by created_at desc`,
+    [userId],
+  );
+  return r.rows.map(toConnection);
+}
+
+export async function readConnectionBetween(
+  a: string,
+  b: string,
+): Promise<StoredConnection | null> {
+  await ensureReady();
+  const r = await db().query(
+    `select * from circle_connection
+     where (requester_id = $1 and addressee_id = $2)
+        or (requester_id = $2 and addressee_id = $1)`,
+    [a, b],
+  );
+  return r.rows[0] ? toConnection(r.rows[0]) : null;
+}
+
+/**
+ * Ask to connect.
+ *
+ * Returns false when a connection already exists in either direction, which
+ * covers the ordinary race of two people adding each other at once as well as
+ * an attempt to re-send a request that was declined. A declined request is not
+ * silently reopened: someone who said no should not have to say it repeatedly.
+ */
+export async function createConnectionRequest(
+  requesterId: string,
+  addresseeId: string,
+): Promise<boolean> {
+  await ensureReady();
+  const r = await db().query(
+    `insert into circle_connection (requester_id, addressee_id, status)
+     values ($1, $2, 'pending')
+     on conflict do nothing`,
+    [requesterId, addresseeId],
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
+/** Only the addressee may answer, which is enforced in the query itself. */
+export async function respondToConnection(
+  addresseeId: string,
+  requesterId: string,
+  status: "accepted" | "declined" | "blocked",
+): Promise<boolean> {
+  await ensureReady();
+  const r = await db().query(
+    `update circle_connection set status = $3, responded_at = now()
+     where requester_id = $1 and addressee_id = $2 and status = 'pending'`,
+    [requesterId, addresseeId, status],
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
+/** Either side can walk away, at any time, without asking the other. */
+export async function removeConnection(
+  userId: string,
+  otherId: string,
+): Promise<boolean> {
+  await ensureReady();
+  const r = await db().query(
+    `delete from circle_connection
+     where (requester_id = $1 and addressee_id = $2)
+        or (requester_id = $2 and addressee_id = $1)`,
+    [userId, otherId],
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
+/**
+ * Members in the same city who have opted in to being found.
+ *
+ * City is the most precise location this ever handles. Anyone already
+ * connected, already asked, or who declined is excluded, so the list is people
+ * she could actually reach out to and declining removes someone from view.
+ */
+export async function discoverByCity(
+  userId: string,
+  city: string,
+  limit = 25,
+): Promise<StoredCircleProfile[]> {
+  await ensureReady();
+  const r = await db().query(
+    `select p.* from circle_profile p
+     where p.discoverable
+       and lower(p.city) = lower($2)
+       and p.user_id <> $1
+       and not exists (
+         select 1 from circle_connection c
+         where (c.requester_id = $1 and c.addressee_id = p.user_id)
+            or (c.requester_id = p.user_id and c.addressee_id = $1)
+       )
+     order by p.updated_at desc
+     limit $3`,
+    [userId, city, limit],
+  );
+  return r.rows.map(toProfile);
+}
+
+/** Deleting an account must not leave her in anyone else's circle. */
+export async function deleteCircleData(userId: string): Promise<void> {
+  await ensureReady();
+  await db().query(
+    "delete from circle_connection where requester_id = $1 or addressee_id = $1",
+    [userId],
+  );
+  await db().query("delete from circle_profile where user_id = $1", [userId]);
 }

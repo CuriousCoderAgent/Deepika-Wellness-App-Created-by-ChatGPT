@@ -1,5 +1,5 @@
 import * as SecureStore from "expo-secure-store";
-import type { MemberDoc } from "./types";
+import type { CircleState, MemberDoc } from "./types";
 import { createDemoMember } from "./demo";
 import { normalizeMemberDoc } from "./normalize";
 
@@ -242,4 +242,130 @@ export async function deleteAccount(token: string, password: string) {
   const body = await parse(response);
   await SecureStore.deleteItemAsync(TOKEN_KEY);
   return body as { deleted: boolean; credentialRemoved: boolean; message: string };
+}
+
+/* ------------------------------------------------------------------ */
+/* Circle                                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Her circle, and what her connections have done today.
+ *
+ * The server sends a projection built field by field — completion counts,
+ * days shown up, optionally steps. No part of anyone's member document
+ * crosses this boundary.
+ */
+export async function loadCircle(token: string): Promise<CircleState | null> {
+  if (token === DEMO_TOKEN) return null;
+  const response = await fetch(endpoint("/api/circle"), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parse(response) as Promise<CircleState>;
+}
+
+export async function saveCircleSettings(
+  token: string,
+  settings: Partial<CircleState["profile"]>,
+) {
+  if (token === DEMO_TOKEN) return null;
+  const response = await fetch(endpoint("/api/circle"), {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(settings),
+  });
+  return parse(response) as Promise<{ profile: CircleState["profile"] }>;
+}
+
+/** Members in the same city who chose to be findable. City is the limit. */
+export async function discoverCircle(token: string) {
+  if (token === DEMO_TOKEN) return { city: null, members: [] };
+  const response = await fetch(endpoint("/api/circle/discover"), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parse(response) as Promise<{
+    city: string | null;
+    members: { memberId: string; displayName: string; city?: string }[];
+    message?: string;
+  }>;
+}
+
+export async function requestConnection(token: string, memberId: string) {
+  const response = await fetch(endpoint("/api/circle/requests"), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ memberId }),
+  });
+  return parse(response) as Promise<{ message: string }>;
+}
+
+export async function answerConnection(
+  token: string,
+  memberId: string,
+  decision: "accepted" | "declined" | "blocked",
+) {
+  const response = await fetch(endpoint("/api/circle/requests"), {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ memberId, decision }),
+  });
+  return parse(response);
+}
+
+export async function removeConnection(token: string, memberId: string) {
+  const response = await fetch(endpoint("/api/circle/requests"), {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ memberId }),
+  });
+  return parse(response);
+}
+
+/**
+ * Read an uploaded meal photo into an estimate.
+ *
+ * The photo stays in private storage; the server fetches it with the same
+ * ownership checks as the download route and shows it to the model once.
+ */
+export async function estimateMealPhoto(
+  token: string,
+  fileId: string,
+  description?: string,
+) {
+  if (token === DEMO_TOKEN) return null;
+  const response = await fetch(endpoint("/api/nutrition/estimate"), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ fileId, description }),
+  });
+  return parse(response) as Promise<{
+    items: {
+      name: string;
+      quantity: number;
+      unit: string;
+      calories: number;
+      protein: number;
+      carbs: number;
+      fat: number;
+    }[];
+    confident: boolean;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  }>;
 }

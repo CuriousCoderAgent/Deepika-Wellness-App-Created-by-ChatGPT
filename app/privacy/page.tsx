@@ -55,6 +55,31 @@ export default function PrivacyPolicy() {
         </section>
 
         <section>
+          <h2 className="text-xl font-semibold text-ink">Sharing with other members</h2>
+          <p className="mt-2">
+            A member may connect with other members. This is off until she turns it on, and a
+            connection requires both people to accept.
+          </p>
+          <p className="mt-2">
+            Connected members see only how much of the current day&apos;s plan she has completed,
+            how many days in the last week she completed something, and — if she separately
+            switches it on — her step count and glasses of water. They never see meals, meal
+            photos, uploaded reports, check-ins, symptoms, mood, coach messages, her plan, or her
+            real name unless she uses it as her circle name.
+          </p>
+          <p className="mt-2">
+            A member may also choose to be findable by other members in the same city. Only the
+            city she types is used; the app does not collect device location, coordinates or
+            distance. Members who find her this way see a chosen name and that city, and nothing
+            more until she accepts a request.
+          </p>
+          <p className="mt-2">
+            Either person can end a connection at any time, and either switch can be turned off at
+            any time. Deleting an account removes its connections and its city listing.
+          </p>
+        </section>
+
+        <section>
           <h2 className="text-xl font-semibold text-ink">Choices and rights</h2>
           <p className="mt-2">
             Report uploads are optional. Members may ask to see or correct their information,

@@ -39,6 +39,7 @@ import {
   ChevronRight,
   ChevronUp,
   CloudOff,
+  Droplets,
   Download,
   Dumbbell,
   Footprints,
@@ -51,13 +52,23 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  Trophy,
+  UserPlus,
+  Users,
   UserRound,
   Utensils,
 } from "lucide-react-native";
 import {
   ApiError,
   DEMO_TOKEN,
+  answerConnection,
   deleteAccount,
+  discoverCircle,
+  estimateMealPhoto,
+  loadCircle,
+  removeConnection,
+  requestConnection,
+  saveCircleSettings,
   exportAccount,
   generateRecommendation,
   loadMember,
@@ -73,6 +84,18 @@ import {
 import { exerciseMediaFor } from "./src/exerciseMedia";
 import { subscribeToConnectivity } from "./src/net";
 import { describeMatches, estimateMeal } from "./src/nutrition";
+import {
+  DEFAULT_HYDRATION_TARGET,
+  SUGGESTED_HABITS,
+  activeHabits,
+  habitDaysThisWeek,
+  habitDoneOn,
+  hydrationFor,
+  withHabitAdded,
+  withHabitArchived,
+  withHabitToggled,
+  withHydration,
+} from "./src/daily";
 import {
   cancelAllReminders,
   cancelDailyReminder,
@@ -97,6 +120,7 @@ import { PHASES, weekPlansFor } from "./src/plan";
 import type {
   ActionDomain,
   AiRecommendation,
+  CircleState,
   DailyAction,
   EffortLevel,
   FoodEntry,
@@ -336,7 +360,9 @@ function Login({
         </View>
         <Text style={s.privacyNote}>
           Your wellness information is visible only to you and your authorised
-          coach.
+          coach. If you choose to join a circle, the people you accept see how
+          much of your plan you have done — never your meals, reports,
+          check-ins or messages.
         </Text>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -1401,6 +1427,188 @@ function Onboarding({
   );
 }
 
+/**
+ * Water and habits.
+ *
+ * Both are one tap. Neither shows a streak, a target missed, or a number in
+ * red: six glasses is six glasses, and the product's whole argument is that a
+ * small thing done most days beats a perfect week done once.
+ */
+function DailyExtras({
+  doc,
+  update,
+}: {
+  doc: MemberDoc;
+  update: (doc: MemberDoc) => void;
+}) {
+  const [newHabit, setNewHabit] = useState("");
+  const [adding, setAdding] = useState(false);
+  const glasses = hydrationFor(doc);
+  const habits = activeHabits(doc);
+  const today = isoDate();
+  const habitDays = habitDaysThisWeek(doc);
+
+  return (
+    <>
+      <Card>
+        <View style={s.rowBetween}>
+          <View style={s.flex}>
+            <Text style={s.cardTitle}>Water today</Text>
+            <Text style={s.profileCopy}>
+              {glasses === 0
+                ? "Add a glass whenever you have one."
+                : `${glasses} glass${glasses === 1 ? "" : "es"} so far · about ${glasses * 250}ml`}
+            </Text>
+          </View>
+          <Droplets size={20} color={C.calm} />
+        </View>
+        <View style={s.waterRow}>
+          {Array.from({ length: DEFAULT_HYDRATION_TARGET }, (_, index) => {
+            const filled = index < glasses;
+            return (
+              <Pressable
+                key={index}
+                accessibilityRole="button"
+                accessibilityLabel={`${index + 1} glass${index === 0 ? "" : "es"}`}
+                accessibilityState={{ selected: filled }}
+                // Tapping the glass you are already on removes it, so a
+                // mis-tap is undone the same way it was made.
+                onPress={() =>
+                  update(
+                    withHydration(doc, glasses === index + 1 ? index : index + 1),
+                  )
+                }
+                style={[s.waterGlass, filled && s.waterGlassFilled]}
+              />
+            );
+          })}
+        </View>
+        {glasses > DEFAULT_HYDRATION_TARGET && (
+          <Text style={s.waterExtra}>
+            +{glasses - DEFAULT_HYDRATION_TARGET} more
+          </Text>
+        )}
+        <Pressable
+          accessibilityRole="button"
+          style={s.waterAdd}
+          onPress={() => update(withHydration(doc, glasses + 1))}
+        >
+          <Text style={s.waterAddText}>＋ Add a glass</Text>
+        </Pressable>
+      </Card>
+
+      <Card>
+        <View style={s.rowBetween}>
+          <View style={s.flex}>
+            <Text style={s.cardTitle}>Small habits</Text>
+            <Text style={s.profileCopy}>
+              {habits.length
+                ? habitDays
+                  ? `Ticked something on ${habitDays} of the last 7 days.`
+                  : "Nothing yet this week. Today is as good as any."
+                : "Add one small thing you would like to do most days."}
+            </Text>
+          </View>
+        </View>
+        {habits.map((habit) => {
+          const done = habitDoneOn(doc, habit.id, today);
+          return (
+            <View key={habit.id} style={s.habitRow}>
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: done }}
+                accessibilityLabel={habit.label}
+                style={s.habitTap}
+                onPress={() => update(withHabitToggled(doc, habit.id, today))}
+              >
+                <View style={[s.habitBox, done && s.habitBoxDone]}>
+                  {done && <Check size={13} color="#fff" strokeWidth={3} />}
+                </View>
+                <Text style={[s.habitLabel, done && s.habitLabelDone]}>
+                  {habit.label}
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${habit.label}`}
+                hitSlop={10}
+                onPress={() =>
+                  Alert.alert(
+                    "Remove this habit?",
+                    "The days you already ticked stay in your history.",
+                    [
+                      { text: "Keep it", style: "cancel" },
+                      {
+                        text: "Remove",
+                        style: "destructive",
+                        onPress: () => update(withHabitArchived(doc, habit.id)),
+                      },
+                    ],
+                  )
+                }
+              >
+                <Text style={s.habitRemove}>×</Text>
+              </Pressable>
+            </View>
+          );
+        })}
+        {adding ? (
+          <View style={s.habitAddRow}>
+            <TextInput
+              style={[s.input, s.flex]}
+              value={newHabit}
+              onChangeText={setNewHabit}
+              placeholder="e.g. take my supplements"
+              placeholderTextColor={C.faint}
+              autoFocus
+              onSubmitEditing={() => {
+                update(withHabitAdded(doc, newHabit));
+                setNewHabit("");
+                setAdding(false);
+              }}
+            />
+            <Pressable
+              accessibilityRole="button"
+              style={s.habitAddButton}
+              onPress={() => {
+                update(withHabitAdded(doc, newHabit));
+                setNewHabit("");
+                setAdding(false);
+              }}
+            >
+              <Text style={s.habitAddButtonText}>Add</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <>
+            {!habits.length && (
+              <View style={s.habitSuggestions}>
+                {SUGGESTED_HABITS.slice(0, 3).map((label) => (
+                  <Pressable
+                    key={label}
+                    accessibilityRole="button"
+                    style={s.habitChip}
+                    onPress={() => update(withHabitAdded(doc, label))}
+                  >
+                    <Text style={s.habitChipText}>＋ {label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            <Pressable
+              accessibilityRole="button"
+              style={s.waterAdd}
+              onPress={() => setAdding(true)}
+            >
+              <Text style={s.waterAddText}>＋ Add a habit</Text>
+            </Pressable>
+          </>
+        )}
+      </Card>
+    </>
+  );
+}
+
 function Today({
   doc,
   update,
@@ -1587,6 +1795,7 @@ function Today({
         </Card>
       )}
       <Text style={s.flowLabel}>4 · BUILD A RHYTHM, NOT A PERFECT STREAK</Text>
+      <DailyExtras doc={doc} update={update} />
       <EngagementPanel doc={doc} />
       <CoachConnectionCard doc={doc} onOpenCoach={onOpenCoach} />
     </>
@@ -2108,9 +2317,44 @@ function Food({
             "meal-photo",
           )
         : null;
-      const { matched, confident, ...estimate } = estimateMeal(
-        description || "meal from photo",
-      );
+      const typed = estimateMeal(description || "meal from photo");
+      let estimate = {
+        calories: typed.calories,
+        protein: typed.protein,
+        carbs: typed.carbs,
+        fat: typed.fat,
+      };
+      let basis = typed.confident
+        ? describeMatches(typed.matched)
+        : "No familiar foods recognised";
+
+      // A photo is better evidence than a description, so when one was
+      // uploaded it decides the numbers. The typed estimate stays as the
+      // fallback for an unreadable photo or an unavailable service — logging a
+      // meal must never depend on a model answering.
+      if (stored?.id) {
+        try {
+          const seen = await estimateMealPhoto(
+            token,
+            stored.id,
+            description.trim() || undefined,
+          );
+          if (seen?.confident && seen.items.length) {
+            estimate = {
+              calories: seen.calories,
+              protein: seen.protein,
+              carbs: seen.carbs,
+              fat: seen.fat,
+            };
+            basis = seen.items
+              .map((item) => `${item.quantity} × ${item.name}`)
+              .join(" · ");
+          }
+        } catch {
+          // Keep the typed estimate. She can correct any of it afterwards.
+        }
+      }
+
       const entry: FoodEntry = {
         id: `food-${Date.now()}`,
         memberId: doc.member.id,
@@ -2125,11 +2369,9 @@ function Food({
         createdAt: new Date().toISOString(),
       };
       update({ ...doc, foodEntries: [...doc.foodEntries, entry] });
-      // Say what the estimate was read from. A member who sees "2 x Roti,
-      // 1 x Dal" can tell at a glance whether the number is worth correcting.
-      setLastEstimate(
-        confident ? describeMatches(matched) : "No familiar foods recognised",
-      );
+      // Say what the estimate was read from. A member who sees "2 × Roti ·
+      // 1 × Dal" can tell at a glance whether the number is worth correcting.
+      setLastEstimate(basis);
       setDescription("");
       setPhotoAsset(undefined);
     } catch (error) {
@@ -2890,6 +3132,445 @@ function HealthConnectionPanel({
   );
 }
 
+/**
+ * The circle: other members, and how their day is going.
+ *
+ * The point is encouragement by example — seeing that someone else showed up
+ * four days this week is a better prompt than any notification. So the list is
+ * ordered by consistency rather than intensity, and it carries no failure
+ * signal: there is no "missed", no zero-streak, and no last place. A member who
+ * has done nothing today looks exactly like a member who has not opened the app,
+ * because to everyone else those are the same thing.
+ *
+ * What crosses between members is a projection built on the server: actions
+ * completed, days shown up, and optionally steps and water. Meals, photos,
+ * reports, mood, symptoms and coach messages never leave a member's own record.
+ * Both sharing switches start off.
+ */
+function Circle({
+  token,
+  onUnreadChange,
+}: {
+  token: string;
+  onUnreadChange?: (count: number) => void;
+}) {
+  const [state, setState] = useState<CircleState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [addUsername, setAddUsername] = useState("");
+  const [cityDraft, setCityDraft] = useState("");
+  const [nameDraft, setNameDraft] = useState("");
+  const [nearby, setNearby] = useState<
+    { memberId: string; displayName: string; city?: string }[]
+  >([]);
+  const [nearbyNote, setNearbyNote] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const next = await loadCircle(token);
+      if (!next) return;
+      setState(next);
+      setCityDraft(next.profile.city ?? "");
+      setNameDraft(next.profile.displayName ?? "");
+      onUnreadChange?.(next.requests.incoming.length);
+    } catch (error) {
+      Alert.alert(
+        "Circle unavailable",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [token, onUnreadChange]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const saveSettings = async (patch: Partial<CircleState["profile"]>) => {
+    if (!state) return;
+    // Optimistic: a switch that lags behind the finger feels broken.
+    setState({ ...state, profile: { ...state.profile, ...patch } });
+    try {
+      await saveCircleSettings(token, patch);
+      await load();
+    } catch (error) {
+      setState(state);
+      Alert.alert(
+        "Not saved",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    }
+  };
+
+  const findNearby = async () => {
+    setBusy(true);
+    try {
+      const result = await discoverCircle(token);
+      setNearby(result.members);
+      setNearbyNote(
+        result.message ??
+          (result.members.length
+            ? null
+            : `No one else in ${result.city} has chosen to be found yet.`),
+      );
+    } catch (error) {
+      Alert.alert(
+        "Could not look",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const invite = async (memberId: string) => {
+    setBusy(true);
+    try {
+      const result = await requestConnection(token, memberId);
+      setAddUsername("");
+      setNearby((rows) => rows.filter((row) => row.memberId !== memberId));
+      Alert.alert("Request sent", result.message);
+      await load();
+    } catch (error) {
+      Alert.alert(
+        "Not sent",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const answer = async (
+    memberId: string,
+    decision: "accepted" | "declined",
+  ) => {
+    setBusy(true);
+    try {
+      await answerConnection(token, memberId, decision);
+      await load();
+    } catch (error) {
+      Alert.alert(
+        "Not saved",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = (memberId: string, name: string) =>
+    Alert.alert(
+      `Remove ${name}?`,
+      "You will stop seeing each other's activity. Neither of you is told.",
+      [
+        { text: "Keep", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            await removeConnection(token, memberId).catch(() => undefined);
+            await load();
+          },
+        },
+      ],
+    );
+
+  if (token === DEMO_TOKEN)
+    return (
+      <Card>
+        <Text style={s.cardTitle}>Your circle</Text>
+        <Text style={s.profileCopy}>
+          The demo account is not stored, so it cannot connect to other members.
+        </Text>
+      </Card>
+    );
+
+  if (loading)
+    return (
+      <Card>
+        <ActivityIndicator color={C.green} />
+      </Card>
+    );
+
+  if (!state)
+    return (
+      <Card>
+        <Text style={s.cardTitle}>Your circle</Text>
+        <Text style={s.profileCopy}>This could not be loaded.</Text>
+        <Pressable style={s.secondaryButton} onPress={() => load()}>
+          <Text style={s.secondaryButtonText}>Try again</Text>
+        </Pressable>
+      </Card>
+    );
+
+  const ranked = [...state.circle, state.me].sort((a, b) => {
+    if (b.activeDays !== a.activeDays) return b.activeDays - a.activeDays;
+    const aShare = a.actionsTotal ? a.actionsCompleted / a.actionsTotal : 0;
+    const bShare = b.actionsTotal ? b.actionsCompleted / b.actionsTotal : 0;
+    return bShare - aShare;
+  });
+
+  return (
+    <>
+      <Text style={s.eyebrow}>YOUR CIRCLE</Text>
+      <Text style={s.hero}>Better with company.</Text>
+      <Text style={s.heroCopy}>
+        See how the people you have added are doing today. They see the same
+        about you — and nothing else.
+      </Text>
+
+      {state.requests.incoming.length > 0 && (
+        <Card>
+          <Text style={s.cardTitle}>
+            {state.requests.incoming.length === 1
+              ? "Someone would like to connect"
+              : `${state.requests.incoming.length} people would like to connect`}
+          </Text>
+          {state.requests.incoming.map((request) => (
+            <View key={request.memberId} style={s.requestRow}>
+              <View style={s.flex}>
+                <Text style={s.requestName}>{request.displayName}</Text>
+                {request.city ? (
+                  <Text style={s.requestMeta}>{request.city}</Text>
+                ) : null}
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Decline ${request.displayName}`}
+                style={s.requestDecline}
+                disabled={busy}
+                onPress={() => answer(request.memberId, "declined")}
+              >
+                <Text style={s.requestDeclineText}>Not now</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Accept ${request.displayName}`}
+                style={s.requestAccept}
+                disabled={busy}
+                onPress={() => answer(request.memberId, "accepted")}
+              >
+                <Text style={s.requestAcceptText}>Accept</Text>
+              </Pressable>
+            </View>
+          ))}
+        </Card>
+      )}
+
+      {state.circle.length > 0 ? (
+        <Card>
+          <View style={s.rowBetween}>
+            <Text style={s.cardTitle}>Today</Text>
+            <Trophy size={17} color={C.marigold} />
+          </View>
+          <Text style={s.profileCopy}>
+            Ordered by days shown up this week, not by how hard anyone trained.
+          </Text>
+          {ranked.map((row, index) => {
+            const isMe = row.memberId === state.me.memberId;
+            return (
+              <View
+                key={row.memberId}
+                style={[s.circleRow, isMe && s.circleRowMe]}
+              >
+                <Text style={s.circleRank}>{index + 1}</Text>
+                <View style={s.flex}>
+                  <Text style={s.circleName}>
+                    {isMe ? "You" : row.displayName}
+                  </Text>
+                  <Text style={s.circleMeta}>
+                    {row.activeDays} day{row.activeDays === 1 ? "" : "s"} this
+                    week
+                    {row.actionsTotal
+                      ? ` · ${row.actionsCompleted}/${row.actionsTotal} today`
+                      : ""}
+                    {typeof row.steps === "number"
+                      ? ` · ${row.steps.toLocaleString()} steps`
+                      : ""}
+                  </Text>
+                </View>
+                {!isMe && (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${row.displayName}`}
+                    hitSlop={10}
+                    onPress={() => remove(row.memberId, row.displayName)}
+                  >
+                    <Text style={s.habitRemove}>×</Text>
+                  </Pressable>
+                )}
+              </View>
+            );
+          })}
+        </Card>
+      ) : (
+        <Card>
+          <Users size={20} color={C.faint} />
+          <Text style={s.cardTitle}>No one here yet</Text>
+          <Text style={s.profileCopy}>
+            Add someone by username, or let members in your city find you.
+          </Text>
+        </Card>
+      )}
+
+      <Card>
+        <Text style={s.cardTitle}>Add someone</Text>
+        <Text style={s.profileCopy}>
+          Enter the username she signs in with. She has to accept before either
+          of you sees anything.
+        </Text>
+        <View style={s.habitAddRow}>
+          <TextInput
+            style={[s.input, s.flex]}
+            value={addUsername}
+            onChangeText={setAddUsername}
+            placeholder="username"
+            placeholderTextColor={C.faint}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Pressable
+            accessibilityRole="button"
+            style={s.habitAddButton}
+            disabled={busy || !addUsername.trim()}
+            onPress={() => invite(addUsername.trim())}
+          >
+            <UserPlus size={16} color={C.greenDeep} />
+          </Pressable>
+        </View>
+        {state.requests.outgoing.length > 0 && (
+          <Text style={s.circleMeta}>
+            Waiting on{" "}
+            {state.requests.outgoing.map((r) => r.displayName).join(", ")}.
+          </Text>
+        )}
+      </Card>
+
+      <Card>
+        <Text style={s.cardTitle}>Members in your city</Text>
+        <Text style={s.profileCopy}>
+          City is the most precise location Bharosa ever uses. No map, no
+          distance, and nothing about where you are right now.
+        </Text>
+        <View style={s.habitAddRow}>
+          <TextInput
+            style={[s.input, s.flex]}
+            value={cityDraft}
+            onChangeText={setCityDraft}
+            placeholder="Your city"
+            placeholderTextColor={C.faint}
+            onBlur={() => {
+              if (cityDraft.trim() !== (state.profile.city ?? ""))
+                saveSettings({ city: cityDraft.trim() });
+            }}
+          />
+        </View>
+        <View style={s.rowBetween}>
+          <View style={s.flex}>
+            <Text style={s.settingLabel}>Let members in my city find me</Text>
+            <Text style={s.settingCopy}>
+              They see your circle name and city. Nothing else, until you
+              accept.
+            </Text>
+          </View>
+          <Switch
+            accessibilityLabel="Let members in my city find me"
+            value={state.profile.discoverable}
+            onValueChange={(value) => saveSettings({ discoverable: value })}
+            trackColor={{ false: C.line, true: C.greenTint }}
+            thumbColor={state.profile.discoverable ? C.green : C.faint}
+          />
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          style={s.waterAdd}
+          disabled={busy}
+          onPress={findNearby}
+        >
+          <Text style={s.waterAddText}>Look for members near me</Text>
+        </Pressable>
+        {nearbyNote ? <Text style={s.circleMeta}>{nearbyNote}</Text> : null}
+        {nearby.map((row) => (
+          <View key={row.memberId} style={s.requestRow}>
+            <View style={s.flex}>
+              <Text style={s.requestName}>{row.displayName}</Text>
+              <Text style={s.requestMeta}>{row.city}</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Send a request to ${row.displayName}`}
+              style={s.requestAccept}
+              disabled={busy}
+              onPress={() => invite(row.memberId)}
+            >
+              <Text style={s.requestAcceptText}>Add</Text>
+            </Pressable>
+          </View>
+        ))}
+      </Card>
+
+      <Card>
+        <Text style={s.cardTitle}>What your circle can see</Text>
+        <Text style={s.profileCopy}>
+          Your meals, photos, reports, check-ins, symptoms and messages with
+          your coach are never shared. Only the two things below, and only with
+          people you have accepted.
+        </Text>
+        <View style={s.habitAddRow}>
+          <TextInput
+            style={[s.input, s.flex]}
+            value={nameDraft}
+            onChangeText={setNameDraft}
+            placeholder="What your circle calls you"
+            placeholderTextColor={C.faint}
+            onBlur={() => {
+              if (nameDraft.trim() !== state.profile.displayName)
+                saveSettings({ displayName: nameDraft.trim() });
+            }}
+          />
+        </View>
+        <View style={s.rowBetween}>
+          <View style={s.flex}>
+            <Text style={s.settingLabel}>Share my daily activity</Text>
+            <Text style={s.settingCopy}>
+              How much of today’s plan you have done, and how many days you
+              showed up this week.
+            </Text>
+          </View>
+          <Switch
+            accessibilityLabel="Share my daily activity"
+            value={state.profile.shareActivity}
+            onValueChange={(value) => saveSettings({ shareActivity: value })}
+            trackColor={{ false: C.line, true: C.greenTint }}
+            thumbColor={state.profile.shareActivity ? C.green : C.faint}
+          />
+        </View>
+        <View style={s.rowBetween}>
+          <View style={s.flex}>
+            <Text style={s.settingLabel}>Share my step count</Text>
+            <Text style={s.settingCopy}>
+              Only if you have connected {CONNECTED_HEALTH_NAME}.
+            </Text>
+          </View>
+          <Switch
+            accessibilityLabel="Share my step count"
+            value={state.profile.shareSteps}
+            onValueChange={(value) => saveSettings({ shareSteps: value })}
+            trackColor={{ false: C.line, true: C.greenTint }}
+            thumbColor={state.profile.shareSteps ? C.green : C.faint}
+          />
+        </View>
+        <Text style={s.settingCopy}>
+          You can turn either off at any time, and remove anyone from your
+          circle without them being told.
+        </Text>
+      </Card>
+    </>
+  );
+}
+
 function Profile({
   doc,
   update,
@@ -3096,8 +3777,9 @@ function Profile({
           Wellness is easier with one trusted person.
         </Text>
         <Text style={s.profileCopy}>
-          Invite a friend or family member for encouragement. Your meals,
-          check-ins and health information remain private.
+          Add other members for encouragement, below. Your meals, check-ins,
+          reports and messages are never shared — only how much of your plan
+          you have done, and only with people you accept.
         </Text>
         <View style={s.inviteCode}>
           <Text style={s.inviteCodeLabel}>YOUR CODE</Text>
@@ -3242,6 +3924,8 @@ function MemberApp({
   /** A change is held on the device, waiting for a connection. */
   const [queued, setQueued] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  /** Connection requests waiting on her, surfaced on the You tab. */
+  const [circleRequests, setCircleRequests] = useState(0);
   /** The current document, readable from callbacks without a stale closure. */
   const latest = useRef<MemberDoc | null>(null);
   /** Coach messages already seen, so only genuinely new ones are announced. */
@@ -3541,6 +4225,7 @@ function MemberApp({
           onLogout={signOut}
           onDeleted={onSignedOut}
         />
+        <Circle token={token} onUnreadChange={setCircleRequests} />
         <HealthConnectionPanel doc={doc} update={update} />
         <Reports doc={doc} update={update} token={token} />
       </>
@@ -3624,7 +4309,9 @@ function MemberApp({
                 accessibilityLabel={
                   item.key === "coach" && unreadFromCoach > 0
                     ? `${item.label} tab, ${unreadFromCoach} unread`
-                    : `${item.label} tab`
+                    : item.key === "profile" && circleRequests > 0
+                      ? `${item.label} tab, ${circleRequests} connection request${circleRequests === 1 ? "" : "s"}`
+                      : `${item.label} tab`
                 }
                 style={({ pressed }) => [s.tab, pressed && s.tabPressed]}
                 onPress={() => setTab(item.key)}
@@ -3639,6 +4326,13 @@ function MemberApp({
                     <View style={s.tabBadge}>
                       <Text style={s.tabBadgeText}>
                         {unreadFromCoach > 9 ? "9+" : unreadFromCoach}
+                      </Text>
+                    </View>
+                  )}
+                  {item.key === "profile" && circleRequests > 0 && (
+                    <View style={s.tabBadge}>
+                      <Text style={s.tabBadgeText}>
+                        {circleRequests > 9 ? "9+" : circleRequests}
                       </Text>
                     </View>
                   )}
@@ -3788,6 +4482,139 @@ const s = StyleSheet.create({
   topAvatarText: { color: C.greenDeep, fontSize: 11, fontWeight: "800" },
   saving: { color: C.green, fontSize: 11 },
   savingQueued: { color: C.calm, fontSize: 11 },
+
+  /* Water — a row of glasses that fill. No target line, no shortfall. */
+  waterRow: {
+    flexDirection: "row",
+    gap: 7,
+    marginTop: 14,
+    flexWrap: "wrap",
+  },
+  waterGlass: {
+    width: 30,
+    height: 38,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    backgroundColor: "#F7F8F4",
+  },
+  waterGlassFilled: { backgroundColor: "#BFDCE4", borderColor: C.calm },
+  waterExtra: { color: C.calm, fontSize: 11, marginTop: 8, fontWeight: "700" },
+  waterAdd: {
+    minHeight: 44,
+    marginTop: 12,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: C.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  waterAddText: { color: C.green, fontSize: 14, fontWeight: "700" },
+
+  /* Habits. */
+  habitRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 12,
+  },
+  habitTap: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    minHeight: 44,
+  },
+  habitBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  habitBoxDone: { backgroundColor: C.green, borderColor: C.green },
+  habitLabel: { color: C.ink, flex: 1, fontSize: 15 },
+  habitLabelDone: { color: C.soft },
+  habitRemove: { color: C.faint, fontSize: 22, paddingHorizontal: 6 },
+  habitAddRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    marginTop: 12,
+  },
+  habitAddButton: {
+    minWidth: 60,
+    minHeight: 52,
+    paddingHorizontal: 14,
+    borderRadius: 13,
+    backgroundColor: C.greenTint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  habitAddButtonText: { color: C.greenDeep, fontSize: 14, fontWeight: "700" },
+  habitSuggestions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
+  habitChip: {
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: 11,
+    backgroundColor: "#F7F8F4",
+    borderWidth: 1,
+    borderColor: C.line,
+  },
+  habitChipText: { color: C.green, fontSize: 12, fontWeight: "600" },
+
+  /* Circle. */
+  circleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 11,
+    borderRadius: 12,
+    backgroundColor: "#F7F8F4",
+  },
+  circleRowMe: { backgroundColor: C.greenTint },
+  circleRank: {
+    color: C.faint,
+    fontSize: 13,
+    fontWeight: "800",
+    minWidth: 16,
+    textAlign: "center",
+  },
+  circleName: { color: C.ink, fontSize: 15, fontWeight: "700" },
+  circleMeta: { color: C.soft, fontSize: 11, lineHeight: 16, marginTop: 3 },
+  requestRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 12,
+  },
+  requestName: { color: C.ink, fontSize: 15, fontWeight: "700" },
+  requestMeta: { color: C.faint, fontSize: 11, marginTop: 2 },
+  requestAccept: {
+    minHeight: 44,
+    paddingHorizontal: 15,
+    borderRadius: 12,
+    backgroundColor: C.green,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  requestAcceptText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  requestDecline: {
+    minHeight: 44,
+    paddingHorizontal: 13,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  requestDeclineText: { color: C.soft, fontSize: 13, fontWeight: "600" },
+  settingLabel: { color: C.ink, fontSize: 14, fontWeight: "700", marginTop: 14 },
+  settingCopy: { color: C.faint, fontSize: 11, lineHeight: 16, marginTop: 4 },
   errorTitle: {
     color: C.ink,
     fontSize: 17,

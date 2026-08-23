@@ -544,3 +544,88 @@ export interface NotificationTemplate {
   /** Notification rules from §11.2 — enforced, not aspirational. */
   capped: boolean;
 }
+
+/* ------------------------------------------------------------------ */
+/* Hydration and small daily habits                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * These carry a calendar `date` and no `dayOffset`.
+ *
+ * Relative offsets have to be re-based on read (see `lib/day-offset.ts`) and
+ * rot silently when nothing does it. Anything added from here on stores the day
+ * it happened and derives the rest.
+ */
+export interface HydrationLog {
+  id: string;
+  memberId: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  /** Glasses of roughly 250ml. Whole numbers; a member counts glasses. */
+  glasses: number;
+}
+
+export interface HabitDefinition {
+  id: string;
+  memberId: string;
+  label: string;
+  createdAt: string;
+  /** Kept rather than deleted, so past completions stay meaningful. */
+  archived?: boolean;
+}
+
+export interface HabitLog {
+  id: string;
+  memberId: string;
+  habitId: string;
+  /** YYYY-MM-DD. */
+  date: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Circle — member-to-member connections                               */
+/* ------------------------------------------------------------------ */
+
+export type ConnectionStatus = "pending" | "accepted" | "declined" | "blocked";
+
+/**
+ * What a member chooses to expose to other members.
+ *
+ * Both switches default off. Sharing activity and being discoverable are
+ * separate decisions: joining a friend's circle should not put someone on a
+ * city-wide list.
+ */
+export interface CircleProfile {
+  displayName: string;
+  city?: string;
+  /** Appear in city-level discovery. Never exposes anything more precise. */
+  discoverable: boolean;
+  /** Share the activity projection with accepted connections. */
+  shareActivity: boolean;
+  /** Share today's step count, when a health source is connected. */
+  shareSteps: boolean;
+}
+
+export interface CircleConnection {
+  /** The other member. */
+  memberId: string;
+  displayName: string;
+  city?: string;
+  status: ConnectionStatus;
+  /** Who asked whom, from the reading member's point of view. */
+  direction: "incoming" | "outgoing";
+  requestedAt: string;
+  respondedAt?: string;
+}
+
+/** Everything one member may see about another. Built in `lib/circle.ts`. */
+export interface CircleActivity {
+  memberId: string;
+  displayName: string;
+  actionsCompleted: number;
+  actionsTotal: number;
+  activeDays: number;
+  steps?: number;
+  hydrationGlasses?: number;
+  city?: string;
+}

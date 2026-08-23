@@ -50,6 +50,7 @@ to an existing build.
 | `BHAROSA_APP_URL`       | Canonical HTTPS origin used to construct reset links.                                                                          |
 | `FILE_TOKEN_SECRET`     | Independent random value of at least 32 bytes used for opaque private-file references. Keep it stable.                         |
 | `BLOB_READ_WRITE_TOKEN` | Credential for a Vercel Blob store configured for private access.                                                              |
+| `OPENAI_VISION_MODEL`   | Optional. Model used to read meal photos. Defaults to `gpt-5`. Needs `OPENAI_API_KEY`.                                        |
 | `BHAROSA_TIMEZONE`      | Optional. The timezone the day rolls over in. Defaults to `Asia/Kolkata`. See below.                                          |
 
 ### Which day is "today"
@@ -321,3 +322,46 @@ whoever runs the deployment. Remove her entry from `MEMBERS` and redeploy.
 Google Play requires an in-app deletion route for any app that creates
 accounts, alongside the public `/account-deletion` page. Both now exist and
 describe the same flow.
+
+## The circle
+
+Members can connect to each other. Two tables are created automatically:
+`circle_profile` (her circle name, city, and two sharing switches, all off by
+default) and `circle_connection` (one row per pair, mutual accept required).
+No migration step is needed; `ensureReady()` creates them like the rest.
+
+What crosses between members is built in `lib/circle.ts` as a projection, field
+by field. It never spreads a member document, so a field added to `MemberDoc`
+later cannot silently become visible to someone else. Meals, meal photos,
+reports, check-ins, symptoms, mood, coach messages and the plan are not part of
+it and cannot be.
+
+`GET /api/circle` returns her settings, her connections' activity and any
+requests waiting on her. `POST|PATCH|DELETE /api/circle/requests` sends,
+answers and ends connections. `GET /api/circle/discover` lists members in the
+same city who opted in.
+
+**Location.** The only location this feature handles is the city a member types
+herself. There is no device location, no coordinates, no distance and no map,
+and discovery is symmetric — a member who is not discoverable cannot browse the
+list either, so the safest setting is not "look without being seen".
+
+**Enumeration.** Requests to an unknown username and to a member who has not
+opted in return the same response, and are rate-limited to twenty per member per
+hour. Without both, this route would be a way to enumerate the cohort.
+
+Account deletion removes connections and the city listing along with everything
+else.
+
+## Meal photos
+
+`POST /api/nutrition/estimate` reads a photo the member has already uploaded and
+returns the foods it contains. It applies the same ownership checks as
+`/api/files/[id]`, sends the image once with `store: false`, and is bounded to
+identifying food and portions: it is instructed not to comment on whether a meal
+is healthy, balanced or advisable, which is coaching and belongs to Deepika.
+
+Every number is clamped to something a person could plausibly eat before it
+reaches a food log, an unreadable photo returns an empty list rather than a
+guess, and the typed estimate from `mobile/src/nutrition.ts` remains the
+fallback — logging a meal never depends on a model answering.

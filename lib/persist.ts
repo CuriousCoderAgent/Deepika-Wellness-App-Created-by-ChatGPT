@@ -31,6 +31,9 @@ import type {
   Session,
   WorkoutLog,
   MobileOnboarding,
+  HydrationLog,
+  HabitDefinition,
+  HabitLog,
 } from "./types";
 
 export interface MemberDoc {
@@ -52,11 +55,21 @@ export interface MemberDoc {
   healthSnapshots?: HealthSnapshot[];
   recommendations?: AiRecommendation[];
   onboarding?: MobileOnboarding;
+  /** Date-keyed, so they never need re-basing. See `lib/day-offset.ts`. */
+  hydrationLogs?: HydrationLog[];
+  habits?: HabitDefinition[];
+  habitLogs?: HabitLog[];
 }
 
 type MemberExtensions = Pick<
   MemberDoc,
-  "healthConnection" | "healthSnapshots" | "recommendations" | "onboarding"
+  | "healthConnection"
+  | "healthSnapshots"
+  | "recommendations"
+  | "onboarding"
+  | "hydrationLogs"
+  | "habits"
+  | "habitLogs"
 >;
 
 export interface CoachDoc {
@@ -137,6 +150,9 @@ export function stateFromMemberDoc<S extends PersistedState>(
         healthSnapshots: doc.healthSnapshots,
         recommendations: doc.recommendations,
         onboarding: doc.onboarding,
+        hydrationLogs: doc.hydrationLogs,
+        habits: doc.habits,
+        habitLogs: doc.habitLogs,
       },
     },
     activeMemberId: doc.member.id,
@@ -168,6 +184,9 @@ export function stateFromDocs<S extends PersistedState>(
           healthSnapshots: doc.healthSnapshots,
           recommendations: doc.recommendations,
           onboarding: doc.onboarding,
+          hydrationLogs: doc.hydrationLogs,
+          habits: doc.habits,
+          habitLogs: doc.habitLogs,
         },
       ]),
     ),

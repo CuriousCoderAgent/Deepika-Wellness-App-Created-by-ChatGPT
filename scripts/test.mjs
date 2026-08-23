@@ -164,3 +164,155 @@ test("fractions and Hindi quantity words are understood", () => {
   assert.equal(estimateMeal("do roti").matched[0].qty, 2);
   assert.equal(estimateMeal("aadha bowl khichdi").matched[0].qty, 0.5);
 });
+
+import { activityFor, rankByConsistency, normaliseCity, normaliseDisplayName } from "../lib/circle.ts";
+import {
+  withHydration,
+  withHabitToggled,
+  withHabitAdded,
+  hydrationFor,
+  habitDoneOn,
+} from "../mobile/src/daily.ts";
+
+/**
+ * A member document with something in every slice that must never be shared.
+ * If the projection ever starts spreading the document, these tests fail.
+ */
+const privateDoc = {
+  member: { id: "radhika", name: "Radhika Full Name", week: 3 },
+  actions: [
+    { id: "a1", dayOffset: 0, completed: "target" },
+    { id: "a2", dayOffset: 0, completed: null },
+    { id: "a3", dayOffset: 0, completed: "rest" },
+    { id: "a4", dayOffset: -1, completed: "minimum" },
+    { id: "a5", dayOffset: -9, completed: "target" },
+  ],
+  foodEntries: [{ id: "f1", description: "2 rotis and dal", calories: 310 }],
+  reports: [{ id: "r1", title: "Annual blood panel", values: [{ label: "Ferritin", value: "38" }] }],
+  messages: [{ id: "m1", from: "coach", body: "How did the week go?" }],
+  pulses: [{ id: "p1", dayOffset: 0, energy: 2, stress: 1, symptoms: ["cramps"] }],
+  healthSnapshots: [
+    { metric: "steps", value: 6421, available: true, date: "2026-08-23" },
+    { metric: "restingHeartRate", value: 68, available: true, date: "2026-08-23" },
+  ],
+  hydrationLogs: [{ date: "2026-08-23", glasses: 5 }],
+};
+
+const profile = { displayName: "Radhika", city: "Bengaluru" };
+
+test("the circle projection exposes only the agreed fields", () => {
+  const view = activityFor("radhika", privateDoc, profile, "2026-08-23");
+  assert.deepEqual(
+    Object.keys(view).sort(),
+    [
+      "actionsCompleted",
+      "actionsTotal",
+      "activeDays",
+      "city",
+      "displayName",
+      "hydrationGlasses",
+      "memberId",
+      "steps",
+    ],
+  );
+});
+
+test("nothing private survives serialisation of the projection", () => {
+  const json = JSON.stringify(
+    activityFor("radhika", privateDoc, profile, "2026-08-23"),
+  );
+  // Each of these appears somewhere in the source document.
+  for (const leak of [
+    "rotis",
+    "Ferritin",
+    "blood",
+    "How did the week go",
+    "cramps",
+    "restingHeartRate",
+    "Full Name",
+    "energy",
+  ]) {
+    assert.ok(!json.includes(leak), `projection leaked "${leak}"`);
+  }
+});
+
+test("resting heart rate is never picked up as steps", () => {
+  const view = activityFor("radhika", privateDoc, profile, "2026-08-23");
+  assert.equal(view.steps, 6421);
+});
+
+test("steps are omitted when the day does not match", () => {
+  const view = activityFor("radhika", privateDoc, profile, "2026-08-24");
+  assert.equal(view.steps, undefined);
+});
+
+test("a rest day counts as showing up", () => {
+  // Deciding not to train is treated as success everywhere else in the
+  // product; the one screen her friends see must not contradict that.
+  const view = activityFor("radhika", privateDoc, profile, "2026-08-23");
+  assert.equal(view.actionsCompleted, 2); // target + rest, out of three today
+  assert.equal(view.actionsTotal, 3);
+  assert.equal(view.activeDays, 2); // today and yesterday; the 9-day-old one is outside the window
+});
+
+test("a member with no document still produces a safe empty view", () => {
+  const view = activityFor("nobody", null, { displayName: "Meera" }, "2026-08-23");
+  assert.equal(view.actionsCompleted, 0);
+  assert.equal(view.steps, undefined);
+  assert.equal(view.displayName, "Meera");
+});
+
+test("ranking rewards consistency over intensity", () => {
+  const ranked = rankByConsistency([
+    { memberId: "hard", displayName: "Hard", activeDays: 1, actionsCompleted: 5, actionsTotal: 5 },
+    { memberId: "steady", displayName: "Steady", activeDays: 5, actionsCompleted: 1, actionsTotal: 5 },
+  ]);
+  assert.equal(ranked[0].memberId, "steady");
+});
+
+test("display names fall back rather than exposing a blank", () => {
+  assert.equal(normaliseDisplayName(""), "Member");
+  assert.equal(normaliseDisplayName("  Radhika  "), "Radhika");
+  assert.equal(normaliseDisplayName("x".repeat(200)).length, 40);
+});
+
+test("city input is trimmed and bounded", () => {
+  assert.equal(normaliseCity("  New   Delhi "), "New Delhi");
+  assert.equal(normaliseCity(""), null);
+  assert.equal(normaliseCity("x".repeat(100)), null);
+});
+
+test("water goes up and down, and never below zero", () => {
+  const base = { member: { id: "radhika" }, hydrationLogs: [] };
+  let doc = withHydration(base, 3, "2026-08-23");
+  assert.equal(hydrationFor(doc, "2026-08-23"), 3);
+  doc = withHydration(doc, -5, "2026-08-23");
+  assert.equal(hydrationFor(doc, "2026-08-23"), 0);
+  doc = withHydration(doc, 999, "2026-08-23");
+  assert.equal(hydrationFor(doc, "2026-08-23"), 30);
+  // One entry per day, not one per tap.
+  assert.equal(doc.hydrationLogs.length, 1);
+});
+
+test("water on one day does not affect another", () => {
+  let doc = withHydration({ member: { id: "r" }, hydrationLogs: [] }, 4, "2026-08-22");
+  doc = withHydration(doc, 2, "2026-08-23");
+  assert.equal(hydrationFor(doc, "2026-08-22"), 4);
+  assert.equal(hydrationFor(doc, "2026-08-23"), 2);
+});
+
+test("a habit toggles on and off without leaving a negative record", () => {
+  let doc = withHabitAdded({ member: { id: "r" }, habits: [], habitLogs: [] }, "Stretch");
+  const habitId = doc.habits[0].id;
+  doc = withHabitToggled(doc, habitId, "2026-08-23");
+  assert.ok(habitDoneOn(doc, habitId, "2026-08-23"));
+  doc = withHabitToggled(doc, habitId, "2026-08-23");
+  assert.ok(!habitDoneOn(doc, habitId, "2026-08-23"));
+  assert.equal(doc.habitLogs.length, 0);
+});
+
+test("the same habit is not added twice", () => {
+  let doc = withHabitAdded({ member: { id: "r" }, habits: [], habitLogs: [] }, "Stretch");
+  doc = withHabitAdded(doc, "  stretch ");
+  assert.equal(doc.habits.length, 1);
+});
