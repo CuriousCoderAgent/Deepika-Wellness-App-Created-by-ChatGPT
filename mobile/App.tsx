@@ -706,14 +706,28 @@ function ActionCard({
                 <Text style={s.exerciseSets}>{action.exercise.sets}</Text>
                 <Text style={s.exerciseCue}>FORM GUIDE</Text>
               </View>
-              <View style={s.exerciseSequenceFrame}>
-                <Image
-                  source={exerciseMediaFor(action.exercise.name)}
-                  style={s.exerciseSequence}
-                  resizeMode="contain"
-                  accessibilityLabel={`Five-step ${action.exercise.name} form guide`}
-                />
-              </View>
+{/* The id is exact; the name is the fallback for a coach-authored action.
+                  A movement with no photograph renders nothing rather than a
+                  broken frame — the numbered steps below are the instructions
+                  either way. */}
+              {exerciseMediaFor(
+                action.exercise.name,
+                action.exercise.exerciseId,
+              ) ? (
+                <View style={s.exerciseSequenceFrame}>
+                  <Image
+                    source={
+                      exerciseMediaFor(
+                        action.exercise.name,
+                        action.exercise.exerciseId,
+                      )!
+                    }
+                    style={s.exerciseSequence}
+                    resizeMode="contain"
+                    accessibilityLabel={`Five-step ${action.exercise.name} form guide`}
+                  />
+                </View>
+              ) : null}
               <View style={s.exerciseSteps}>
                 {action.exercise.frames.slice(0, 5).map((frame, index) => (
                   <View key={`${frame}-${index}`} style={s.exerciseStep}>

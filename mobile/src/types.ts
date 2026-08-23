@@ -70,6 +70,8 @@ export interface DailyAction {
     sets: string;
     cue: string;
     frames: string[];
+    /** Links back to `lib/exercise-library.ts`; the exact media lookup. */
+    exerciseId?: string;
   };
 }
 
