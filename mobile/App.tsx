@@ -28,7 +28,11 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import {
   Bell,
   Brain,
@@ -180,6 +184,7 @@ function Login({
   onSuccess: (token: string) => void;
   onDemo: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<AuthMode>("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -232,7 +237,10 @@ function Login({
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView
-        contentContainerStyle={s.authScroll}
+        contentContainerStyle={[
+          s.authScroll,
+          { paddingBottom: 28 + insets.bottom, paddingTop: insets.top },
+        ]}
         keyboardShouldPersistTaps="handled"
       >
         <LinearGradient colors={[C.greenDeep, "#0A6264"]} style={s.authHero}>
@@ -4483,6 +4491,7 @@ function MemberApp({
   token: string;
   onSignedOut: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [doc, setDoc] = useState<MemberDoc | null>(null);
   const [tab, setTab] = useState<Tab>("today");
   const [loading, setLoading] = useState(true);
@@ -4952,9 +4961,9 @@ function MemberApp({
         }
       >
         {content}
-        <View style={{ height: 30 }} />
+        <View style={{ height: 30 + insets.bottom }} />
       </ScrollView>
-      <View style={s.tabShell}>
+      <View style={[s.tabShell, { paddingBottom: Math.max(7, insets.bottom) }]}>
         <View accessibilityRole="tablist" style={s.tabBar}>
           {tabs.map((item) => {
             const active = tab === item.key;
