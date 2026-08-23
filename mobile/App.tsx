@@ -50,6 +50,7 @@ import {
   Pencil,
   RefreshCw,
   ShieldCheck,
+  MapPin,
   Sparkles,
   Trash2,
   Trophy,
@@ -65,6 +66,8 @@ import {
   deleteAccount,
   discoverCircle,
   estimateMealPhoto,
+  loadNudges,
+  sendNudge,
   generatePlan,
   loadCircle,
   removeConnection,
@@ -84,6 +87,23 @@ import {
 } from "./src/api";
 import { exerciseMediaFor } from "./src/exerciseMedia";
 import { subscribeToConnectivity } from "./src/net";
+import { currentCell } from "./src/location";
+import { consistencySentence, type ConsistencySummary } from "./src/consistency";
+
+/**
+ * The whole vocabulary of encouragement.
+ *
+ * A fixed list rather than free text: a nudge cannot become a channel for
+ * anything unkind, and nobody has to think of what to write. None of them
+ * reference performance, so none can be read as a comment on how much someone
+ * has or has not done.
+ */
+const NUDGE_OPTIONS = [
+  { kind: "thinking_of_you", label: "Thinking of you today" },
+  { kind: "well_done", label: "Well done" },
+  { kind: "keep_going", label: "Keep going" },
+  { kind: "proud", label: "Proud of you" },
+] as const;
 import { describeMatches, estimateMeal } from "./src/nutrition";
 import {
   READINESS_QUESTIONS,
@@ -3218,19 +3238,57 @@ function HealthConnectionPanel({
 }
 
 /**
- * The circle: other members, and how their day is going.
+ * Twenty-eight days, as a pattern.
  *
- * The point is encouragement by example — seeing that someone else showed up
- * four days this week is a better prompt than any notification. So the list is
- * ordered by consistency rather than intensity, and it carries no failure
- * signal: there is no "missed", no zero-streak, and no last place. A member who
- * has done nothing today looks exactly like a member who has not opened the app,
- * because to everyone else those are the same thing.
+ * Four rows of seven. A day with something is filled, a quiet day is simply
+ * lighter — no cross, no red, no gap count. This is what one member sees of
+ * another instead of a rank, because the evidence on activity apps is that
+ * ranking drives beginners out and most members here are beginners.
+ */
+function ConsistencyGrid({
+  summary,
+  compact,
+}: {
+  summary?: ConsistencySummary;
+  compact?: boolean;
+}) {
+  if (!summary?.days?.length) return null;
+  const size = compact ? 9 : 11;
+  return (
+    <View
+      style={s.grid}
+      accessibilityRole="image"
+      accessibilityLabel={`Active on ${summary.activeDays} of the last ${summary.windowDays} days`}
+    >
+      {summary.days.map((day) => (
+        <View
+          key={day.date}
+          style={[
+            s.gridCell,
+            { width: size, height: size },
+            day.level === 1 && s.gridCell1,
+            day.level === 2 && s.gridCell2,
+            day.level === 3 && s.gridCell3,
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+/**
+ * The circle: other members, and how their month is going.
  *
- * What crosses between members is a projection built on the server: actions
- * completed, days shown up, and optionally steps and water. Meals, photos,
+ * Built on social support rather than social comparison. The published research
+ * on activity apps separates the two clearly — support helps broadly, while
+ * comparison backfires for beginners, who withdraw or hide the app rather than
+ * be seen at the bottom of a table. So there is no rank number, no last place,
+ * and no leaderboard; there are patterns, people, encouragement, and one shared
+ * figure the group moves together.
+ *
+ * What crosses between members is still only the projection built on the server:
+ * completion counts, days shown up, optionally steps and water. Meals, photos,
  * reports, mood, symptoms and coach messages never leave a member's own record.
- * Both sharing switches start off.
  */
 function Circle({
   token,
@@ -3245,8 +3303,18 @@ function Circle({
   const [addUsername, setAddUsername] = useState("");
   const [cityDraft, setCityDraft] = useState("");
   const [nameDraft, setNameDraft] = useState("");
+  const [bioDraft, setBioDraft] = useState("");
+  const [nudges, setNudges] = useState<
+    { from: string; message: string; at: string }[]
+  >([]);
   const [nearby, setNearby] = useState<
-    { memberId: string; displayName: string; city?: string }[]
+    {
+      memberId: string;
+      displayName: string;
+      bio?: string;
+      city?: string;
+      proximityLabel?: string;
+    }[]
   >([]);
   const [nearbyNote, setNearbyNote] = useState<string | null>(null);
 
@@ -3257,7 +3325,10 @@ function Circle({
       setState(next);
       setCityDraft(next.profile.city ?? "");
       setNameDraft(next.profile.displayName ?? "");
+      setBioDraft(next.profile.bio ?? "");
       onUnreadChange?.(next.requests.incoming.length);
+      const inbox = await loadNudges(token).catch(() => ({ nudges: [] }));
+      setNudges(inbox.nudges ?? []);
     } catch (error) {
       Alert.alert(
         "Circle unavailable",
@@ -3274,7 +3345,6 @@ function Circle({
 
   const saveSettings = async (patch: Partial<CircleState["profile"]>) => {
     if (!state) return;
-    // Optimistic: a switch that lags behind the finger feels broken.
     setState({ ...state, profile: { ...state.profile, ...patch } });
     try {
       await saveCircleSettings(token, patch);
@@ -3288,6 +3358,46 @@ function Circle({
     }
   };
 
+  /**
+   * Share an area, having explained what that means.
+   *
+   * The permission prompt is preceded by a plain explanation, because a system
+   * dialog appearing without warning is how people learn to refuse everything.
+   */
+  const shareArea = () =>
+    Alert.alert(
+      "Find members near you",
+      "Bharosa can introduce you to other members in your area — the idea is that this is easier with company, and less solitary.\n\nYour phone works out roughly which 3km area you are in and sends only that. No exact location leaves your phone, there is no map, and nobody is ever shown a distance. You can turn this off whenever you like.",
+      [
+        { text: "Not now", style: "cancel" },
+        {
+          text: "Share my area",
+          onPress: async () => {
+            const result = await currentCell();
+            if (result.status === "denied") {
+              Alert.alert(
+                "Location is switched off for Bharosa",
+                "You can turn it on in your phone settings, or find members by city instead.",
+                [
+                  { text: "Not now", style: "cancel" },
+                  { text: "Open settings", onPress: () => Linking.openSettings() },
+                ],
+              );
+              return;
+            }
+            if (result.status === "unavailable") {
+              Alert.alert(
+                "Could not read your area",
+                "You can still find members by city.",
+              );
+              return;
+            }
+            await saveSettings({ cell: result.cell });
+          },
+        },
+      ],
+    );
+
   const findNearby = async () => {
     setBusy(true);
     try {
@@ -3297,7 +3407,7 @@ function Circle({
         result.message ??
           (result.members.length
             ? null
-            : `No one else in ${result.city} has chosen to be found yet.`),
+            : "Nobody else nearby has chosen to be found yet."),
       );
     } catch (error) {
       Alert.alert(
@@ -3327,10 +3437,7 @@ function Circle({
     }
   };
 
-  const answer = async (
-    memberId: string,
-    decision: "accepted" | "declined",
-  ) => {
+  const answer = async (memberId: string, decision: "accepted" | "declined") => {
     setBusy(true);
     try {
       await answerConnection(token, memberId, decision);
@@ -3344,6 +3451,25 @@ function Circle({
       setBusy(false);
     }
   };
+
+  /** One tap, from a fixed list. Nothing here can be composed. */
+  const nudge = (memberId: string, name: string) =>
+    Alert.alert(`Send ${name} a word`, undefined, [
+      ...NUDGE_OPTIONS.map((option) => ({
+        text: option.label,
+        onPress: async () => {
+          try {
+            await sendNudge(token, memberId, option.kind);
+          } catch (error) {
+            Alert.alert(
+              "Not sent",
+              error instanceof Error ? error.message : "Please try again.",
+            );
+          }
+        },
+      })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
 
   const remove = (memberId: string, name: string) =>
     Alert.alert(
@@ -3390,21 +3516,32 @@ function Circle({
       </Card>
     );
 
-  const ranked = [...state.circle, state.me].sort((a, b) => {
-    if (b.activeDays !== a.activeDays) return b.activeDays - a.activeDays;
-    const aShare = a.actionsTotal ? a.actionsCompleted / a.actionsTotal : 0;
-    const bShare = b.actionsTotal ? b.actionsCompleted / b.actionsTotal : 0;
-    return bShare - aShare;
-  });
+  const together = state.together;
 
   return (
     <>
       <Text style={s.eyebrow}>YOUR CIRCLE</Text>
       <Text style={s.hero}>Better with company.</Text>
       <Text style={s.heroCopy}>
-        See how the people you have added are doing today. They see the same
-        about you — and nothing else.
+        Bharosa connects members who are going through the same thing, because
+        it is easier with people around you. You see how their month is going;
+        they see the same about yours, and nothing else.
       </Text>
+
+      {nudges.length > 0 && (
+        <Card style={s.nudgeCard}>
+          <Text style={s.cardTitle}>
+            {nudges.length === 1
+              ? "Someone was thinking of you"
+              : "Your circle has been in touch"}
+          </Text>
+          {nudges.slice(0, 4).map((item, index) => (
+            <Text key={`${item.at}-${index}`} style={s.nudgeLine}>
+              <Text style={s.nudgeFrom}>{item.from}</Text> · {item.message}
+            </Text>
+          ))}
+        </Card>
+      )}
 
       {state.requests.incoming.length > 0 && (
         <Card>
@@ -3444,58 +3581,79 @@ function Circle({
         </Card>
       )}
 
-      {state.circle.length > 0 ? (
-        <Card>
-          <View style={s.rowBetween}>
-            <Text style={s.cardTitle}>Today</Text>
-            <Trophy size={17} color={C.marigold} />
-          </View>
-          <Text style={s.profileCopy}>
-            Ordered by days shown up this week, not by how hard anyone trained.
+      <Card>
+        <Text style={s.cardTitle}>Your last four weeks</Text>
+        <ConsistencyGrid summary={state.me.consistency} />
+        <Text style={s.profileCopy}>
+          {state.me.consistency
+            ? consistencySentence(state.me.consistency)
+            : "Your first day is whenever you decide it is."}
+        </Text>
+      </Card>
+
+      {together && together.people > 1 && (
+        <LinearGradient colors={["#E7EFF0", "#F3EBDD"]} style={s.circleCard}>
+          <Text style={s.circleKicker}>TOGETHER THIS MONTH</Text>
+          <Text style={s.circleTitle}>
+            {together.activeDays} days between {together.people} of you.
           </Text>
-          {ranked.map((row, index) => {
-            const isMe = row.memberId === state.me.memberId;
-            return (
-              <View
-                key={row.memberId}
-                style={[s.circleRow, isMe && s.circleRowMe]}
-              >
-                <Text style={s.circleRank}>{index + 1}</Text>
+          <Text style={s.profileCopy}>
+            Every day anyone shows up adds to this. Nobody's quiet week takes
+            anything away from it.
+          </Text>
+        </LinearGradient>
+      )}
+
+      {state.circle.length > 0 ? (
+        <>
+          <Text style={s.sectionTitle}>Your circle</Text>
+          {state.circle.map((row) => (
+            <Card key={row.memberId} style={s.personCard}>
+              <View style={s.rowBetween}>
                 <View style={s.flex}>
-                  <Text style={s.circleName}>
-                    {isMe ? "You" : row.displayName}
-                  </Text>
-                  <Text style={s.circleMeta}>
-                    {row.activeDays} day{row.activeDays === 1 ? "" : "s"} this
-                    week
-                    {row.actionsTotal
-                      ? ` · ${row.actionsCompleted}/${row.actionsTotal} today`
-                      : ""}
-                    {typeof row.steps === "number"
-                      ? ` · ${row.steps.toLocaleString()} steps`
-                      : ""}
-                  </Text>
+                  <Text style={s.personName}>{row.displayName}</Text>
+                  {row.proximity ? (
+                    <Text style={s.personMeta}>{row.proximity}</Text>
+                  ) : null}
                 </View>
-                {!isMe && (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${row.displayName}`}
-                    hitSlop={10}
-                    onPress={() => remove(row.memberId, row.displayName)}
-                  >
-                    <Text style={s.habitRemove}>×</Text>
-                  </Pressable>
-                )}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${row.displayName}`}
+                  hitSlop={10}
+                  onPress={() => remove(row.memberId, row.displayName)}
+                >
+                  <Text style={s.habitRemove}>×</Text>
+                </Pressable>
               </View>
-            );
-          })}
-        </Card>
+              {row.bio ? <Text style={s.personBio}>{row.bio}</Text> : null}
+              <ConsistencyGrid summary={row.consistency} compact />
+              <Text style={s.personMeta}>
+                {row.consistency
+                  ? `${row.consistency.activeDays} days in the last ${row.consistency.windowDays}`
+                  : "Not sharing her activity"}
+                {row.actionsTotal
+                  ? ` · ${row.actionsCompleted}/${row.actionsTotal} today`
+                  : ""}
+                {typeof row.steps === "number"
+                  ? ` · ${row.steps.toLocaleString()} steps`
+                  : ""}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                style={s.nudgeButton}
+                onPress={() => nudge(row.memberId, row.displayName)}
+              >
+                <Text style={s.nudgeButtonText}>Send a word</Text>
+              </Pressable>
+            </Card>
+          ))}
+        </>
       ) : (
         <Card>
           <Users size={20} color={C.faint} />
           <Text style={s.cardTitle}>No one here yet</Text>
           <Text style={s.profileCopy}>
-            Add someone by username, or let members in your city find you.
+            Add someone by username, or let members near you find you.
           </Text>
         </Card>
       )}
@@ -3534,17 +3692,28 @@ function Circle({
       </Card>
 
       <Card>
-        <Text style={s.cardTitle}>Members in your city</Text>
+        <Text style={s.cardTitle}>Members near you</Text>
         <Text style={s.profileCopy}>
-          City is the most precise location Bharosa ever uses. No map, no
-          distance, and nothing about where you are right now.
+          Your phone works out roughly which 3km area you are in and sends only
+          that. No exact location leaves your phone, there is no map, and nobody
+          is shown a distance.
         </Text>
+        <Pressable
+          accessibilityRole="button"
+          style={s.waterAdd}
+          onPress={shareArea}
+        >
+          <MapPin size={15} color={C.green} />
+          <Text style={s.waterAddText}>
+            {state.profile.hasLocation ? "Update my area" : "Share my area"}
+          </Text>
+        </Pressable>
         <View style={s.habitAddRow}>
           <TextInput
             style={[s.input, s.flex]}
             value={cityDraft}
             onChangeText={setCityDraft}
-            placeholder="Your city"
+            placeholder="Or just your city"
             placeholderTextColor={C.faint}
             onBlur={() => {
               if (cityDraft.trim() !== (state.profile.city ?? ""))
@@ -3554,14 +3723,14 @@ function Circle({
         </View>
         <View style={s.rowBetween}>
           <View style={s.flex}>
-            <Text style={s.settingLabel}>Let members in my city find me</Text>
+            <Text style={s.settingLabel}>Let other members find me</Text>
             <Text style={s.settingCopy}>
-              They see your circle name and city. Nothing else, until you
-              accept.
+              They see your name, your note and your area. Nothing else, until
+              you accept.
             </Text>
           </View>
           <Switch
-            accessibilityLabel="Let members in my city find me"
+            accessibilityLabel="Let other members find me"
             value={state.profile.discoverable}
             onValueChange={(value) => saveSettings({ discoverable: value })}
             trackColor={{ false: C.line, true: C.greenTint }}
@@ -3581,7 +3750,10 @@ function Circle({
           <View key={row.memberId} style={s.requestRow}>
             <View style={s.flex}>
               <Text style={s.requestName}>{row.displayName}</Text>
-              <Text style={s.requestMeta}>{row.city}</Text>
+              <Text style={s.requestMeta}>
+                {row.proximityLabel || row.city}
+              </Text>
+              {row.bio ? <Text style={s.personBio}>{row.bio}</Text> : null}
             </View>
             <Pressable
               accessibilityRole="button"
@@ -3600,8 +3772,8 @@ function Circle({
         <Text style={s.cardTitle}>What your circle can see</Text>
         <Text style={s.profileCopy}>
           Your meals, photos, reports, check-ins, symptoms and messages with
-          your coach are never shared. Only the two things below, and only with
-          people you have accepted.
+          your coach are never shared. Only what is below, and only with people
+          you have accepted.
         </Text>
         <View style={s.habitAddRow}>
           <TextInput
@@ -3616,12 +3788,25 @@ function Circle({
             }}
           />
         </View>
+        <TextInput
+          style={[s.input, s.bioInput]}
+          value={bioDraft}
+          onChangeText={setBioDraft}
+          placeholder="A line about you — why you started, what you are working on"
+          placeholderTextColor={C.faint}
+          multiline
+          maxLength={240}
+          onBlur={() => {
+            if (bioDraft.trim() !== (state.profile.bio ?? ""))
+              saveSettings({ bio: bioDraft.trim() });
+          }}
+        />
         <View style={s.rowBetween}>
           <View style={s.flex}>
             <Text style={s.settingLabel}>Share my daily activity</Text>
             <Text style={s.settingCopy}>
-              How much of today’s plan you have done, and how many days you
-              showed up this week.
+              Which days you showed up, and how much of today's plan you have
+              done.
             </Text>
           </View>
           <Switch
@@ -3648,7 +3833,7 @@ function Circle({
           />
         </View>
         <Text style={s.settingCopy}>
-          You can turn either off at any time, and remove anyone from your
+          You can turn any of these off at any time, and remove anyone from your
           circle without them being told.
         </Text>
       </Card>
@@ -4578,6 +4763,39 @@ const s = StyleSheet.create({
   topAvatarText: { color: C.greenDeep, fontSize: 11, fontWeight: "800" },
   saving: { color: C.green, fontSize: 11 },
   savingQueued: { color: C.calm, fontSize: 11 },
+
+  /* Consistency grid — 28 days, four rows of seven. A quiet day is lighter,
+     never marked. There is deliberately no red in this component. */
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 3,
+    width: 7 * 14,
+    marginVertical: 12,
+  },
+  gridCell: { borderRadius: 2.5, backgroundColor: C.line },
+  gridCell1: { backgroundColor: "#CFE0DA" },
+  gridCell2: { backgroundColor: "#8FBDB0" },
+  gridCell3: { backgroundColor: C.green },
+
+  personCard: { gap: 4 },
+  personName: { color: C.ink, fontSize: 16, fontWeight: "700" },
+  personBio: { color: C.soft, fontSize: 13, lineHeight: 19, marginTop: 2 },
+  personMeta: { color: C.faint, fontSize: 12, marginTop: 2 },
+  nudgeButton: {
+    minHeight: 42,
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nudgeButtonText: { color: C.green, fontSize: 13, fontWeight: "700" },
+  nudgeCard: { backgroundColor: C.marigoldTint },
+  nudgeLine: { color: C.ink, fontSize: 14, lineHeight: 21, marginTop: 6 },
+  nudgeFrom: { fontWeight: "700" },
+  bioInput: { minHeight: 78, paddingTop: 13, textAlignVertical: "top" },
 
   /* Readiness screen. Plain, unhurried, nothing red. */
   readinessBlock: {

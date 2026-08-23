@@ -815,3 +815,110 @@ test("every domain template offers a real minimum, not a thought", () => {
     assert.ok(template.why.length > 20, template.id);
   }
 });
+
+import { toCell, proximityBetween, cellsWithin, proximityLabel } from "../lib/proximity.ts";
+import { consistencyFor, consistencySentence, circleTotal } from "../lib/consistency.ts";
+
+test("a position is reduced to a grid cell, not stored as coordinates", () => {
+  const cell = toCell(12.9716, 77.5946); // Bengaluru
+  assert.ok(Number.isInteger(cell.x) && Number.isInteger(cell.y));
+  // Two points a few hundred metres apart land in the same square.
+  assert.deepEqual(toCell(12.9716, 77.5946), toCell(12.9730, 77.5960));
+});
+
+test("the cell cannot be reversed to anything precise", () => {
+  // The property that matters is that precision is destroyed: many distinct
+  // positions collapse to a handful of integers. Twenty-five points along a
+  // ~2.5km diagonal cross at most one x and one y boundary, so at most four
+  // cells — and the stored value identifies an area, never a home.
+  const cells = new Set();
+  for (let i = 0; i < 25; i++) {
+    const c = toCell(12.9716 + i * 0.001, 77.5946 + i * 0.001);
+    cells.add(`${c.x},${c.y}`);
+  }
+  assert.ok(cells.size <= 4, `${cells.size} distinct cells across ~2.5km`);
+  assert.ok(cells.size < 25, "positions were not coarsened at all");
+});
+
+test("nonsense coordinates are refused rather than clamped", () => {
+  assert.equal(toCell(999, 0), null);
+  assert.equal(toCell(NaN, 10), null);
+  assert.equal(toCell(0, 500), null);
+});
+
+test("proximity is a bucket, never a distance", () => {
+  const a = { x: 100, y: 200 };
+  assert.equal(proximityBetween(a, { x: 100, y: 200 }), "same_area");
+  assert.equal(proximityBetween(a, { x: 102, y: 200 }), "nearby");
+  assert.equal(proximityBetween(a, { x: 110, y: 200 }), "further");
+  assert.equal(proximityBetween(a, null), "unknown");
+  // No label ever contains a number.
+  for (const p of ["same_area", "nearby", "further", "unknown"]) {
+    assert.ok(!/\d/.test(proximityLabel(p)), p);
+  }
+});
+
+test("the search covers the surrounding cells only", () => {
+  assert.equal(cellsWithin({ x: 0, y: 0 }, 2).length, 25);
+});
+
+const today = new Date("2026-08-23T12:00:00Z");
+const dayBefore = (n) =>
+  new Date(today.getTime() - n * 86400000).toISOString().slice(0, 10);
+
+test("consistency reports days present, never days missed", () => {
+  const summary = consistencyFor(
+    { activeDates: [dayBefore(0), dayBefore(1), dayBefore(5)] },
+    today,
+  );
+  assert.equal(summary.activeDays, 3);
+  assert.equal(summary.days.length, 28);
+  const sentence = consistencySentence(summary);
+  assert.match(sentence, /3 days/);
+  for (const word of ["missed", "only", "behind", "failed"]) {
+    assert.ok(!sentence.toLowerCase().includes(word), sentence);
+  }
+});
+
+test("an empty month is an invitation, not a verdict", () => {
+  const sentence = consistencySentence(consistencyFor({ activeDates: [] }, today));
+  assert.ok(!sentence.includes("0"));
+  assert.match(sentence, /first day/i);
+});
+
+test("a movement day ranks above a logging day, and neither is negative", () => {
+  const summary = consistencyFor(
+    {
+      activeDates: [dayBefore(1)],
+      movementDates: [dayBefore(0)],
+      loggedDates: [dayBefore(2)],
+    },
+    today,
+  );
+  const level = (n) => summary.days.find((d) => d.date === dayBefore(n)).level;
+  assert.equal(level(0), 3);
+  assert.equal(level(1), 2);
+  assert.equal(level(2), 1);
+  assert.equal(level(3), 0);
+  assert.ok(summary.days.every((d) => d.level >= 0));
+});
+
+test("the longest run is historical, so there is nothing live to lose", () => {
+  const summary = consistencyFor(
+    { activeDates: [dayBefore(10), dayBefore(11), dayBefore(12), dayBefore(13)] },
+    today,
+  );
+  assert.equal(summary.longestRun, 4);
+  // Nothing today, and the run still stands.
+  assert.equal(summary.days.at(-1).level, 0);
+});
+
+test("the circle total adds and never subtracts", () => {
+  const busy = consistencyFor({ activeDates: [dayBefore(0), dayBefore(1)] }, today);
+  const quiet = consistencyFor({ activeDates: [] }, today);
+  const total = circleTotal([busy, quiet]);
+  assert.equal(total.activeDays, 2);
+  assert.equal(total.people, 2);
+  // A quiet member dilutes the shared figure; she never reduces it.
+  assert.ok(total.activeDays >= circleTotal([busy]).activeDays);
+});

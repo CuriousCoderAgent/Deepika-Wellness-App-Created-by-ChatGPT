@@ -394,3 +394,27 @@ export async function generatePlan(token: string) {
     changes: string[];
   }>;
 }
+
+/** Send one of the fixed encouragements to a connected member. */
+export async function sendNudge(token: string, memberId: string, kind: string) {
+  const response = await fetch(endpoint("/api/circle/nudge"), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ memberId, kind }),
+  });
+  return parse(response) as Promise<{ sent: boolean; message: string }>;
+}
+
+/** Encouragements sent to her in the last week. */
+export async function loadNudges(token: string) {
+  if (token === DEMO_TOKEN) return { nudges: [] };
+  const response = await fetch(endpoint("/api/circle/nudge"), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parse(response) as Promise<{
+    nudges: { from: string; message: string; at: string }[];
+  }>;
+}

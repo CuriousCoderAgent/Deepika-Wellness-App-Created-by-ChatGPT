@@ -631,6 +631,12 @@ export interface CircleConnection {
 export interface CircleActivity {
   memberId: string;
   displayName: string;
+  /** A short self-description. Support needs a person, not a row in a table. */
+  bio?: string;
+  /** The last 28 days as a pattern. Dates only, never content. */
+  consistency?: import("./consistency").ConsistencySummary;
+  /** A bucket, never a distance. See `lib/proximity.ts`. */
+  proximity?: import("./proximity").Proximity;
   actionsCompleted: number;
   actionsTotal: number;
   activeDays: number;

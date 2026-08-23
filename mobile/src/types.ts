@@ -291,6 +291,12 @@ export interface HabitLog {
 /** Her own circle settings. Both sharing switches start off. */
 export interface CircleProfile {
   displayName: string;
+  /** A short self-description. Support needs a person, not a row in a table. */
+  bio?: string;
+  /** Whether she has shared a coarse area. The cell itself never comes back. */
+  hasLocation?: boolean;
+  /** Write-only: the coarsened cell the device sends. Never returned. */
+  cell?: { x: number; y: number };
   city?: string;
   discoverable: boolean;
   shareActivity: boolean;
@@ -306,6 +312,11 @@ export interface CircleProfile {
 export interface CircleActivity {
   memberId: string;
   displayName: string;
+  bio?: string;
+  /** The last 28 days as a pattern, not a position. */
+  consistency?: ConsistencySummary;
+  /** A bucket — "Nearby", "In your area". Never a distance. */
+  proximity?: string;
   actionsCompleted: number;
   actionsTotal: number;
   activeDays: number;
@@ -325,10 +336,13 @@ export interface CircleState {
   profile: CircleProfile;
   me: CircleActivity;
   circle: CircleActivity[];
+  /** The circle's shared figure. Everyone adds; nobody subtracts. */
+  together?: { activeDays: number; possibleDays: number; people: number };
   requests: { incoming: CircleRequest[]; outgoing: CircleRequest[] };
 }
 
 import type { ReadinessState } from "./readiness";
+import type { ConsistencySummary } from "./consistency";
 
 export interface MemberDoc {
   member: Member;

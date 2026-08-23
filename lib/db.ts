@@ -192,6 +192,27 @@ async function init(): Promise<void> {
       share_steps    boolean not null default false,
       updated_at     timestamptz not null default now()
     );
+    alter table circle_profile add column if not exists bio text;
+    -- Grid indices, not coordinates. The device coarsens to roughly a 3km cell
+    -- before sending, so there is no precise position here to leak.
+    alter table circle_profile add column if not exists cell_x integer;
+    alter table circle_profile add column if not exists cell_y integer;
+    create index if not exists circle_profile_cell_idx
+      on circle_profile (cell_x, cell_y) where discoverable;
+
+    -- One-tap encouragement. The published research is consistent that this
+    -- mechanism -- social support -- is what helps, where ranking harms
+    -- beginners.
+    create table if not exists circle_nudge (
+      id          text primary key,
+      from_id     text not null,
+      to_id       text not null,
+      kind        text not null,
+      created_at  timestamptz not null default now(),
+      seen_at     timestamptz
+    );
+    create index if not exists circle_nudge_to_idx
+      on circle_nudge (to_id, created_at desc);
     -- Discovery only ever queries by city, and only rows that opted in.
     create index if not exists circle_profile_city_idx
       on circle_profile (lower(city)) where discoverable;
@@ -738,7 +759,11 @@ export async function deleteAccountData(userId: string): Promise<{
 export interface StoredCircleProfile {
   userId: string;
   displayName: string;
+  bio: string | null;
   city: string | null;
+  /** Grid cell, never a coordinate. See `lib/proximity.ts`. */
+  cellX: number | null;
+  cellY: number | null;
   discoverable: boolean;
   shareActivity: boolean;
   shareSteps: boolean;
@@ -747,7 +772,10 @@ export interface StoredCircleProfile {
 const EMPTY_PROFILE = (userId: string): StoredCircleProfile => ({
   userId,
   displayName: "",
+  bio: null,
   city: null,
+  cellX: null,
+  cellY: null,
   // Both default off. A member joins a circle by choosing to, not by
   // signing up.
   discoverable: false,
@@ -759,7 +787,10 @@ function toProfile(row: Record<string, unknown>): StoredCircleProfile {
   return {
     userId: String(row.user_id),
     displayName: String(row.display_name ?? ""),
+    bio: (row.bio as string | null) ?? null,
     city: (row.city as string | null) ?? null,
+    cellX: row.cell_x === null || row.cell_x === undefined ? null : Number(row.cell_x),
+    cellY: row.cell_y === null || row.cell_y === undefined ? null : Number(row.cell_y),
     discoverable: Boolean(row.discoverable),
     shareActivity: Boolean(row.share_activity),
     shareSteps: Boolean(row.share_steps),
@@ -801,11 +832,15 @@ export async function writeCircleProfile(
   await ensureReady();
   await db().query(
     `insert into circle_profile
-       (user_id, display_name, city, discoverable, share_activity, share_steps, updated_at)
-     values ($1, $2, $3, $4, $5, $6, now())
+       (user_id, display_name, bio, city, cell_x, cell_y,
+        discoverable, share_activity, share_steps, updated_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
      on conflict (user_id) do update set
        display_name = excluded.display_name,
+       bio = excluded.bio,
        city = excluded.city,
+       cell_x = excluded.cell_x,
+       cell_y = excluded.cell_y,
        discoverable = excluded.discoverable,
        share_activity = excluded.share_activity,
        share_steps = excluded.share_steps,
@@ -813,7 +848,10 @@ export async function writeCircleProfile(
     [
       profile.userId,
       profile.displayName,
+      profile.bio,
       profile.city,
+      profile.cellX,
+      profile.cellY,
       profile.discoverable,
       profile.shareActivity,
       profile.shareSteps,
@@ -959,4 +997,84 @@ export async function deleteCircleData(userId: string): Promise<void> {
     [userId],
   );
   await db().query("delete from circle_profile where user_id = $1", [userId]);
+}
+
+/**
+ * Members in nearby cells who chose to be found.
+ *
+ * Queried by grid square rather than by distance, so the database is never
+ * asked "who is closest to this point" — a question whose answer, repeated,
+ * locates someone.
+ */
+export async function discoverNearby(
+  userId: string,
+  cells: { x: number; y: number }[],
+  limit = 25,
+): Promise<StoredCircleProfile[]> {
+  if (!cells.length) return [];
+  await ensureReady();
+  const r = await db().query(
+    `select p.* from circle_profile p
+     where p.discoverable
+       and p.user_id <> $1
+       and (p.cell_x, p.cell_y) = any($2::record[])
+       and not exists (
+         select 1 from circle_connection c
+         where (c.requester_id = $1 and c.addressee_id = p.user_id)
+            or (c.requester_id = p.user_id and c.addressee_id = $1)
+       )
+     order by p.updated_at desc
+     limit $3`,
+    [userId, cells.map((c) => `(${c.x},${c.y})`), limit],
+  );
+  return r.rows.map(toProfile);
+}
+
+/** A one-tap encouragement, from one member to one member. */
+export async function createNudge(input: {
+  id: string;
+  fromId: string;
+  toId: string;
+  kind: string;
+}): Promise<void> {
+  await ensureReady();
+  await db().query(
+    `insert into circle_nudge (id, from_id, to_id, kind) values ($1, $2, $3, $4)
+     on conflict do nothing`,
+    [input.id, input.fromId, input.toId, input.kind],
+  );
+}
+
+/** How many encouragements are waiting, and who sent them. */
+export async function readNudgesFor(
+  userId: string,
+  since: Date,
+): Promise<{ fromId: string; kind: string; createdAt: string }[]> {
+  await ensureReady();
+  const r = await db().query(
+    `select from_id, kind, created_at from circle_nudge
+     where to_id = $1 and created_at >= $2
+     order by created_at desc limit 50`,
+    [userId, since.toISOString()],
+  );
+  return r.rows.map((row) => ({
+    fromId: String(row.from_id),
+    kind: String(row.kind),
+    createdAt: new Date(row.created_at as string).toISOString(),
+  }));
+}
+
+/** Nudges sent recently, so one person cannot flood another. */
+export async function countRecentNudges(
+  fromId: string,
+  toId: string,
+  since: Date,
+): Promise<number> {
+  await ensureReady();
+  const r = await db().query(
+    `select count(*)::int as n from circle_nudge
+     where from_id = $1 and to_id = $2 and created_at >= $3`,
+    [fromId, toId, since.toISOString()],
+  );
+  return Number(r.rows[0]?.n ?? 0);
 }

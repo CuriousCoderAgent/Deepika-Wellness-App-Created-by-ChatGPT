@@ -35,6 +35,8 @@ import {
   rankByConsistency,
   type CircleActivity,
 } from "@/lib/circle";
+import { consistencyFor, circleTotal, type ConsistencySummary } from "@/lib/consistency";
+import { proximityBetween, toCell } from "@/lib/proximity";
 import { todayIso } from "@/lib/day-offset";
 
 export const runtime = "nodejs";
@@ -51,11 +53,50 @@ async function session() {
 function publicProfile(profile: StoredCircleProfile) {
   return {
     displayName: profile.displayName,
+    bio: profile.bio ?? undefined,
     city: profile.city ?? undefined,
+    // The cell is never returned. She is told whether she has shared a
+    // location, not what it is.
+    hasLocation: profile.cellX !== null && profile.cellY !== null,
     discoverable: profile.discoverable,
     shareActivity: profile.shareActivity,
     shareSteps: profile.shareSteps,
   };
+}
+
+/**
+ * The last four weeks, as a pattern rather than a position.
+ *
+ * Built from the same document the activity projection reads, and just as
+ * strictly: dates only, no content. Knowing someone showed up on the 14th says
+ * nothing about what she ate or how she felt.
+ */
+function consistencyFrom(doc: Awaited<ReturnType<typeof readMemberDoc>>): ConsistencySummary {
+  const active = new Set<string>();
+  const movement = new Set<string>();
+  const logged = new Set<string>();
+  const dayOf = (offset: number) =>
+    new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+
+  for (const action of doc?.actions ?? []) {
+    if (!action.completed || action.dayOffset > 0 || action.dayOffset < -27) continue;
+    const date = dayOf(action.dayOffset);
+    active.add(date);
+    if ((action.domain ?? "movement") === "movement") movement.add(date);
+  }
+  for (const entry of doc?.foodEntries ?? []) {
+    const date = String((entry as unknown as Record<string, unknown>).loggedDate ?? "");
+    if (date) logged.add(date);
+  }
+  for (const entry of doc?.hydrationLogs ?? []) logged.add(entry.date);
+  for (const pulse of doc?.pulses ?? []) {
+    if (pulse.dayOffset <= 0 && pulse.dayOffset >= -27) logged.add(dayOf(pulse.dayOffset));
+  }
+  return consistencyFor({
+    activeDates: [...active],
+    movementDates: [...movement],
+    loggedDates: [...logged],
+  });
 }
 
 export async function GET() {
@@ -119,15 +160,28 @@ export async function GET() {
       const doc = await readMemberDoc(otherId).catch(() => null);
       const activity = activityFor(otherId, doc, theirProfile, today);
       if (!theirProfile.shareSteps) delete activity.steps;
-      activities.push(activity);
+      activities.push({
+        ...activity,
+        bio: theirProfile.bio ?? undefined,
+        consistency: consistencyFrom(doc),
+        proximity: proximityBetween(
+          profile.cellX !== null && profile.cellY !== null
+            ? { x: profile.cellX, y: profile.cellY }
+            : null,
+          theirProfile.cellX !== null && theirProfile.cellY !== null
+            ? { x: theirProfile.cellX, y: theirProfile.cellY }
+            : null,
+        ),
+      } as CircleActivity);
     }
 
-    const me = activityFor(
-      user.sub,
-      await readMemberDoc(user.sub).catch(() => null),
-      profile,
-      today,
-    );
+    const myDoc = await readMemberDoc(user.sub).catch(() => null);
+    const myConsistency = consistencyFrom(myDoc);
+    const me = {
+      ...activityFor(user.sub, myDoc, profile, today),
+      bio: profile.bio ?? undefined,
+      consistency: myConsistency,
+    } as CircleActivity;
 
     return NextResponse.json({
       profile: publicProfile(profile),
@@ -135,6 +189,15 @@ export async function GET() {
       // recomputing it differently on the device.
       me,
       circle: rankByConsistency(activities),
+      // Cooperative rather than competitive: everyone's days add and nobody's
+      // subtract, so a quiet week dilutes the total slightly instead of putting
+      // someone at the bottom of a ladder.
+      together: circleTotal([
+        myConsistency,
+        ...activities
+          .map((a) => (a as CircleActivity & { consistency?: ConsistencySummary }).consistency)
+          .filter((c): c is ConsistencySummary => Boolean(c)),
+      ]),
       requests: {
         incoming: incoming.map((c) => ({
           memberId: c.requesterId,
@@ -161,6 +224,15 @@ export async function GET() {
       { status: 503 },
     );
   }
+}
+
+/** A cell is two integers. Anything else is rejected, not repaired. */
+function readCell(raw: unknown): { x: number; y: number } | null {
+  const cell = raw as { x?: unknown; y?: unknown } | null;
+  if (!cell) return null;
+  const x = Number(cell.x);
+  const y = Number(cell.y);
+  return Number.isInteger(x) && Number.isInteger(y) ? { x, y } : null;
 }
 
 export async function PUT(req: Request) {
@@ -197,6 +269,17 @@ export async function PUT(req: Request) {
         body.displayName,
         existing.displayName || user.name || "",
       ),
+      bio:
+        "bio" in body
+          ? typeof body.bio === "string" && body.bio.trim()
+            ? body.bio.trim().slice(0, 240)
+            : null
+          : existing.bio,
+      // The app sends a grid cell it has already coarsened. Anything that looks
+      // like a raw coordinate is refused rather than quietly rounded here — the
+      // precision must be destroyed on the device, not in transit.
+      cellX: "cell" in body ? readCell(body.cell)?.x ?? null : existing.cellX,
+      cellY: "cell" in body ? readCell(body.cell)?.y ?? null : existing.cellY,
       city: "city" in body ? city : existing.city,
       discoverable:
         typeof body.discoverable === "boolean"
@@ -212,10 +295,9 @@ export async function PUT(req: Request) {
           : existing.shareSteps,
     };
 
-    // Being findable in a city is meaningless without a city, and leaving the
-    // flag on with the city cleared would be a setting that silently does
-    // nothing.
-    if (!next.city) next.discoverable = false;
+    // Being findable is meaningless with neither a city nor an area, and
+    // leaving the flag on would be a setting that silently does nothing.
+    if (!next.city && next.cellX === null) next.discoverable = false;
 
     await writeCircleProfile(next);
     return NextResponse.json({ profile: publicProfile(next) });
