@@ -2080,20 +2080,24 @@ function Journey({ doc }: { doc: MemberDoc }) {
   const milestones = [
     {
       at: 1,
+      Icon: Sparkles,
       title: "First step",
       copy: "You completed your first supportive action.",
     },
     {
       at: 5,
+      Icon: HeartPulse,
       title: "Finding a rhythm",
       copy: "Five actions—proof that small efforts accumulate.",
     },
     {
       at: 12,
+      Icon: Trophy,
       title: "Showing up",
       copy: "Twelve actions across real-life days.",
     },
   ];
+  const [openMilestone, setOpenMilestone] = useState<number | null>(null);
   return (
     <>
       <Text style={s.eyebrow}>YOUR 12-WEEK JOURNEY</Text>
@@ -2249,28 +2253,65 @@ function Journey({ doc }: { doc: MemberDoc }) {
       <View style={s.milestoneRow}>
         {milestones.map((milestone) => {
           const unlocked = completed >= milestone.at;
+          const open = openMilestone === milestone.at;
           return (
-            <View
+            <Pressable
               key={milestone.at}
-              style={[s.milestone, unlocked && s.milestoneUnlocked]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: open }}
+              accessibilityLabel={`${milestone.title}. ${
+                unlocked ? "Earned." : `Earned at ${milestone.at} actions.`
+              }`}
+              style={s.milestone}
+              onPress={() =>
+                setOpenMilestone(open ? null : milestone.at)
+              }
             >
-              <Text style={s.milestoneIcon}>{unlocked ? "✦" : "○"}</Text>
+              <View
+                style={[
+                  s.milestoneBadge,
+                  unlocked && s.milestoneBadgeEarned,
+                  open && s.milestoneBadgeOpen,
+                ]}
+              >
+                <milestone.Icon
+                  size={22}
+                  color={unlocked ? C.marigold : C.faint}
+                  strokeWidth={unlocked ? 2 : 1.6}
+                />
+              </View>
               <Text
+                numberOfLines={2}
                 style={[s.milestoneTitle, unlocked && s.milestoneTitleUnlocked]}
               >
                 {milestone.title}
               </Text>
-              <Text style={s.milestoneCopy}>{milestone.copy}</Text>
-            </View>
+            </Pressable>
           );
         })}
       </View>
+      {openMilestone !== null && (
+        <View style={s.milestoneDetail}>
+          <Text style={s.milestoneDetailTitle}>
+            {milestones.find((m) => m.at === openMilestone)?.title}
+          </Text>
+          <Text style={s.milestoneCopy}>
+            {milestones.find((m) => m.at === openMilestone)?.copy}
+          </Text>
+          <Text style={s.milestoneDetailWhen}>
+            {completed >= openMilestone
+              ? "Earned."
+              : `Earned at ${openMilestone} completed actions — you are at ${completed}.`}
+          </Text>
+        </View>
+      )}
     </>
   );
 }
 
-function LearningLibrary() {
+function LearningLibrary({ weekFocus }: { weekFocus?: string[] }) {
   const [articleId, setArticleId] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const article = LEARNING_ARTICLES.find((item) => item.id === articleId);
   if (article)
     return (
@@ -2294,13 +2335,50 @@ function LearningLibrary() {
         </View>
       </View>
     );
+  const focus = (weekFocus ?? []).join(" ").toLowerCase();
+  /**
+   * Ordered by what this week is about, not alphabetically. A member reading
+   * five guides in a row is not the behaviour to design for; a member reading
+   * the one that matches the week she is in might be.
+   */
+  const relevant = [...LEARNING_ARTICLES].sort((a, b) => {
+    const score = (item: (typeof LEARNING_ARTICLES)[number]) => {
+      const category = item.category.toLowerCase();
+      if (focus.includes(category)) return 2;
+      if (
+        (category === "recovery" && /sleep|rest|recover/.test(focus)) ||
+        (category === "movement" && /strength|walk|move|mobil/.test(focus)) ||
+        (category === "nutrition" && /protein|meal|food|nutrition/.test(focus)) ||
+        (category === "mindset" && /stress|reflect|mind/.test(focus))
+      )
+        return 2;
+      return 0;
+    };
+    return score(b) - score(a);
+  });
+
   return (
     <View>
-      <View style={s.sectionHead}>
-        <Text style={s.sectionTitle}>Learn in five minutes</Text>
-        <Text style={s.sectionMeta}>{LEARNING_ARTICLES.length} guides</Text>
-      </View>
-      {LEARNING_ARTICLES.map((item) => (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={({ pressed }) => [s.learnToggle, pressed && s.pressed]}
+        onPress={() => setOpen((value) => !value)}
+      >
+        <View style={s.flex}>
+          <Text style={s.cardTitle}>Reading for this week</Text>
+          <Text style={s.domainRowDetail}>
+            {relevant.length} short guides, the most relevant first
+          </Text>
+        </View>
+        {open ? (
+          <ChevronUp size={18} color={C.faint} />
+        ) : (
+          <ChevronDown size={18} color={C.faint} />
+        )}
+      </Pressable>
+      {open &&
+        relevant.map((item) => (
         <Pressable
           accessibilityRole="button"
           key={item.id}
@@ -4823,7 +4901,7 @@ function MemberApp({
       ) : (
         <>
           <Journey doc={doc} />
-          <LearningLibrary />
+          <LearningLibrary weekFocus={doc.member.weeklyFocus} />
           <Card style={s.glanceCard}>
             <Pressable
               accessibilityRole="button"
@@ -5148,6 +5226,53 @@ const s = StyleSheet.create({
   topAvatarText: { color: C.greenDeep, fontSize: 11, fontWeight: "800" },
   saving: { color: C.green, fontSize: 11 },
   savingQueued: { color: C.calm, fontSize: 11 },
+  learnToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 62,
+    marginTop: 14,
+    paddingHorizontal: 16,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: C.card,
+  },
+
+  /* Milestones — a badge each, grey until earned, marigold once it is. */
+  milestoneBadge: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    backgroundColor: C.card,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  milestoneBadgeEarned: {
+    borderColor: C.marigold,
+    backgroundColor: C.marigoldTint,
+  },
+  milestoneBadgeOpen: { borderWidth: 2.5 },
+  milestoneDetail: {
+    marginTop: 12,
+    padding: 16,
+    borderRadius: 14,
+    backgroundColor: C.marigoldTint,
+  },
+  milestoneDetailTitle: {
+    color: C.ink,
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 5,
+  },
+  milestoneDetailWhen: {
+    color: C.marigold,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 8,
+  },
   actionCardInline: {
     backgroundColor: "transparent",
     borderWidth: 0,
