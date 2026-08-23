@@ -1911,6 +1911,18 @@ function Today({
   const movementActions = actions.filter(
     (action) => action.domain === "movement",
   );
+  /** Something is genuinely waiting with her coach, rather than a standing ad. */
+  const coachNeedsAttention =
+    doc.recommendations.some(
+      (item) =>
+        item.kind === "coach_review" && item.status === "needs_coach_review",
+    ) ||
+    doc.sessions.some(
+      (session) =>
+        session.status === "scheduled" &&
+        session.dayOffset >= 0 &&
+        session.dayOffset <= 2,
+    );
   const remaining = actions.length - actionsDone;
   const primary = actions.find((action) => action.isPrimary) ?? actions[0];
   const complete = (
@@ -2019,6 +2031,11 @@ function Today({
         </View>
       )}
 
+      {/* What her phone and health source already know, before anything asks
+          her for input. This is the answer to "how am I doing" and belongs
+          above the day rather than below it. */}
+      <DailySnapshot doc={doc} onOpenProfile={onOpenProfile} />
+
       <Pulse doc={doc} onChange={update} />
 
       <Card style={s.glanceCard}>
@@ -2083,10 +2100,11 @@ function Today({
             />
           ))}
 
-      <DailySnapshot doc={doc} onOpenProfile={onOpenProfile} />
-      <DailyInsight doc={doc} />
       <DailyExtras doc={doc} update={update} />
-      <CoachConnectionCard doc={doc} onOpenCoach={onOpenCoach} />
+      <DailyInsight doc={doc} />
+      {coachNeedsAttention && (
+        <CoachConnectionCard doc={doc} onOpenCoach={onOpenCoach} />
+      )}
     </>
   );
 }
@@ -4025,6 +4043,141 @@ function Circle({
   );
 }
 
+/**
+ * The You tab, as a hub.
+ *
+ * This screen used to stack four full screens on top of each other — profile
+ * and settings, the whole circle, health connection, and reports — roughly
+ * twelve hundred lines of one continuous scroll. Each is now a row that opens
+ * on its own, the same pattern as the movement session.
+ *
+ * What stays on the hub is what answers "how am I doing" without a tap: the
+ * four weeks of consistency she has built, and what her phone and health source
+ * are actually contributing. Everything that needs a decision from her is a
+ * door rather than a wall of controls.
+ */
+function YouHub({
+  doc,
+  circleRequests,
+  onOpen,
+}: {
+  doc: MemberDoc;
+  circleRequests: number;
+  onOpen: (section: "circle" | "health" | "reports" | "settings") => void;
+}) {
+  const initials = doc.member.name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2);
+  const health = doc.healthConnection;
+  const connected = health?.status === "connected" || health?.status === "partial";
+  const latestSteps = [...(doc.healthSnapshots ?? [])]
+    .filter((snapshot) => snapshot.metric === "steps" && snapshot.available)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  const reportCount = doc.reports?.length ?? 0;
+  const activeDays = new Set(
+    (doc.actions ?? [])
+      .filter(
+        (action) =>
+          action.completed && action.dayOffset <= 0 && action.dayOffset >= -27,
+      )
+      .map((action) => action.dayOffset),
+  ).size;
+
+  const rows: {
+    key: "circle" | "health" | "reports" | "settings";
+    Icon: typeof Users;
+    label: string;
+    detail: string;
+    badge?: number;
+  }[] = [
+    {
+      key: "health",
+      Icon: HeartPulse,
+      label: CONNECTED_HEALTH_NAME,
+      detail: connected
+        ? latestSteps
+          ? `${Math.round(latestSteps.value).toLocaleString()} steps most recently`
+          : "Connected"
+        : "Not connected — steps and heart rate are unavailable",
+    },
+    {
+      key: "circle",
+      Icon: Users,
+      label: "Your circle",
+      detail: circleRequests
+        ? `${circleRequests} request${circleRequests === 1 ? "" : "s"} waiting`
+        : "People you have added, and how their month is going",
+      badge: circleRequests || undefined,
+    },
+    {
+      key: "reports",
+      Icon: ShieldCheck,
+      label: "Reports",
+      detail: reportCount
+        ? `${reportCount} uploaded`
+        : "Blood work and scans, stored privately",
+    },
+    {
+      key: "settings",
+      Icon: UserRound,
+      label: "Settings and your data",
+      detail: "Reminders, privacy, export, delete your account",
+    },
+  ];
+
+  return (
+    <>
+      <View style={s.profileBadge}>
+        <Text style={s.profileInitials}>{initials}</Text>
+      </View>
+      <Text style={[s.hero, s.center]}>{doc.member.name}</Text>
+      <Text style={[s.heroCopy, s.center]}>
+        Week {doc.member.week} · {doc.member.phase}
+        {activeDays ? ` · ${activeDays} active days this month` : ""}
+      </Text>
+
+      <Card style={s.glanceCard}>
+        {rows.map((row) => (
+          <Pressable
+            key={row.key}
+            accessibilityRole="button"
+            accessibilityLabel={
+              row.badge
+                ? `${row.label}, ${row.badge} waiting`
+                : `${row.label}. ${row.detail}`
+            }
+            style={({ pressed }) => [s.domainRow, pressed && s.domainRowPressed]}
+            onPress={() => onOpen(row.key)}
+          >
+            <View style={s.domainRowIcon}>
+              <row.Icon size={16} color={C.greenDeep} />
+            </View>
+            <View style={s.flex}>
+              <Text style={s.domainRowTitle}>{row.label}</Text>
+              <Text style={s.domainRowDetail}>{row.detail}</Text>
+            </View>
+            {row.badge ? (
+              <View style={s.tabBadge}>
+                <Text style={s.tabBadgeText}>
+                  {row.badge > 9 ? "9+" : row.badge}
+                </Text>
+              </View>
+            ) : null}
+            <ChevronRight size={17} color={C.faint} />
+          </Pressable>
+        ))}
+      </Card>
+
+      <Text style={s.disclaimer}>
+        Bharosa supports coaching and education. It does not diagnose conditions
+        or replace medical care.
+      </Text>
+    </>
+  );
+}
+
 function Profile({
   doc,
   update,
@@ -4380,6 +4533,10 @@ function MemberApp({
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   /** Connection requests waiting on her, surfaced on the You tab. */
   const [circleRequests, setCircleRequests] = useState(0);
+  /** Which section of You is open. Null is the hub. */
+  const [youSection, setYouSection] = useState<
+    null | "circle" | "health" | "reports" | "settings"
+  >(null);
   /** The current document, readable from callbacks without a stale closure. */
   const latest = useRef<MemberDoc | null>(null);
   /** Coach messages already seen, so only genuinely new ones are announced. */
@@ -4630,6 +4787,10 @@ function MemberApp({
     });
   }, [remindersEnabled, reminderAt, preferredCheckIn]);
 
+  useEffect(() => {
+    if (tab !== "profile") setYouSection(null);
+  }, [tab]);
+
   /** Opening the conversation is reading it. */
   useEffect(() => {
     if (tab !== "coach" || !unreadFromCoach) return;
@@ -4684,16 +4845,46 @@ function MemberApp({
   else
     content = (
       <>
-        <Profile
-          doc={doc}
-          update={update}
-          token={token}
-          onLogout={signOut}
-          onDeleted={onSignedOut}
-        />
-        <Circle token={token} onUnreadChange={setCircleRequests} />
-        <HealthConnectionPanel doc={doc} update={update} />
-        <Reports doc={doc} update={update} token={token} />
+        {/* Four full screens used to be stacked here — roughly 1,200 lines of
+            one scroll. It is now a hub: each section opens on its own, the same
+            way the movement session does. */}
+        {youSection === null ? (
+          <YouHub
+            doc={doc}
+            circleRequests={circleRequests}
+            onOpen={setYouSection}
+          />
+        ) : (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Back to you"
+              style={s.backRow}
+              onPress={() => setYouSection(null)}
+            >
+              <ChevronLeft size={18} color={C.green} />
+              <Text style={s.backRowText}>You</Text>
+            </Pressable>
+            {youSection === "circle" && (
+              <Circle token={token} onUnreadChange={setCircleRequests} />
+            )}
+            {youSection === "health" && (
+              <HealthConnectionPanel doc={doc} update={update} />
+            )}
+            {youSection === "reports" && (
+              <Reports doc={doc} update={update} token={token} />
+            )}
+            {youSection === "settings" && (
+              <Profile
+                doc={doc}
+                update={update}
+                token={token}
+                onLogout={signOut}
+                onDeleted={onSignedOut}
+              />
+            )}
+          </>
+        )}
       </>
     );
 
