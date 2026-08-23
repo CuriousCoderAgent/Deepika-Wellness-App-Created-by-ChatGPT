@@ -218,6 +218,15 @@ function mergeMemberUpdate(
       memberId,
     })),
     readiness: mergeReadiness(existing.readiness, incoming.readiness),
+    // Derived by the generator from logged sessions, never accepted from the
+    // phone: otherwise a client could award itself a heavier dose, or quietly
+    // un-pause a movement that hurt.
+    doseSteps: existing.doseSteps,
+    pausedExerciseIds: existing.pausedExerciseIds,
+    planGeneratedOn: existing.planGeneratedOn,
+    // A coaching subscription is established elsewhere. A member's own app
+    // cannot grant or revoke it by posting a document.
+    coaching: existing.coaching,
     healthConnection: incoming.healthConnection ?? existing.healthConnection,
     healthSnapshots: incoming.healthSnapshots ?? existing.healthSnapshots ?? [],
     recommendations: incoming.recommendations ?? existing.recommendations ?? [],

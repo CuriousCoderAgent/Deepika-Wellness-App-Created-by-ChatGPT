@@ -50,6 +50,7 @@ to an existing build.
 | `BHAROSA_APP_URL`       | Canonical HTTPS origin used to construct reset links.                                                                          |
 | `FILE_TOKEN_SECRET`     | Independent random value of at least 32 bytes used for opaque private-file references. Keep it stable.                         |
 | `BLOB_READ_WRITE_TOKEN` | Credential for a Vercel Blob store configured for private access.                                                              |
+| `OPENAI_ONBOARDING_MODEL` | Optional. Model behind the conversational sign-up. Defaults to `gpt-5`. Without `OPENAI_API_KEY` the app uses the form.        |
 | `OPENAI_VISION_MODEL`   | Optional. Model used to read meal photos. Defaults to `gpt-5`. Needs `OPENAI_API_KEY`.                                        |
 | `BHAROSA_TIMEZONE`      | Optional. The timezone the day rolls over in. Defaults to `Asia/Kolkata`. See below.                                          |
 
@@ -365,3 +366,46 @@ Every number is clamped to something a person could plausibly eat before it
 reaches a food log, an unreadable photo returns an empty list rather than a
 guess, and the typed estimate from `mobile/src/nutrition.ts` remains the
 fallback — logging a meal never depends on a model answering.
+
+## Plan generation
+
+`POST /api/plan/generate` builds today's movement session and is called once a
+day by the app before it loads the member document.
+
+Rules decide what she does; a model only writes the sentence explaining it. If
+`OPENAI_API_KEY` is absent or the call fails, the plan is byte-for-byte the same
+and the explanation falls back to a written sentence. Nothing about a member's
+day depends on a model answering.
+
+State the route maintains on the document, none of it accepted from the client:
+
+- `doseSteps` — where each exercise sits on the seven-rung dose ladder.
+- `pausedExerciseIds` — movements stopped after a pain report. Generation never
+  offers these again; only a person removes one.
+- `planGeneratedOn` — the date last built, so the app generates once a day.
+
+**Coaching.** `doc.coaching.mode` is `"coached"` or absent. When coached, the
+domains in `ownedDomains` plus anything the coach has actually published today
+are left untouched and generation fills only the rest. `coaching` is never
+written from a member's app — it is a billing fact established elsewhere.
+
+## Conversational sign-up
+
+`POST /api/onboarding/converse` takes the messages so far and returns the next
+question plus the structured fields extracted so far.
+
+It is bounded on purpose. Eight member turns, then it stops and hands over to the
+form. Every response is schema-constrained to a question plus five known fields,
+so there is no free-text channel where a plan or a diagnosis could be
+improvised. Goals are matched against the same seven the form offers and
+anything unrecognised is dropped; minutes are clamped; free text is truncated.
+Whatever the conversation produces, what reaches the document is the shape the
+form would have written.
+
+The model is instructed to give no exercise, medical or nutrition advice, and to
+note rather than react to anything clinical — the readiness screen follows and
+asks directly. That screen is deliberately **not** conversational: a safety
+screen should read identically to everyone.
+
+Without `OPENAI_API_KEY` the endpoint returns `useForm: true` and sign-up
+proceeds exactly as before.

@@ -65,6 +65,7 @@ import {
   deleteAccount,
   discoverCircle,
   estimateMealPhoto,
+  generatePlan,
   loadCircle,
   removeConnection,
   requestConnection,
@@ -4052,6 +4053,17 @@ function MemberApp({
   const refresh = useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
       try {
+        if (token !== DEMO_TOKEN) {
+          const built = await readCachedDoc();
+          const alreadyToday =
+            built?.doc?.planGeneratedOn === isoDate() ||
+            latest.current?.planGeneratedOn === isoDate();
+          if (!alreadyToday) {
+            await generatePlan(token).catch(() => {
+              // Yesterday's plan is a much better outcome than none.
+            });
+          }
+        }
         let next = await loadMember(token);
         const today = isoDate();
         const hasTodayRecommendation = next.recommendations.some(

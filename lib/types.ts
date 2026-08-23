@@ -155,6 +155,15 @@ export interface DailyAction {
   provenance?: Provenance;
   /** Links a movement action to a workout definition. */
   workoutId?: string;
+  /** A single movement with its cues and frames, as the app renders it. */
+  exercise?: {
+    name: string;
+    sets: string;
+    cue: string;
+    frames: string[];
+    /** Links back to `lib/exercise-library.ts` so progression can find it. */
+    exerciseId?: string;
+  };
 }
 
 export interface PulseEntry {
@@ -628,4 +637,33 @@ export interface CircleActivity {
   steps?: number;
   hydrationGlasses?: number;
   city?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Coaching — optional, and authoritative when present                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Whether a human coach is involved, and what that means for the plan.
+ *
+ * The product's default is now that nobody has a coach: the app builds the plan
+ * itself from the sign-up answers and adapts it from what she reports. A coach
+ * is a subscription on top, and where one exists she outranks the generator
+ * completely — not as a suggestion the software weighs, but as the answer.
+ *
+ * `none` and an absent field mean the same thing, so every document written
+ * before this existed reads correctly as un-coached.
+ */
+export interface CoachingState {
+  mode: "none" | "coached";
+  /** The coach's account id, when coached. */
+  coachId?: string;
+  since?: string;
+  /**
+   * Domains the coach has taken over. The generator fills only what is not
+   * listed here, so she can own movement while the app still handles the rest.
+   * An empty list with mode "coached" means she owns everything she publishes,
+   * decided per-day by what she has actually written.
+   */
+  ownedDomains?: ActionDomain[];
 }

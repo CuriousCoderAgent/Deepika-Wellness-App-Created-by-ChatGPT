@@ -369,3 +369,28 @@ export async function estimateMealPhoto(
     fat: number;
   }>;
 }
+
+/**
+ * Ask the server to build today's plan.
+ *
+ * Selection and progression happen server-side, from the exercise library and
+ * the rules in `lib/adaptation.ts`. The phone asks and re-reads the document;
+ * it never decides what she should do.
+ *
+ * Called once a day. A failure is silent by design — she keeps yesterday's plan,
+ * which is a far better outcome than an empty screen.
+ */
+export async function generatePlan(token: string) {
+  if (token === DEMO_TOKEN) return null;
+  const response = await fetch(endpoint("/api/plan/generate"), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parse(response) as Promise<{
+    generated: number;
+    posture: "normal" | "lighter" | "recovery";
+    rationale: string;
+    movementHeld: { title: string; body: string } | null;
+    changes: string[];
+  }>;
+}

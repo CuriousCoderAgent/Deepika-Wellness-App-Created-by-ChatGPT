@@ -17,6 +17,7 @@
 
 import * as seed from "./seed";
 import type { ReadinessState } from "./readiness";
+import type { CoachingState } from "./types";
 import { radarRules, type RadarRule } from "./radar";
 import type {
   DailyAction,
@@ -62,6 +63,13 @@ export interface MemberDoc {
   habitLogs?: HabitLog[];
   /** Pre-exercise readiness answers and the outcome derived from them. */
   readiness?: ReadinessState;
+  /** Where each exercise sits on the dose ladder. See `lib/adaptation.ts`. */
+  doseSteps?: Record<string, number>;
+  /** Paused after a pain report. Only a person removes an id from here. */
+  pausedExerciseIds?: string[];
+  planGeneratedOn?: string;
+  /** Absent means un-coached, which is the default. */
+  coaching?: CoachingState;
 }
 
 type MemberExtensions = Pick<
@@ -74,6 +82,10 @@ type MemberExtensions = Pick<
   | "habits"
   | "habitLogs"
   | "readiness"
+  | "doseSteps"
+  | "pausedExerciseIds"
+  | "planGeneratedOn"
+  | "coaching"
 >;
 
 export interface CoachDoc {
@@ -158,6 +170,10 @@ export function stateFromMemberDoc<S extends PersistedState>(
         habits: doc.habits,
         habitLogs: doc.habitLogs,
         readiness: doc.readiness,
+        doseSteps: doc.doseSteps,
+        pausedExerciseIds: doc.pausedExerciseIds,
+        planGeneratedOn: doc.planGeneratedOn,
+        coaching: doc.coaching,
       },
     },
     activeMemberId: doc.member.id,
@@ -193,6 +209,10 @@ export function stateFromDocs<S extends PersistedState>(
           habits: doc.habits,
           habitLogs: doc.habitLogs,
           readiness: doc.readiness,
+          doseSteps: doc.doseSteps,
+          pausedExerciseIds: doc.pausedExerciseIds,
+          planGeneratedOn: doc.planGeneratedOn,
+          coaching: doc.coaching,
         },
       ]),
     ),

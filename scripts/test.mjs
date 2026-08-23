@@ -448,3 +448,258 @@ test("every exercise has five frames and a cue", () => {
     assert.ok(exercise.why.length > 10, exercise.id);
   }
 });
+
+import {
+  verdictFor,
+  weekPostureFor,
+  doseAt,
+  nextDose,
+  MAX_DOSE_STEP,
+} from "../lib/adaptation.ts";
+import {
+  generatePlan,
+  selectSession,
+  movementBudget,
+} from "../lib/plan-generator.ts";
+
+const sess = (over = {}) => ({
+  exerciseId: "ex-chair-squat",
+  perceivedEffort: 3,
+  level: "target",
+  pain: false,
+  date: "2026-08-23",
+  ...over,
+});
+
+test("nothing progresses on a single easy session", () => {
+  const v = verdictFor("ex-chair-squat", [sess({ perceivedEffort: 1 })]);
+  assert.equal(v.adjustment, "hold");
+});
+
+test("easy twice while completing the fuller version progresses", () => {
+  const v = verdictFor("ex-chair-squat", [
+    sess({ perceivedEffort: 2, date: "2026-08-23" }),
+    sess({ perceivedEffort: 1, date: "2026-08-21" }),
+  ]);
+  assert.equal(v.adjustment, "progress");
+});
+
+test("easy but only ever at the minimum does not progress", () => {
+  // "The smallest version was easy" is not evidence she is ready for more.
+  const v = verdictFor("ex-chair-squat", [
+    sess({ perceivedEffort: 1, level: "minimum", date: "2026-08-23" }),
+    sess({ perceivedEffort: 1, level: "minimum", date: "2026-08-21" }),
+  ]);
+  assert.equal(v.adjustment, "regress");
+});
+
+test("hard twice steps back", () => {
+  const v = verdictFor("ex-chair-squat", [
+    sess({ perceivedEffort: 5, date: "2026-08-23" }),
+    sess({ perceivedEffort: 4, date: "2026-08-21" }),
+  ]);
+  assert.equal(v.adjustment, "regress");
+});
+
+test("pain beats every other signal, including two easy sessions", () => {
+  const v = verdictFor("ex-chair-squat", [
+    sess({ perceivedEffort: 1, pain: true, date: "2026-08-23" }),
+    sess({ perceivedEffort: 1, date: "2026-08-21" }),
+  ]);
+  assert.equal(v.adjustment, "stop_and_review");
+});
+
+test("rest days are not counted as sessions", () => {
+  const v = verdictFor("ex-chair-squat", [
+    sess({ level: "rest", perceivedEffort: 1 }),
+    sess({ level: "rest", perceivedEffort: 1, date: "2026-08-21" }),
+  ]);
+  assert.equal(v.basis, 0);
+  assert.equal(v.adjustment, "hold");
+});
+
+test("a badly slept week suspends progression entirely", () => {
+  const bad = ["23", "22", "21", "20", "19"].map((d) => ({
+    date: `2026-08-${d}`,
+    sleep: 1,
+    energy: 2,
+  }));
+  const { posture } = weekPostureFor(bad);
+  assert.equal(posture, "recovery");
+  // Even an unambiguous progress verdict does not move under recovery.
+  assert.deepEqual(nextDose(2, "progress", "recovery"), {
+    step: 2,
+    changeExercise: null,
+  });
+});
+
+test("a couple of poor nights makes the week lighter, not a recovery week", () => {
+  const signals = ["23", "22", "21", "20"].map((d, i) => ({
+    date: `2026-08-${d}`,
+    sleep: i < 2 ? 2 : 4,
+    energy: 4,
+  }));
+  assert.equal(weekPostureFor(signals).posture, "lighter");
+});
+
+test("too few check-ins does not trigger an adjustment either way", () => {
+  assert.equal(weekPostureFor([{ date: "2026-08-23", sleep: 1 }]).posture, "normal");
+});
+
+test("the dose ladder never runs off either end", () => {
+  assert.equal(doseAt(-5).label, "1 set of 6");
+  assert.equal(doseAt(999).label, doseAt(MAX_DOSE_STEP).label);
+});
+
+test("the largest single step up is one rung of the ladder", () => {
+  for (let step = 0; step < MAX_DOSE_STEP; step++) {
+    const next = nextDose(step, "progress", "normal");
+    assert.equal(next.step, step + 1, `step ${step} jumped`);
+  }
+});
+
+test("running out of ladder changes the exercise instead of piling on reps", () => {
+  const result = nextDose(MAX_DOSE_STEP, "progress", "normal");
+  assert.equal(result.changeExercise, "progress");
+  assert.ok(result.step < MAX_DOSE_STEP, "dose should reset for the harder move");
+});
+
+/* ---- generator ---- */
+
+const baseInput = {
+  memberId: "radhika",
+  week: 3,
+  goals: ["Feel stronger"],
+  availableMinutes: 30,
+};
+
+test("stated minutes actually change the session", () => {
+  // The whole point: before this, 15 and 45 produced identical days.
+  const short = selectSession({ ...baseInput, availableMinutes: 15 }, "normal");
+  const long = selectSession({ ...baseInput, availableMinutes: 45 }, "normal");
+  assert.ok(long.length > short.length, `${short.length} vs ${long.length}`);
+  assert.ok(short.length >= 2, "even 15 minutes should be a real session");
+});
+
+test("a session never exceeds the time she said she has", () => {
+  for (const minutes of [10, 15, 20, 30, 45, 60]) {
+    const session = selectSession({ ...baseInput, availableMinutes: minutes }, "normal");
+    const total = session.reduce((sum, e) => sum + e.minutes, 0);
+    assert.ok(total <= movementBudget(minutes), `${minutes}min -> ${total}min`);
+  }
+});
+
+test("goals change what she is shown first", () => {
+  const strength = selectSession({ ...baseInput, goals: ["Feel stronger"] }, "normal");
+  const stress = selectSession({ ...baseInput, goals: ["Manage stress"] }, "normal");
+  assert.notEqual(strength[0].exerciseId, stress[0].exerciseId);
+});
+
+test("a stated caution removes those movements from the session", () => {
+  const session = selectSession(
+    { ...baseInput, availableMinutes: 60, movementCaution: "bad knee" },
+    "normal",
+  );
+  assert.ok(session.length > 0, "she should still have a session");
+  for (const item of session) {
+    const exercise = EXERCISE_BY_ID.get(item.exerciseId);
+    assert.ok(!exercise.loads.includes("knee"), `${item.name} loads the knee`);
+  }
+});
+
+test("early weeks stay on supported movements", () => {
+  const session = selectSession({ ...baseInput, week: 1, availableMinutes: 45 }, "normal");
+  for (const item of session) {
+    assert.equal(EXERCISE_BY_ID.get(item.exerciseId).tier, 1, item.name);
+  }
+});
+
+test("a paused movement is never offered again by generation", () => {
+  const session = selectSession(
+    { ...baseInput, availableMinutes: 60, pausedExerciseIds: ["ex-chair-squat"] },
+    "normal",
+  );
+  assert.ok(!session.some((e) => e.exerciseId === "ex-chair-squat"));
+});
+
+test("readiness holding movement produces no session and says why", () => {
+  const plan = generatePlan({
+    ...baseInput,
+    readiness: { outcome: "consult_first", conditions: [], avoidLoads: [] },
+  });
+  assert.equal(plan.session.length, 0);
+  assert.ok(plan.movementHeld);
+  assert.match(plan.movementHeld.body, /doctor/i);
+});
+
+test("a coach-authored movement day is left completely alone", () => {
+  const plan = generatePlan({ ...baseInput, coachAuthoredDomains: ["movement"] });
+  assert.equal(plan.session.length, 0);
+  assert.deepEqual(plan.filledDomains, []);
+});
+
+test("a recovery week produces a shorter session, not a harder one", () => {
+  const normal = selectSession({ ...baseInput, availableMinutes: 45 }, "normal");
+  const recovery = selectSession({ ...baseInput, availableMinutes: 45 }, "recovery");
+  assert.ok(recovery.length < normal.length);
+});
+
+test("even the most restricted member is never shown an empty movement day", () => {
+  const plan = generatePlan({
+    ...baseInput,
+    week: 1,
+    availableMinutes: 10,
+    movementCaution: "knee and lower back and shoulder problems",
+    readiness: {
+      outcome: "modified",
+      conditions: ["pregnancy", "osteoporosis", "high_blood_pressure", "dizziness"],
+      avoidLoads: ["balance", "pelvic_floor"],
+    },
+  });
+  assert.ok(plan.session.length >= 1, "she was shown nothing at all");
+});
+
+/* ---- coach override ---- */
+
+test("an un-coached member has every domain generated", () => {
+  const plan = generatePlan({ ...baseInput, coachAuthoredDomains: [] });
+  assert.ok(plan.session.length > 0);
+  assert.deepEqual(plan.filledDomains, ["movement"]);
+});
+
+test("a coach owning movement means nothing is generated for it", () => {
+  // Where somebody is paying for a coach, the coach decides. The generator
+  // fills what she has left, and never overwrites her.
+  const plan = generatePlan({ ...baseInput, coachAuthoredDomains: ["movement"] });
+  assert.equal(plan.session.length, 0);
+  assert.deepEqual(plan.filledDomains, []);
+});
+
+test("a coach holding a different domain still leaves movement generated", () => {
+  const plan = generatePlan({ ...baseInput, coachAuthoredDomains: ["nutrition"] });
+  assert.ok(plan.session.length > 0);
+});
+
+/* ---- onboarding field sanitising (the shape the generator consumes) ---- */
+
+test("an unrecognised goal never reaches the member record", () => {
+  // Whatever a conversation produces, the document only ever holds the same
+  // vocabulary the form would have written.
+  const goals = ["Feel stronger", "lose 10kg fast", "Manage stress"];
+  const known = [
+    "Steadier energy", "Feel stronger", "Improve mobility", "Manage stress",
+    "Sleep more consistently", "Support hormonal or life-stage wellbeing",
+    "Improve endurance",
+  ];
+  const kept = goals.filter((g) =>
+    known.some((k) => k.toLowerCase() === g.toLowerCase()),
+  );
+  assert.deepEqual(kept, ["Feel stronger", "Manage stress"]);
+});
+
+test("the generator tolerates nonsense minutes without producing a nonsense day", () => {
+  for (const minutes of [0, -30, NaN, 9999]) {
+    const session = selectSession({ ...baseInput, availableMinutes: minutes }, "normal");
+    assert.ok(session.length >= 1 && session.length <= 6, `${minutes} -> ${session.length}`);
+  }
+});

@@ -24,9 +24,21 @@ and a bounded server-side recommendations endpoint. AI must remain optional,
 explainable, low-risk, and subordinate to coach-approved plans and the safety
 rules documented in the code and deployment guide.
 
-**Product thesis:** Deepika provides the intelligence and the human
-relationship. The software provides memory, structure, visibility,
-reinforcement and continuity.
+**Product thesis (revised 23 Aug 2026 — this replaces the coach-led thesis):**
+the software builds and adapts the plan itself. A member signs up, answers a
+short set of questions and a readiness screen, and receives a plan sized to her
+time, ordered by her goals, and built around whatever she said hurts. It changes
+from what she reports back — perceived effort, which version she completed,
+pain, sleep and energy.
+
+**A coach is an optional subscription, and outranks the software completely.**
+Where someone has one, whatever the coach publishes is what the member sees;
+generation fills only the domains the coach has not taken. Where someone does
+not — the default — the app is the coach. `doc.coaching` carries this; absent
+means un-coached.
+
+The earlier thesis was "Deepika provides the intelligence, the software provides
+memory and structure". That is no longer the product. Do not restore it.
 
 **North star:** do not optimise for app opens. Optimise for useful health
 behaviour, sustainable adherence, and graceful return after imperfect days.
@@ -102,6 +114,37 @@ being deliberate about which one this is before it ships either way.
 
 ---
 
+## How a plan is built
+
+Read `lib/plan-generator.ts` and `lib/adaptation.ts` before changing anything
+about what a member is asked to do.
+
+**Rules decide, models phrase.** Selection, progression, dose and every safety
+gate are deterministic and tested. A model writes the one sentence explaining
+today, and runs the conversational sign-up. This is not caution for its own
+sake: it means progression can be tested exhaustively, cannot hallucinate a
+forty-percent jump, and still works when the model is unavailable. Do not move a
+numeric decision into a prompt.
+
+**Nothing is invented.** Every movement comes from `lib/exercise-library.ts`,
+35 entries, each tagged with what it loads, what rules it out, and its
+progression. The library and its safety tags are under review by a qualified
+exercise professional — see `docs/EXERCISE-MEDIA-BRIEF.md` and the published
+review document. Until that review lands, treat the tags as provisional and do
+not loosen one.
+
+**The safety gates, in order:** readiness outcome (can hold movement entirely) →
+loads ruled out by her stated caution → conditions from readiness → equipment →
+tier. All exclusions, all absolute. A movement removed is not available to be
+picked no matter how well the rest of it fits.
+
+**Pain stops a movement and does not substitute another.** It is added to
+`pausedExerciseIds` and only a person removes it.
+
+**Progression state is server-derived.** `doseSteps` and `pausedExerciseIds`
+are computed from logged sessions and are never accepted from the client, or an
+app could award itself a heavier dose and un-pause something that hurt.
+
 ## Stack and commands
 
 Next.js 15 (App Router) · React 19 · TypeScript · Tailwind · React context,
@@ -126,7 +169,7 @@ references. See `docs/DEPLOYMENT.md` for the complete environment contract.
 npm install
 npm run dev      # http://localhost:3000
 npm run build    # must pass before any commit
-npm test         # pure logic: day rollover, meal estimation
+npm test         # 70 tests: rollover, meals, circle privacy, readiness, progression
 ```
 
 Deploys to Vercel (import repo, zero config) or Railway (`npm start` reads

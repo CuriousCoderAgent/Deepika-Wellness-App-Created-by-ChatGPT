@@ -345,6 +345,10 @@ export interface MemberDoc {
   onboarding: OnboardingState;
   /** Pre-exercise readiness answers. The server recomputes the outcome. */
   readiness?: ReadinessState;
+  /** Set by the server the day a plan was last built. */
+  planGeneratedOn?: string;
+  doseSteps?: Record<string, number>;
+  pausedExerciseIds?: string[];
   hydrationLogs?: HydrationLog[];
   habits?: HabitDefinition[];
   habitLogs?: HabitLog[];
