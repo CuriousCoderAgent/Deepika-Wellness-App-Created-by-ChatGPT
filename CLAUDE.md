@@ -1,5 +1,10 @@
 # CLAUDE.md
 
+**If you have not worked on this repository since 23 August 2026, read
+`docs/HANDOVER-2026-08-23.md` first.** The product thesis changed, the working
+directory moved to `C:harosa`, and several fields are now server-derived and
+ignored from the client.
+
 Operational guidance for Claude Code working on this repository.
 Read `docs/PROJECT-BRIEF.md` before making product decisions — it holds the
 business context, the research the design rests on, and the prioritised backlog.
