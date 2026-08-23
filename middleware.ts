@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { readSessionToken, sessionCookieName } from "@/lib/auth";
+import { readSignedSessionToken, sessionCookieName } from "@/lib/session-token";
 
 /**
  * Route protection, enforced on the server.
@@ -10,7 +10,9 @@ import { readSessionToken, sessionCookieName } from "@/lib/auth";
  */
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const session = await readSessionToken(req.cookies.get(sessionCookieName)?.value);
+  const session = await readSignedSessionToken(
+    req.cookies.get(sessionCookieName)?.value,
+  );
 
   if (!session) {
     const url = req.nextUrl.clone();

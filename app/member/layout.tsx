@@ -3,7 +3,13 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { Activity, CalendarHeart, Home, MessageCircle, TrendingUp } from "lucide-react";
+import {
+  Activity,
+  CalendarHeart,
+  Home,
+  MessageCircle,
+  TrendingUp,
+} from "lucide-react";
 import { useStore } from "@/lib/store";
 
 const tabs = [
@@ -14,7 +20,11 @@ const tabs = [
   { href: "/member/coach", label: "Coach", icon: MessageCircle },
 ];
 
-export default function MemberLayout({ children }: { children: React.ReactNode }) {
+export default function MemberLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const path = usePathname();
   const router = useRouter();
   const { activeMember, messages, hydrated, session } = useStore();
@@ -33,8 +43,16 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   }, [needsOnboarding, router]);
 
   const unread = messages.filter(
-    (m) => m.memberId === activeMember.id && m.from !== "member" && !m.read
+    (m) => m.memberId === activeMember.id && m.from !== "member" && !m.read,
   ).length;
+
+  if (!hydrated) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-paper text-[13px] text-ink-faint">
+        Loading your private space…
+      </div>
+    );
+  }
 
   return (
     /* h-dvh + overflow-hidden means the page itself never scrolls or pans.
@@ -67,7 +85,6 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
               on a desktop instead of covering the browser window. */}
           <div id="sheet-root" />
 
-
           <nav className="safe-bottom shrink-0 border-t border-ink-line bg-paper-card/95 backdrop-blur">
             <div className="flex">
               {tabs.map((t) => {
@@ -78,7 +95,9 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                     key={t.href}
                     href={t.href}
                     className={`tap relative flex flex-1 flex-col items-center justify-center gap-1 py-2.5 text-[10px] transition-colors ${
-                      active ? "text-nav-active" : "text-nav hover:text-nav-active"
+                      active
+                        ? "text-nav-active"
+                        : "text-nav hover:text-nav-active"
                     }`}
                   >
                     {/* Every tab is a saturated colour now, so hue alone no

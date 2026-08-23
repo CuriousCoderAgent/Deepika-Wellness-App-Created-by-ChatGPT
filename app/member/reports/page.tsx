@@ -20,7 +20,12 @@ export default function Reports() {
   const [collectedOn, setCollectedOn] = useState("");
   const [lab, setLab] = useState("");
   const [fileName, setFileName] = useState("");
-  const [rows, setRows] = useState<ReportValue[]>([{ label: "", value: "", unit: "" }]);
+  const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [rows, setRows] = useState<ReportValue[]>([
+    { label: "", value: "", unit: "" },
+  ]);
   const [question, setQuestion] = useState("");
   const [asked, setAsked] = useState(false);
 
@@ -29,7 +34,7 @@ export default function Reports() {
       reports
         .filter((r) => r.memberId === m.id)
         .sort((a, b) => b.collectedOn.localeCompare(a.collectedOn)),
-    [reports, m.id]
+    [reports, m.id],
   );
 
   /**
@@ -42,7 +47,10 @@ export default function Reports() {
       for (const v of r.values) {
         const n = parseFloat(v.value);
         if (Number.isNaN(n)) continue;
-        byLabel.set(v.label, [...(byLabel.get(v.label) ?? []), { at: r.collectedOn, n }]);
+        byLabel.set(v.label, [
+          ...(byLabel.get(v.label) ?? []),
+          { at: r.collectedOn, n },
+        ]);
       }
     }
     return Array.from(byLabel.entries())
@@ -51,6 +59,63 @@ export default function Reports() {
   }, [mine]);
 
   const ready = title.trim() && collectedOn.trim();
+
+  const saveReport = async () => {
+    if (!ready || saving) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      let fileId: string | undefined;
+      if (file) {
+        const form = new FormData();
+        form.append("kind", "report");
+        form.append("file", file);
+        const response = await fetch("/api/files", {
+          method: "POST",
+          body: form,
+        });
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          file?: { id?: string };
+        };
+        if (!response.ok || !body.file?.id) {
+          throw new Error(body.error || "The private file could not be saved.");
+        }
+        fileId = body.file.id;
+      }
+
+      addReport({
+        memberId: m.id,
+        kind: "blood_panel",
+        title: title.trim(),
+        collectedOn,
+        lab: lab.trim() || undefined,
+        fileName: fileName || undefined,
+        fileId,
+        values: rows.filter((row) => row.label.trim() && row.value.trim()),
+        provenance: {
+          source: "imported_document",
+          enteredBy: m.name.split(" ")[0],
+          at: new Date().toISOString().slice(0, 10),
+        },
+      });
+      setOpen(false);
+      setTitle("");
+      setCollectedOn("");
+      setLab("");
+      setFileName("");
+      setFile(null);
+      setRows([{ label: "", value: "", unit: "" }]);
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "The report could not be saved.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="animate-rise px-5 pt-6">
@@ -61,10 +126,12 @@ export default function Reports() {
         <ChevronLeft size={16} /> Insights
       </Link>
 
-      <h1 className="mt-4 font-display text-[1.55rem] leading-tight">Your reports</h1>
+      <h1 className="mt-4 font-display text-[1.55rem] leading-tight">
+        Your reports
+      </h1>
       <p className="mt-1.5 text-[15px] leading-relaxed text-ink-soft">
-        Everything in one place, so you are never hunting through email the night
-        before an appointment.
+        Everything in one place, so you are never hunting through email the
+        night before an appointment.
       </p>
 
       {!open && (
@@ -96,11 +163,12 @@ export default function Reports() {
             </span>
             <input
               type="file"
-              accept="application/pdf,image/*"
+              accept="application/pdf,image/jpeg,image/png"
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) {
+                  setFile(f);
                   setFileName(f.name);
                   if (!title.trim()) setTitle(f.name.replace(/\.[^.]+$/, ""));
                 }
@@ -108,8 +176,7 @@ export default function Reports() {
             />
           </label>
           <p className="mt-1.5 text-[11px] leading-relaxed text-ink-faint">
-            In this prototype the file itself is not stored — only what you type
-            below. Real document storage arrives with the secure version.
+            PDFs, JPEGs and PNGs are stored privately. Maximum file size: 4 MB.
           </p>
 
           <input
@@ -140,7 +207,11 @@ export default function Reports() {
                 <input
                   value={row.label}
                   onChange={(e) =>
-                    setRows((p) => p.map((r, j) => (j === i ? { ...r, label: e.target.value } : r)))
+                    setRows((p) =>
+                      p.map((r, j) =>
+                        j === i ? { ...r, label: e.target.value } : r,
+                      ),
+                    )
                   }
                   placeholder="Marker"
                   className="tap min-w-0 flex-[2] rounded-xl border border-ink-line bg-paper px-3 text-[14px] placeholder:text-ink-faint focus:border-effort-target focus:outline-none"
@@ -148,7 +219,11 @@ export default function Reports() {
                 <input
                   value={row.value}
                   onChange={(e) =>
-                    setRows((p) => p.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)))
+                    setRows((p) =>
+                      p.map((r, j) =>
+                        j === i ? { ...r, value: e.target.value } : r,
+                      ),
+                    )
                   }
                   placeholder="Value"
                   className="tap min-w-0 flex-1 rounded-xl border border-ink-line bg-paper px-3 font-mono text-[14px] placeholder:text-ink-faint focus:border-effort-target focus:outline-none"
@@ -156,7 +231,11 @@ export default function Reports() {
                 <input
                   value={row.unit}
                   onChange={(e) =>
-                    setRows((p) => p.map((r, j) => (j === i ? { ...r, unit: e.target.value } : r)))
+                    setRows((p) =>
+                      p.map((r, j) =>
+                        j === i ? { ...r, unit: e.target.value } : r,
+                      ),
+                    )
                   }
                   placeholder="Unit"
                   className="tap w-16 shrink-0 rounded-xl border border-ink-line bg-paper px-2 text-[13px] placeholder:text-ink-faint focus:border-effort-target focus:outline-none"
@@ -165,40 +244,26 @@ export default function Reports() {
             ))}
           </div>
           <button
-            onClick={() => setRows((p) => [...p, { label: "", value: "", unit: "" }])}
+            onClick={() =>
+              setRows((p) => [...p, { label: "", value: "", unit: "" }])
+            }
             className="tap mt-2 inline-flex items-center gap-1.5 rounded-lg px-2 text-[13px] text-ink-faint hover:bg-paper-sunk hover:text-ink"
           >
             <Plus size={13} /> Another value
           </button>
 
           <button
-            disabled={!ready}
-            onClick={() => {
-              addReport({
-                memberId: m.id,
-                kind: "blood_panel",
-                title: title.trim(),
-                collectedOn,
-                lab: lab.trim() || undefined,
-                fileName: fileName || undefined,
-                values: rows.filter((r) => r.label.trim() && r.value.trim()),
-                provenance: {
-                  source: "imported_document",
-                  enteredBy: m.name.split(" ")[0],
-                  at: new Date().toISOString().slice(0, 10),
-                },
-              });
-              setOpen(false);
-              setTitle("");
-              setCollectedOn("");
-              setLab("");
-              setFileName("");
-              setRows([{ label: "", value: "", unit: "" }]);
-            }}
+            disabled={!ready || saving}
+            onClick={saveReport}
             className="tap mt-4 w-full rounded-xl bg-ink text-sm font-medium text-white disabled:opacity-30"
           >
-            Save it
+            {saving ? "Saving privately…" : "Save it"}
           </button>
+          {saveError && (
+            <p role="alert" className="mt-2 text-[12px] text-rose-700">
+              {saveError}
+            </p>
+          )}
         </div>
       )}
 
@@ -215,7 +280,10 @@ export default function Reports() {
               const lo = Math.min(...ns);
               const hi = Math.max(...ns);
               return (
-                <div key={label} className="flex items-center gap-3 px-3 py-2.5">
+                <div
+                  key={label}
+                  className="flex items-center gap-3 px-3 py-2.5"
+                >
                   <p className="min-w-0 flex-1 truncate text-[14px]">{label}</p>
                   <div className="w-16 shrink-0">
                     <Sparkline
@@ -227,7 +295,8 @@ export default function Reports() {
                     />
                   </div>
                   <p className="w-24 shrink-0 text-right font-mono text-[13px] text-ink-soft">
-                    {pts[0].n} → <span className="text-ink">{pts[pts.length - 1].n}</span>
+                    {pts[0].n} →{" "}
+                    <span className="text-ink">{pts[pts.length - 1].n}</span>
                   </p>
                 </div>
               );
@@ -250,9 +319,14 @@ export default function Reports() {
           {mine.map((r) => (
             <div key={r.id} className="card p-4">
               <div className="flex items-start gap-2.5">
-                <FileText size={16} className="mt-0.5 shrink-0 text-ink-faint" />
+                <FileText
+                  size={16}
+                  className="mt-0.5 shrink-0 text-ink-faint"
+                />
                 <div className="min-w-0 flex-1">
-                  <p className="text-[15px] font-medium leading-snug">{r.title}</p>
+                  <p className="text-[15px] font-medium leading-snug">
+                    {r.title}
+                  </p>
                   <p className="mt-0.5 text-[13px] text-ink-faint">
                     {KIND_LABEL[r.kind]} · {r.collectedOn}
                     {r.lab ? ` · ${r.lab}` : ""}
@@ -264,11 +338,18 @@ export default function Reports() {
               {r.values.length > 0 && (
                 <div className="mt-3 divide-y divide-ink-line border-t border-ink-line">
                   {r.values.map((v, i) => (
-                    <div key={i} className="flex items-baseline justify-between gap-3 py-1.5">
-                      <span className="text-[14px] text-ink-soft">{v.label}</span>
+                    <div
+                      key={i}
+                      className="flex items-baseline justify-between gap-3 py-1.5"
+                    >
+                      <span className="text-[14px] text-ink-soft">
+                        {v.label}
+                      </span>
                       <span className="font-mono text-[14px]">
                         {v.value}
-                        {v.unit ? <span className="text-ink-faint"> {v.unit}</span> : null}
+                        {v.unit ? (
+                          <span className="text-ink-faint"> {v.unit}</span>
+                        ) : null}
                       </span>
                     </div>
                   ))}
@@ -276,7 +357,20 @@ export default function Reports() {
               )}
 
               {r.note && (
-                <p className="mt-2.5 text-[13px] leading-relaxed text-ink-soft">{r.note}</p>
+                <p className="mt-2.5 text-[13px] leading-relaxed text-ink-soft">
+                  {r.note}
+                </p>
+              )}
+
+              {r.fileId && (
+                <a
+                  href={`/api/files/${encodeURIComponent(r.fileId)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="tap mt-3 inline-flex items-center rounded-xl bg-paper-sunk px-3 text-[13px] font-medium text-effort-stretch"
+                >
+                  Open private upload
+                </a>
               )}
             </div>
           ))}
@@ -287,16 +381,19 @@ export default function Reports() {
         <ScopeNotice>
           Deepika is a health coach, not a doctor. She will not tell you what a
           blood value means, whether it is good or bad, or what to take for it —
-          that is your doctor&rsquo;s job and it is the law, not modesty. What she
-          will do is help you walk into that appointment with the right questions.
+          that is your doctor&rsquo;s job and it is the law, not modesty. What
+          she will do is help you walk into that appointment with the right
+          questions.
         </ScopeNotice>
       </div>
 
       <div className="card mt-4 p-4">
-        <p className="text-[14px] font-medium">Save a question for your doctor</p>
+        <p className="text-[14px] font-medium">
+          Save a question for your doctor
+        </p>
         <p className="mt-1 text-[13px] leading-relaxed text-ink-soft">
-          Write it now, while you are looking at the number. Deepika will help you
-          sharpen it before the appointment.
+          Write it now, while you are looking at the number. Deepika will help
+          you sharpen it before the appointment.
         </p>
         <textarea
           value={question}

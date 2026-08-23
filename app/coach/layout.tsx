@@ -17,19 +17,58 @@ import { useStore } from "@/lib/store";
 const nav = [
   { href: "/coach", label: "Radar", icon: Radar, hint: "Who needs me today" },
   { href: "/coach/members", label: "Members", icon: Users, hint: "The cohort" },
-  { href: "/coach/sessions", label: "Sessions", icon: CalendarDays, hint: "Today's 1:1s" },
-  { href: "/coach/library", label: "Library", icon: Library, hint: "Reusable modules" },
-  { href: "/coach/messages", label: "Messages", icon: MessagesSquare, hint: "Conversations" },
-  { href: "/coach/notifications", label: "Notifications", icon: Bell, hint: "Trigger → copy" },
-  { href: "/coach/feedback", label: "Pilot feedback", icon: MessageSquareWarning, hint: "Bugs and ideas" },
+  {
+    href: "/coach/sessions",
+    label: "Sessions",
+    icon: CalendarDays,
+    hint: "Today's 1:1s",
+  },
+  {
+    href: "/coach/library",
+    label: "Library",
+    icon: Library,
+    hint: "Reusable modules",
+  },
+  {
+    href: "/coach/messages",
+    label: "Messages",
+    icon: MessagesSquare,
+    hint: "Conversations",
+  },
+  {
+    href: "/coach/notifications",
+    label: "Notifications",
+    icon: Bell,
+    hint: "Trigger → copy",
+  },
+  {
+    href: "/coach/feedback",
+    label: "Pilot feedback",
+    icon: MessageSquareWarning,
+    hint: "Bugs and ideas",
+  },
 ];
 
-export default function CoachLayout({ children }: { children: React.ReactNode }) {
+export default function CoachLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const path = usePathname();
-  const { radar, messages } = useStore();
+  const { radar, messages, hydrated } = useStore();
 
-  const attention = radar.filter((r) => r.bucket === "attention" && !r.resolved).length;
+  const attention = radar.filter(
+    (r) => r.bucket === "attention" && !r.resolved,
+  ).length;
   const unread = messages.filter((m) => m.from === "member" && !m.read).length;
+
+  if (!hydrated) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-paper text-[13px] text-ink-faint">
+        Loading the private coach space…
+      </div>
+    );
+  }
 
   return (
     /* Column on a phone, row on a desktop. The sidebar is the only child that
@@ -53,10 +92,16 @@ export default function CoachLayout({ children }: { children: React.ReactNode })
 
         <nav className="mt-6 flex-1 px-3">
           {nav.map((n) => {
-            const active = path === n.href || (n.href !== "/coach" && path.startsWith(n.href));
+            const active =
+              path === n.href ||
+              (n.href !== "/coach" && path.startsWith(n.href));
             const Icon = n.icon;
             const badge =
-              n.label === "Radar" ? attention : n.label === "Messages" ? unread : 0;
+              n.label === "Radar"
+                ? attention
+                : n.label === "Messages"
+                  ? unread
+                  : 0;
             return (
               <Link
                 key={n.href}
@@ -72,7 +117,9 @@ export default function CoachLayout({ children }: { children: React.ReactNode })
                 {badge > 0 && (
                   <span
                     className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] ${
-                      active ? "bg-white/20 text-white" : "bg-attention-tint text-attention"
+                      active
+                        ? "bg-white/20 text-white"
+                        : "bg-attention-tint text-attention"
                     }`}
                   >
                     {badge}
@@ -115,7 +162,9 @@ export default function CoachLayout({ children }: { children: React.ReactNode })
       <div className="safe-bottom fixed inset-x-0 bottom-0 z-20 border-t border-ink-line bg-paper-card/95 backdrop-blur lg:hidden">
         <div className="scroll-hide flex overflow-x-auto">
           {nav.map((n) => {
-            const active = path === n.href || (n.href !== "/coach" && path.startsWith(n.href));
+            const active =
+              path === n.href ||
+              (n.href !== "/coach" && path.startsWith(n.href));
             const Icon = n.icon;
             return (
               <Link

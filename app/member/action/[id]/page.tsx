@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, use } from "react";
 import { ChevronLeft, Check, MessageCircle } from "lucide-react";
 import { useStore } from "@/lib/store";
 import ExerciseFigure from "@/components/ExerciseFigure";
@@ -16,7 +16,8 @@ const LEVELS: { key: EffortLevel; name: string; cls: string; ring: string }[] = 
 
 const REASONS = ["Ran out of time", "Too tired", "Not feeling well", "Family came first", "Travelling"];
 
-export default function ActionDetail({ params }: { params: { id: string } }) {
+export default function ActionDetail(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const router = useRouter();
   const { actions, modules, workouts, completeAction } = useStore();
   const a = actions.find((x) => x.id === params.id);

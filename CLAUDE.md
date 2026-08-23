@@ -1,32 +1,49 @@
 # CLAUDE.md
 
+**If you have not worked on this repository since 23 August 2026, read
+`docs/HANDOVER-2026-08-23.md` first.** The product thesis changed, the working
+directory moved to `C:harosa`, and several fields are now server-derived and
+ignored from the client.
+
 Operational guidance for Claude Code working on this repository.
 Read `docs/PROJECT-BRIEF.md` before making product decisions — it holds the
 business context, the research the design rests on, and the prioritised backlog.
 
-Internal project codename: **Bharosa** (`package.json` name, repo-facing
-references). This is a codename for the codebase only — the product itself
-stays branded as Deepika Wellness, the founder's real practice name. Do not
-rename in-app branding, page titles, or notification copy to Bharosa without
-an explicit decision from the user.
+Product name: **Bharosa Wellness** (`package.json` name, app branding, and
+repo-facing references). The user explicitly chose Bharosa Wellness instead
+of using Deepika's name for this product. Do not revert the customer-facing
+brand to Deepika without another explicit decision from the user.
 
 ---
 
 ## What this is
 
-A **V0 Vision Prototype** for Deepika Wellness: coaching software for a women's
-midlife health practice in India. Two surfaces — a member app and a coach
-console — built so the founder (Deepika) can use them and react, rather than
-answer more discovery questions.
+A **pilot-stage Bharosa Wellness product** for holistic health coaching in
+India. It has two surfaces — a member app and a coach console — and is being
+developed locally and on a separate Bharosa staging stack before any public
+launch.
 
-It is **not** the Pilot MVP, but it is no longer only a demo: it has real
-sign-in, per-account data, and optional durable storage, because the twenty
-pilot members are going to use it. There is still no AI in it — do not add UI
-implying otherwise.
+It is no longer only a demo: it has real sign-in, per-account data, optional
+durable storage, private uploads, password recovery, Health Connect support,
+and a bounded server-side recommendations endpoint. AI must remain optional,
+explainable, low-risk, and subordinate to coach-approved plans and the safety
+rules documented in the code and deployment guide.
 
-**Product thesis:** Deepika provides the intelligence and the human
-relationship. The software provides memory, structure, visibility,
-reinforcement and continuity.
+**Product thesis (revised 23 Aug 2026 — this replaces the coach-led thesis):**
+the software builds and adapts the plan itself. A member signs up, answers a
+short set of questions and a readiness screen, and receives a plan sized to her
+time, ordered by her goals, and built around whatever she said hurts. It changes
+from what she reports back — perceived effort, which version she completed,
+pain, sleep and energy.
+
+**A coach is an optional subscription, and outranks the software completely.**
+Where someone has one, whatever the coach publishes is what the member sees;
+generation fills only the domains the coach has not taken. Where someone does
+not — the default — the app is the coach. `doc.coaching` carries this; absent
+means un-coached.
+
+The earlier thesis was "Deepika provides the intelligence, the software provides
+memory and structure". That is no longer the product. Do not restore it.
 
 **North star:** do not optimise for app opens. Optimise for useful health
 behaviour, sustainable adherence, and graceful return after imperfect days.
@@ -81,12 +98,12 @@ Assessment tab, `app/member/reports`). None of that is a diagnosis pipeline —
 it's Deepika, using her own judgement, looking at a client's numbers, which
 she's obviously allowed to do as a coach in conversation.
 
-**What I'll hold off building:** a feature that has the *software itself*
-generate the interpretation ("AI Summary: your iron levels have improved…")
-and hands it to a member without Deepika in the loop. Same for anything UI
-that implies AI exists when it doesn't yet — there's no backend in this repo
-to hold an API key safely (see Stack below), so a real integration is a
-separate scoping conversation, not a checkbox to remove.
+**What remains out of scope:** a feature that has the *software itself*
+generate a clinical interpretation ("AI Summary: your iron levels have
+improved…") and hands it to a member without a qualified professional in the
+loop. The server-side recommendations endpoint may only make the reversible,
+low-risk adjustments defined by its guardrails; pain, clinical questions,
+unusual trends, and strategic changes require coach review.
 
 If you get a straight answer from her certification body or a lawyer that
 auto-generated interpretation is fine for this pilot, tell me and I'll build
@@ -102,27 +119,62 @@ being deliberate about which one this is before it ships either way.
 
 ---
 
+## How a plan is built
+
+Read `lib/plan-generator.ts` and `lib/adaptation.ts` before changing anything
+about what a member is asked to do.
+
+**Rules decide, models phrase.** Selection, progression, dose and every safety
+gate are deterministic and tested. A model writes the one sentence explaining
+today, and runs the conversational sign-up. This is not caution for its own
+sake: it means progression can be tested exhaustively, cannot hallucinate a
+forty-percent jump, and still works when the model is unavailable. Do not move a
+numeric decision into a prompt.
+
+**Nothing is invented.** Every movement comes from `lib/exercise-library.ts`,
+35 entries, each tagged with what it loads, what rules it out, and its
+progression. The library and its safety tags are under review by a qualified
+exercise professional — see `docs/EXERCISE-MEDIA-BRIEF.md` and the published
+review document. Until that review lands, treat the tags as provisional and do
+not loosen one.
+
+**The safety gates, in order:** readiness outcome (can hold movement entirely) →
+loads ruled out by her stated caution → conditions from readiness → equipment →
+tier. All exclusions, all absolute. A movement removed is not available to be
+picked no matter how well the rest of it fits.
+
+**Pain stops a movement and does not substitute another.** It is added to
+`pausedExerciseIds` and only a person removes it.
+
+**Progression state is server-derived.** `doseSteps` and `pausedExerciseIds`
+are computed from logged sessions and are never accepted from the client, or an
+app could award itself a heavier dose and un-pause something that hurt.
+
 ## Stack and commands
 
-Next.js 14 (App Router) · TypeScript · Tailwind · React context, persisted to
-Postgres when `DATABASE_URL` is set and to `localStorage` when it is not.
+Next.js 15 (App Router) · React 19 · TypeScript · Tailwind · React context,
+persisted to a dedicated Postgres database when `BHAROSA_DATABASE_URL` is set.
+The web demo can use `localStorage` without a database; production deliberately
+ignores generic `DATABASE_URL` and `POSTGRES_URL` values to avoid sharing the
+protected Deepika stack.
 
 Storage is per account either way — one document per member, split and
 rejoined by `lib/persist.ts`. `lib/db.ts` is server-only; importing it from a
 client component would put the connection string in the browser bundle.
 
 Accounts come from two places: the environment (`MEMBERS`, `COACH_PASSWORD`,
-`AUTH_SECRET`), all with fallbacks so a deployment with nothing set still
-opens on demo credentials; and the database, for members who signed
-themselves up. `lib/accounts.ts` handles the second kind and is server-only —
-Node's crypto is not available in the Edge middleware, which is why the
-middleware imports from `lib/auth.ts` and never from there.
-See `docs/DEPLOYMENT.md`.
+`AUTH_SECRET`) and the database for members who sign themselves up.
+Development-only demo fallbacks are available locally; production fails closed
+when signing, database, or invitation configuration is missing.
+`lib/accounts.ts` handles database accounts and password recovery server-side.
+Private uploads use a separate private Blob store and opaque owner-bound file
+references. See `docs/DEPLOYMENT.md` for the complete environment contract.
 
 ```bash
 npm install
 npm run dev      # http://localhost:3000
 npm run build    # must pass before any commit
+npm test         # 70 tests: rollover, meals, circle privacy, readiness, progression
 ```
 
 Deploys to Vercel (import repo, zero config) or Railway (`npm start` reads
@@ -152,12 +204,19 @@ app/
     sessions|library|messages|notifications|feedback/
 lib/
   types.ts                  Domain model + Provenance envelope
+  day-offset.ts             Re-bases relative dayOffsets onto today, on read
   seed.ts                   6 personas, 14 modules, 3 workouts, plans, messages
   radar.ts                  10 rules + evaluator
   store.tsx                 Context, localStorage, all mutations
 components/
   ui.tsx                    EffortRamp, ProvenanceChip, ConsistencyBand, Sparkline
   PulseCard.tsx             Daily Pulse (member + coach-on-behalf modes)
+mobile/src/
+  storage.ts                Offline cache + queued save
+  notifications.ts          Local daily reminder and coach-reply alerts
+  nutrition.ts              Meal estimation (quantity-aware, Indian food table)
+scripts/
+  test.mjs                  npm test — day-offset and nutrition logic
 ```
 
 **Design tokens** live in `tailwind.config.ts` with comments explaining what
@@ -176,7 +235,12 @@ each colour means semantically. Read those comments before adding a colour.
   Preserve that property when extending.
 - **Accessibility floor:** 17px base, `.tap` class for 44px targets, visible
   keyboard focus, `prefers-reduced-motion` respected. The audience is 38–50.
-- Verify with `npm run build` before committing. It type-checks.
+- Verify with `npm run build` and `npm test` before committing. The build
+  type-checks; `npm run mobile:typecheck` covers the Expo app separately.
+- **`dayOffset` is relative and is re-based on read** by `lib/day-offset.ts`,
+  called from `lib/db.ts`. Anything new that stores a day must either join that
+  module's collection list or carry its own calendar date. A relative offset
+  that nothing re-bases rots silently — that was the bug it exists to fix.
 - After changing `lib/radar.ts` or `lib/seed.ts`, confirm all ten rules still
   fire — the four Radar buckets should all be populated.
 

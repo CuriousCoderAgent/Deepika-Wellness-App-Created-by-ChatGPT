@@ -1,0 +1,24 @@
+# Local installs, caches, and generated web output
+.git/
+.vercel/
+.next/
+node_modules/
+**/node_modules/
+out/
+build/
+*.tsbuildinfo
+
+# The native Expo/Android workspace is built by EAS, not Vercel.
+mobile/
+
+# Project notes are not required by the Next.js runtime or build.
+docs/
+README.md
+CLAUDE.md
+
+# Local configuration and logs must never be uploaded.
+.env*
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

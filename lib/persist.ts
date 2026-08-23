@@ -16,21 +16,36 @@
  */
 
 import * as seed from "./seed";
+import type { ReadinessState } from "./readiness";
+import type { CoachingState } from "./types";
 import { radarRules, type RadarRule } from "./radar";
 import type {
   DailyAction,
+  AiRecommendation,
   Feedback,
   FoodEntry,
+  HealthConnection,
+  HealthSnapshot,
   Member,
   Message,
   PulseEntry,
   Report,
   Session,
   WorkoutLog,
+  MobileOnboarding,
+  HydrationLog,
+  HabitDefinition,
+  HabitLog,
 } from "./types";
 
 export interface MemberDoc {
   member: Member;
+  /**
+   * The calendar date this document's relative `dayOffset` values were written
+   * from. Set on every write and used by `lib/day-offset.ts` to move them onto
+   * today when the document is read. See that module for why.
+   */
+  dayOffsetAnchor?: string;
   actions: DailyAction[];
   pulses: PulseEntry[];
   workoutLogs: WorkoutLog[];
@@ -38,7 +53,40 @@ export interface MemberDoc {
   sessions: Session[];
   reports: Report[];
   foodEntries: FoodEntry[];
+  healthConnection?: HealthConnection;
+  healthSnapshots?: HealthSnapshot[];
+  recommendations?: AiRecommendation[];
+  onboarding?: MobileOnboarding;
+  /** Date-keyed, so they never need re-basing. See `lib/day-offset.ts`. */
+  hydrationLogs?: HydrationLog[];
+  habits?: HabitDefinition[];
+  habitLogs?: HabitLog[];
+  /** Pre-exercise readiness answers and the outcome derived from them. */
+  readiness?: ReadinessState;
+  /** Where each exercise sits on the dose ladder. See `lib/adaptation.ts`. */
+  doseSteps?: Record<string, number>;
+  /** Paused after a pain report. Only a person removes an id from here. */
+  pausedExerciseIds?: string[];
+  planGeneratedOn?: string;
+  /** Absent means un-coached, which is the default. */
+  coaching?: CoachingState;
 }
+
+type MemberExtensions = Pick<
+  MemberDoc,
+  | "healthConnection"
+  | "healthSnapshots"
+  | "recommendations"
+  | "onboarding"
+  | "hydrationLogs"
+  | "habits"
+  | "habitLogs"
+  | "readiness"
+  | "doseSteps"
+  | "pausedExerciseIds"
+  | "planGeneratedOn"
+  | "coaching"
+>;
 
 export interface CoachDoc {
   rules: RadarRule[];
@@ -61,6 +109,8 @@ export interface PersistedState {
   rules: RadarRule[];
   resolvedRadar: string[];
   activeMemberId: string;
+  /** Mobile-only document fields preserved while the coach console flattens state. */
+  memberExtensions?: Record<string, MemberExtensions>;
 }
 
 const byMember = <T extends { memberId: string }>(rows: T[], id: string) =>
@@ -68,7 +118,7 @@ const byMember = <T extends { memberId: string }>(rows: T[], id: string) =>
 
 export function extractMemberDoc<S extends PersistedState>(
   state: S,
-  memberId: string
+  memberId: string,
 ): MemberDoc | null {
   const member = state.members.find((m) => m.id === memberId);
   if (!member) return null;
@@ -81,6 +131,7 @@ export function extractMemberDoc<S extends PersistedState>(
     sessions: byMember(state.sessions, memberId),
     reports: byMember(state.reports, memberId),
     foodEntries: byMember(state.foodEntries, memberId),
+    ...(state.memberExtensions?.[memberId] ?? {}),
   };
 }
 
@@ -94,7 +145,10 @@ export function extractCoachDoc<S extends PersistedState>(state: S): CoachDoc {
 
 /** One member's app: her document and nothing else. She never holds anyone
  *  else's record, on the server or in her browser. */
-export function stateFromMemberDoc<S extends PersistedState>(base: S, doc: MemberDoc): S {
+export function stateFromMemberDoc<S extends PersistedState>(
+  base: S,
+  doc: MemberDoc,
+): S {
   return {
     ...base,
     members: [doc.member],
@@ -105,6 +159,23 @@ export function stateFromMemberDoc<S extends PersistedState>(base: S, doc: Membe
     sessions: doc.sessions,
     reports: doc.reports,
     foodEntries: doc.foodEntries,
+    memberExtensions: {
+      ...(base.memberExtensions ?? {}),
+      [doc.member.id]: {
+        healthConnection: doc.healthConnection,
+        healthSnapshots: doc.healthSnapshots,
+        recommendations: doc.recommendations,
+        onboarding: doc.onboarding,
+        hydrationLogs: doc.hydrationLogs,
+        habits: doc.habits,
+        habitLogs: doc.habitLogs,
+        readiness: doc.readiness,
+        doseSteps: doc.doseSteps,
+        pausedExerciseIds: doc.pausedExerciseIds,
+        planGeneratedOn: doc.planGeneratedOn,
+        coaching: doc.coaching,
+      },
+    },
     activeMemberId: doc.member.id,
   };
 }
@@ -114,7 +185,7 @@ export function stateFromMemberDoc<S extends PersistedState>(base: S, doc: Membe
 export function stateFromDocs<S extends PersistedState>(
   base: S,
   docs: MemberDoc[],
-  coach: CoachDoc | null
+  coach: CoachDoc | null,
 ): S {
   return {
     ...base,
@@ -126,6 +197,25 @@ export function stateFromDocs<S extends PersistedState>(
     sessions: docs.flatMap((d) => d.sessions ?? []),
     reports: docs.flatMap((d) => d.reports ?? []),
     foodEntries: docs.flatMap((d) => d.foodEntries ?? []),
+    memberExtensions: Object.fromEntries(
+      docs.map((doc) => [
+        doc.member.id,
+        {
+          healthConnection: doc.healthConnection,
+          healthSnapshots: doc.healthSnapshots,
+          recommendations: doc.recommendations,
+          onboarding: doc.onboarding,
+          hydrationLogs: doc.hydrationLogs,
+          habits: doc.habits,
+          habitLogs: doc.habitLogs,
+          readiness: doc.readiness,
+          doseSteps: doc.doseSteps,
+          pausedExerciseIds: doc.pausedExerciseIds,
+          planGeneratedOn: doc.planGeneratedOn,
+          coaching: doc.coaching,
+        },
+      ]),
+    ),
     rules: coach?.rules?.length ? coach.rules : base.rules,
     resolvedRadar: coach?.resolvedRadar ?? base.resolvedRadar,
     feedback: coach?.feedback ?? base.feedback,

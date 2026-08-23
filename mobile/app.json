@@ -1,0 +1,94 @@
+{
+  "expo": {
+    "name": "Bharosa Wellness",
+    "slug": "curious-coder",
+    "version": "1.0.0",
+    "icon": "./assets/icon-v2.png",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "bharosawellness",
+    "ios": {
+      "bundleIdentifier": "com.bharosawellness.app",
+      "buildNumber": "1",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.bharosawellness.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon-v2.png",
+        "backgroundColor": "#073F43"
+      },
+      "permissions": [
+        "android.permission.health.READ_STEPS",
+        "android.permission.health.READ_RESTING_HEART_RATE",
+        "android.permission.health.READ_HEART_RATE_VARIABILITY",
+        "android.permission.health.READ_VO2_MAX",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ],
+      "blockedPermissions": [
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Bharosa Wellness reads steps, resting heart rate, heart-rate variability and VO₂ max to personalise your plan and show trends to you and your authorised coach.",
+          "NSHealthUpdateUsageDescription": false,
+          "background": false
+        }
+      ],
+      "react-native-health-connect",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Bharosa Wellness to use the meal and report photos you choose.",
+          "cameraPermission": "Allow Bharosa Wellness to take meal photos for your food log."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "minSdkVersion": 26
+          }
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": "Allow Bharosa Wellness to protect your private wellness information."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#073F43",
+          "defaultChannel": "bharosa-reminders",
+          "enableBackgroundRemoteNotifications": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Bharosa uses your rough area — about 3km — only to suggest other members near you. Your exact location never leaves your phone.",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isIosBackgroundLocationEnabled": false
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "945e60dc-4eeb-47aa-9e85-105ad698bc69"
+      }
+    }
+  }
+}

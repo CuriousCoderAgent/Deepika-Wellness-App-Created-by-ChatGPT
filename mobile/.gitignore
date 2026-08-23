@@ -1,0 +1,16 @@
+node_modules/
+.expo/
+dist/
+dist-verify/
+dist-foundation/
+dist-polish/
+dist-android-check/
+builds/*.apk
+builds/*.aab
+android/
+ios/
+.npm-cache/
+.env
+*.jks
+*.keystore
+google-service-account.json
