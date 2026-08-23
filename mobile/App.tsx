@@ -1547,6 +1547,151 @@ function Onboarding({
 }
 
 /**
+ * Today, at a glance.
+ *
+ * This screen used to render every action in full, one after another. That was
+ * reasonable when a day held five actions — one per domain. Then plan
+ * generation started producing a movement session of up to six exercises
+ * *plus* the four other domains, so the same layout was asked to show ten
+ * expandable cards, each with a form-guide photograph. The screen roughly
+ * doubled and became a scroll nobody finishes.
+ *
+ * So the day is now a summary: five rows, one per domain, each showing what it
+ * is and whether it is done. The movement session — the only part with real
+ * depth — opens on its own screen. The other four are a single small action
+ * each and expand where they are, because sending someone to a new page to
+ * tick "drink a glass of water" is worse than the scrolling was.
+ *
+ * The rule this follows: one screen answers one question. Today answers "what
+ * am I doing today, and how far in am I". Anything needing more than a line
+ * gets its own space rather than being stacked here.
+ */
+function DomainRow({
+  meta,
+  title,
+  detail,
+  done,
+  total,
+  onPress,
+}: {
+  meta: { label: string; Icon: typeof Home };
+  title: string;
+  detail?: string;
+  done: number;
+  total: number;
+  onPress: () => void;
+}) {
+  const complete = total > 0 && done >= total;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${meta.label}: ${title}${total > 1 ? `, ${done} of ${total} done` : complete ? ", done" : ""}`}
+      style={({ pressed }) => [s.domainRow, pressed && s.domainRowPressed]}
+      onPress={onPress}
+    >
+      <View style={[s.domainRowIcon, complete && s.domainRowIconDone]}>
+        {complete ? (
+          <Check size={15} color="#fff" strokeWidth={2.8} />
+        ) : (
+          <meta.Icon size={16} color={C.greenDeep} />
+        )}
+      </View>
+      <View style={s.flex}>
+        <Text style={s.domainRowLabel}>{meta.label.toUpperCase()}</Text>
+        <Text style={[s.domainRowTitle, complete && s.domainRowTitleDone]}>
+          {title}
+        </Text>
+        {detail ? <Text style={s.domainRowDetail}>{detail}</Text> : null}
+      </View>
+      {total > 1 && (
+        <Text style={s.domainRowCount}>
+          {done}/{total}
+        </Text>
+      )}
+      <ChevronRight size={17} color={C.faint} />
+    </Pressable>
+  );
+}
+
+/**
+ * The movement session, on its own screen.
+ *
+ * Everything that used to make Today long lives here: the exercises in order,
+ * each with its form guide and effort logging. One screen, one job, and it is
+ * only opened by someone who has decided to train.
+ */
+function MovementSession({
+  doc,
+  actions,
+  onComplete,
+  onBack,
+}: {
+  doc: MemberDoc;
+  actions: DailyAction[];
+  onComplete: (
+    id: string,
+    level: EffortLevel | "rest",
+    effort?: 1 | 2 | 3 | 4 | 5,
+    pain?: boolean,
+  ) => void;
+  onBack: () => void;
+}) {
+  const done = actions.filter((a) => a.completed).length;
+  const minutes = actions.reduce(
+    (sum, a) => sum + (a.target?.minutes ?? 0),
+    0,
+  );
+  return (
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Back to today"
+        style={s.backRow}
+        onPress={onBack}
+      >
+        <ChevronLeft size={18} color={C.green} />
+        <Text style={s.backRowText}>Today</Text>
+      </Pressable>
+      <Text style={s.eyebrow}>YOUR MOVEMENT TODAY</Text>
+      <Text style={s.hero}>
+        {done === actions.length && actions.length
+          ? "That is the session done."
+          : `${actions.length} movement${actions.length === 1 ? "" : "s"}, about ${minutes} minutes.`}
+      </Text>
+      <Text style={s.heroCopy}>
+        {done === actions.length && actions.length
+          ? "Nothing more is asked of you today."
+          : "Work through them in any order. A shorter version of any of these is a complete day."}
+      </Text>
+      <View style={s.sessionProgress}>
+        {actions.map((a) => (
+          <View
+            key={a.id}
+            style={[s.sessionPip, a.completed && s.sessionPipDone]}
+          />
+        ))}
+      </View>
+      {actions.map((a) => (
+        <ActionCard
+          key={a.id}
+          action={a}
+          recommendation={[...doc.recommendations]
+            .reverse()
+            .find(
+              (item) =>
+                item.actionId === a.id &&
+                ["applied", "approved"].includes(item.status),
+            )}
+          onComplete={(level, effort, pain) =>
+            onComplete(a.id, level, effort, pain)
+          }
+        />
+      ))}
+    </>
+  );
+}
+
+/**
  * Water and habits.
  *
  * Both are one tap. Neither shows a streak, a target missed, or a number in
@@ -1739,6 +1884,11 @@ function Today({
   onOpenCoach: () => void;
   onOpenProfile: () => void;
 }) {
+  const [openSession, setOpenSession] = useState(false);
+  /** Which single-action domain is expanded in place. Only one at a time. */
+  const [expandedDomain, setExpandedDomain] = useState<ActionDomain | null>(
+    null,
+  );
   const first = doc.member.name.split(" ")[0];
   const hour = new Date().getHours();
   const greeting =
@@ -1758,6 +1908,9 @@ function Today({
   const actionsDone = actions.filter(
     (action) => action.completed && action.completed !== "rest",
   ).length;
+  const movementActions = actions.filter(
+    (action) => action.domain === "movement",
+  );
   const remaining = actions.length - actionsDone;
   const primary = actions.find((action) => action.isPrimary) ?? actions[0];
   const complete = (
@@ -1833,6 +1986,19 @@ function Today({
   };
   if (!doc.onboarding?.completed)
     return <Onboarding doc={doc} update={update} />;
+
+  // The movement session has its own screen. Everything else on Today is a
+  // single small action and stays here.
+  if (openSession)
+    return (
+      <MovementSession
+        doc={doc}
+        actions={movementActions}
+        onComplete={complete}
+        onBack={() => setOpenSession(false)}
+      />
+    );
+
   return (
     <>
       <Text style={s.eyebrow}>
@@ -1843,7 +2009,7 @@ function Today({
       </Text>
       <Text style={s.heroCopy}>
         {remaining
-          ? `${remaining} supportive action${remaining === 1 ? "" : "s"} remain${remaining === 1 ? "s" : ""}. ${primary ? `Start with ${primary.title.toLowerCase()}.` : "Choose the smallest useful next step."}`
+          ? `${remaining} of ${actions.length} left today.`
           : "Today’s plan is complete. Recovery counts as part of the work."}
       </Text>
       {doc.member.lastPlanChange && (
@@ -1852,70 +2018,74 @@ function Today({
           <Text style={s.planCopy}>{doc.member.lastPlanChange.rationale}</Text>
         </View>
       )}
-      <Text style={s.flowLabel}>1 · TRACK WHAT IS TRUE TODAY</Text>
+
       <Pulse doc={doc} onChange={update} />
-      <DailySnapshot doc={doc} onOpenProfile={onOpenProfile} />
-      <Text style={s.flowLabel}>2 · UNDERSTAND, WITHOUT GUESSWORK</Text>
-      <DailyInsight doc={doc} />
-      <Text style={s.flowLabel}>3 · TAKE THE NEXT USEFUL ACTION</Text>
-      <Card style={s.dayMap}>
+
+      <Card style={s.glanceCard}>
         <View style={s.rowBetween}>
-          <Text style={s.cardTitle}>Your whole-health plan</Text>
+          <Text style={s.cardTitle}>Your day</Text>
           <Text style={s.sectionMeta}>
             {actionsDone} of {actions.length}
           </Text>
         </View>
-        <View style={s.dayMapRow}>
-          {domainOrder.map((domain) => {
-            const meta = DOMAIN_META[domain];
-            const action = actions.find((item) => item.domain === domain);
-            const done = Boolean(
-              action?.completed && action.completed !== "rest",
-            );
-            return (
-              <View key={domain} style={s.dayMapItem}>
-                <View style={[s.dayMapIcon, done && s.dayMapIconDone]}>
-                  <meta.Icon size={17} color={done ? "white" : C.greenDeep} />
-                </View>
-                <Text numberOfLines={2} style={s.dayMapLabel}>
-                  {meta.label}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
+        {domainOrder.map((domain) => {
+          const meta = DOMAIN_META[domain];
+          const inDomain = actions.filter((a) => a.domain === domain);
+          if (!inDomain.length) return null;
+          const doneCount = inDomain.filter((a) => a.completed).length;
+          const isMovement = domain === "movement";
+          const only = inDomain[0]!;
+          return (
+            <DomainRow
+              key={domain}
+              meta={meta}
+              title={
+                isMovement && inDomain.length > 1
+                  ? `${inDomain.length} movements`
+                  : only.title
+              }
+              detail={
+                isMovement && inDomain.length > 1
+                  ? `About ${inDomain.reduce((sum, a) => sum + (a.target?.minutes ?? 0), 0)} minutes`
+                  : only.target?.label
+              }
+              done={doneCount}
+              total={inDomain.length}
+              onPress={() => {
+                if (isMovement && inDomain.length > 1) setOpenSession(true);
+                else setExpandedDomain(expandedDomain === domain ? null : domain);
+              }}
+            />
+          );
+        })}
       </Card>
-      <View style={s.sectionHead}>
-        <Text style={s.sectionTitle}>Your focus today</Text>
-        <Text style={s.sectionMeta}>Most important first</Text>
-      </View>
-      {actions.length ? (
-        actions.map((a) => (
-          <ActionCard
-            key={a.id}
-            action={a}
-            recommendation={[...doc.recommendations]
-              .reverse()
-              .find(
-                (item) =>
-                  item.actionId === a.id &&
-                  ["applied", "approved"].includes(item.status),
-              )}
-            onComplete={(level, effort, pain) =>
-              complete(a.id, level, effort, pain)
-            }
-          />
-        ))
-      ) : (
-        <Card>
-          <Text style={s.empty}>
-            Nothing scheduled today. That is intentional.
-          </Text>
-        </Card>
-      )}
-      <Text style={s.flowLabel}>4 · BUILD A RHYTHM, NOT A PERFECT STREAK</Text>
+
+      {/* A single small action expands where it is. Sending someone to another
+          screen to tick "drink a glass of water" would be worse than the
+          scrolling this replaced. */}
+      {expandedDomain &&
+        actions
+          .filter((a) => a.domain === expandedDomain)
+          .map((a) => (
+            <ActionCard
+              key={a.id}
+              action={a}
+              recommendation={[...doc.recommendations]
+                .reverse()
+                .find(
+                  (item) =>
+                    item.actionId === a.id &&
+                    ["applied", "approved"].includes(item.status),
+                )}
+              onComplete={(level, effort, pain) =>
+                complete(a.id, level, effort, pain)
+              }
+            />
+          ))}
+
+      <DailySnapshot doc={doc} onOpenProfile={onOpenProfile} />
+      <DailyInsight doc={doc} />
       <DailyExtras doc={doc} update={update} />
-      <EngagementPanel doc={doc} />
       <CoachConnectionCard doc={doc} onOpenCoach={onOpenCoach} />
     </>
   );
@@ -4504,6 +4674,7 @@ function MemberApp({
     content = (
       <>
         <Journey doc={doc} />
+        <EngagementPanel doc={doc} />
         <Progress doc={doc} />
       </>
     );
@@ -4777,6 +4948,66 @@ const s = StyleSheet.create({
   topAvatarText: { color: C.greenDeep, fontSize: 11, fontWeight: "800" },
   saving: { color: C.green, fontSize: 11 },
   savingQueued: { color: C.calm, fontSize: 11 },
+
+  /* Today at a glance — five rows instead of ten stacked cards. */
+  glanceCard: { paddingVertical: 6 },
+  domainRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 62,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: C.line,
+  },
+  domainRowPressed: { opacity: 0.6 },
+  domainRowIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: C.greenTint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  domainRowIconDone: { backgroundColor: C.green },
+  domainRowLabel: {
+    color: C.faint,
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.9,
+  },
+  domainRowTitle: {
+    color: C.ink,
+    fontSize: 15,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  domainRowTitleDone: { color: C.soft },
+  domainRowDetail: { color: C.faint, fontSize: 12, marginTop: 2 },
+  domainRowCount: {
+    color: C.green,
+    fontSize: 13,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+
+  /* The movement session screen. */
+  backRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    minHeight: 44,
+    marginBottom: 4,
+  },
+  backRowText: { color: C.green, fontSize: 15, fontWeight: "700" },
+  sessionProgress: { flexDirection: "row", gap: 5, marginTop: 16 },
+  sessionPip: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: C.line,
+  },
+  sessionPipDone: { backgroundColor: C.green },
 
   /* Consistency grid — 28 days, four rows of seven. A quiet day is lighter,
      never marked. There is deliberately no red in this component. */
