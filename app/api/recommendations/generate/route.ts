@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { cookies, headers } from "next/headers";
@@ -47,7 +48,7 @@ function deterministicRecommendation(
   const action = (doc.actions ?? []).find((item) => item.dayOffset === 0);
   if (lowRecovery && action) {
     return {
-      id: `recommendation-${Date.now()}`,
+      id: `recommendation-${randomUUID()}`,
       createdAt: now,
       kind: "change_action_level",
       actionId: action.id,
@@ -64,7 +65,7 @@ function deterministicRecommendation(
   }
 
   return {
-    id: `recommendation-${Date.now()}`,
+    id: `recommendation-${randomUUID()}`,
     createdAt: now,
     kind: "no_change",
     evidence: [
@@ -214,7 +215,7 @@ function guardRecommendation(
     HORMONE_OR_CLINICAL_LANGUAGE.test(generatedLanguage)
   ) {
     return {
-      id: `recommendation-${Date.now()}`,
+      id: `recommendation-${randomUUID()}`,
       createdAt: new Date().toISOString(),
       kind: "coach_review",
       actionId: candidate.actionId || undefined,
@@ -258,7 +259,7 @@ function guardRecommendation(
   const safety =
     candidate.kind === "coach_review" ? "coach_review" : "low_risk";
   return {
-    id: `recommendation-${Date.now()}`,
+    id: `recommendation-${randomUUID()}`,
     createdAt: new Date().toISOString(),
     kind: candidate.kind,
     actionId: candidate.actionId || undefined,

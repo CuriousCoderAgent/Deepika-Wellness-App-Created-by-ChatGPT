@@ -136,6 +136,7 @@ import { canonicalCity, suggestCities } from "./src/cities";
 import { AWARDS, awardMetrics, type AwardIcon } from "./src/awards";
 import { C } from "./src/design/tokens";
 import { activeDays } from "./src/activity";
+import { newId } from "./src/ids";
 import {
   SKIP_OPTIONS,
   describeSkip,
@@ -455,7 +456,7 @@ function Pulse({
 
   const save = (patch: Partial<PulseEntry>) => {
     const pulse: PulseEntry = {
-      id: current?.id ?? `pulse-${Date.now()}`,
+      id: current?.id ?? newId("pulse"),
       memberId: doc.member.id,
       dayOffset: 0,
       energy: current?.energy ?? 3,
@@ -1996,7 +1997,7 @@ function Today({
         ? [
             ...doc.workoutLogs,
             {
-              id: `workout-${Date.now()}`,
+              id: newId("workout"),
               actionId: id,
               memberId: doc.member.id,
               completedAt: new Date().toISOString(),
@@ -2010,7 +2011,7 @@ function Today({
     const painMessage = pain
       ? [
           {
-            id: `pain-${Date.now()}`,
+            id: newId("pain"),
             memberId: doc.member.id,
             from: "system" as const,
             kind: "plan_update" as const,
@@ -2024,7 +2025,7 @@ function Today({
     const painRecommendation: AiRecommendation[] = pain
       ? [
           {
-            id: `recommendation-${Date.now()}`,
+            id: newId("recommendation"),
             createdAt: new Date().toISOString(),
             kind: "coach_review",
             actionId: id,
@@ -3093,7 +3094,7 @@ function Food({
       }
 
       const entry: FoodEntry = {
-        id: `food-${Date.now()}`,
+        id: newId("food"),
         memberId: doc.member.id,
         dayOffset: offsetFromDate(selectedDate),
         loggedDate: selectedDate,
@@ -3563,7 +3564,7 @@ function Coach({
     messages: [
       ...current.messages,
       {
-        id: `message-${from}-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+        id: newId(`message-${from}`),
         memberId: current.member.id,
         from,
         kind: "text",
@@ -3834,7 +3835,7 @@ function Reports({
         reports: [
           ...doc.reports,
           {
-            id: `report-${Date.now()}`,
+            id: newId("report"),
             memberId: doc.member.id,
             title:
               category === "blood_work" ? "Blood work" : "Body composition",

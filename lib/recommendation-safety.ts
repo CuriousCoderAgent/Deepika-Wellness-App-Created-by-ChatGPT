@@ -21,6 +21,7 @@
  * and has a real, resolvable outcome, unlike this dead-end flag.
  */
 
+import { randomUUID } from "node:crypto";
 import type { MemberDoc } from "./persist";
 import type { AiRecommendation } from "./types";
 
@@ -64,7 +65,7 @@ export function deterministicSafetyRecommendation(
   const pain = painFlagFor(doc);
   if (pain) {
     return {
-      id: `recommendation-${Date.now()}`,
+      id: `recommendation-${randomUUID()}`,
       createdAt: now,
       kind: "coach_review",
       actionId: pain.actionId ?? pain.workoutId,
@@ -85,7 +86,7 @@ export function deterministicSafetyRecommendation(
   );
   if (bodySignal) {
     return {
-      id: `recommendation-${Date.now()}`,
+      id: `recommendation-${randomUUID()}`,
       createdAt: now,
       kind: "coach_review",
       evidence: ["A recent check-in includes a member-reported body signal"],

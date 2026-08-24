@@ -215,6 +215,22 @@ function primeSaved(
   if (doc) saved.set(who.sub, JSON.stringify(doc));
 }
 
+/**
+ * A unique suffix for a locally-created record.
+ *
+ * Was Date.now() alone, which is unique only if no two records are ever
+ * created in the same millisecond. The server unions these logs by id so two
+ * clients cannot erase each other, which turns a collision from a curiosity
+ * into one record silently swallowing another. This runs in a browser, where
+ * crypto.randomUUID is reliably available.
+ */
+function newId(): string {
+  return typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<ClientSession | null>(null);
   const [state, setState] = useState<State>(initial);
@@ -423,7 +439,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             (x) => x.memberId === memberId && x.dayOffset === 0,
           );
           const entry: PulseEntry = {
-            id: existing?.id ?? `p-${memberId}-${Date.now()}`,
+            id: existing?.id ?? `p-${memberId}-${newId()}`,
             memberId,
             dayOffset: 0,
             ...v,
@@ -448,7 +464,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       logWorkout: (log) =>
         patch((s) => ({
           ...s,
-          workoutLogs: [{ ...log, id: `wl-${Date.now()}` }, ...s.workoutLogs],
+          workoutLogs: [{ ...log, id: `wl-${newId()}` }, ...s.workoutLogs],
         })),
 
       updateAction: (id, p) =>
@@ -513,7 +529,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             messages: announce
               ? [
                   {
-                    id: `m-${Date.now()}`,
+                    id: `m-${newId()}`,
                     memberId,
                     from: "system",
                     kind: "plan_update",
@@ -532,7 +548,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addReport: (r) =>
         patch((s) => ({
           ...s,
-          reports: [{ ...r, id: `rep-${Date.now()}` }, ...s.reports],
+          reports: [{ ...r, id: `rep-${newId()}` }, ...s.reports],
         })),
 
       addFood: (e, byCoach) =>
@@ -541,7 +557,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           foodEntries: [
             {
               ...e,
-              id: `fe-${Date.now()}`,
+              id: `fe-${newId()}`,
               provenance: {
                 source: byCoach ? "coach_on_behalf" : "member_manual",
                 enteredBy: byCoach
@@ -579,7 +595,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                   ...m,
                   notes: [
                     {
-                      id: `note-${Date.now()}`,
+                      id: `note-${newId()}`,
                       at: new Date().toISOString().slice(0, 10),
                       text,
                     },
@@ -593,7 +609,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       sendMessage: (memberId, m) =>
         patch((s) => ({
           ...s,
-          messages: [{ ...m, id: `m-${Date.now()}`, memberId }, ...s.messages],
+          messages: [{ ...m, id: `m-${newId()}`, memberId }, ...s.messages],
         })),
 
       markRead: (memberId) =>
@@ -623,7 +639,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addFeedback: (f) =>
         patch((s) => ({
           ...s,
-          feedback: [{ ...f, id: `f-${Date.now()}` }, ...s.feedback],
+          feedback: [{ ...f, id: `f-${newId()}` }, ...s.feedback],
         })),
 
       updateFeedback: (id, p) =>

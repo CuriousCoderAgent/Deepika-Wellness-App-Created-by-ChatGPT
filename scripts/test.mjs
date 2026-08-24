@@ -34,6 +34,7 @@ import { C, SURFACES, TEXT_COLOURS } from "../mobile/src/design/tokens.ts";
 import { AWARDS, awardMetrics } from "../mobile/src/awards.ts";
 import { compactKcal, liveMeals } from "../mobile/src/meals.ts";
 import { activeDays, isActive } from "../mobile/src/activity.ts";
+import { newId } from "../mobile/src/ids.ts";
 import {
   SKIP_OPTIONS,
   describeSkip,
@@ -2037,4 +2038,24 @@ test("only an actual same-day reading is called Today", () => {
   // A future-dated reading (clock skew) is not silently called stale either;
   // it clamps rather than producing "-2 days ago".
   assert.doesNotMatch(freshness("2026-08-26", today), /-/);
+});
+
+/* ------------------------------------------------------------------ */
+/* Record identifiers                                                  */
+/* ------------------------------------------------------------------ */
+
+test("ids do not collide within a millisecond", () => {
+  // These were `food-${Date.now()}`. Survivable while the server replaced
+  // whole arrays; not now that it unions them BY ID so two devices cannot
+  // erase each other — two records sharing an id become one, silently.
+  const ids = new Set();
+  for (let i = 0; i < 10_000; i++) ids.add(newId("food"));
+  assert.equal(ids.size, 10_000, "newId produced a duplicate");
+});
+
+test("ids keep their prefix, for reading a log", () => {
+  assert.match(newId("food"), /^food-/);
+  assert.match(newId("message-ai"), /^message-ai-/);
+  // And carry enough after it to be worth having.
+  assert.ok(newId("x").length > 12);
 });
