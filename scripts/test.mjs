@@ -34,10 +34,19 @@ import { CITIES, canonicalCity, suggestCities } from "../mobile/src/cities.ts";
 import { C, SURFACES, TEXT_COLOURS } from "../mobile/src/design/tokens.ts";
 import { AWARDS, awardMetrics } from "../mobile/src/awards.ts";
 import { compactKcal, liveMeals } from "../mobile/src/meals.ts";
+import { normalizeMemberDoc } from "../mobile/src/normalize.ts";
 import { activeDays, isActive } from "../mobile/src/activity.ts";
 import { newId } from "../mobile/src/ids.ts";
 import { checkMacros, parseMacro } from "../mobile/src/meal-values.ts";
 import { findWeekWin } from "../mobile/src/week-win.ts";
+import {
+  adjustQuantity,
+  describeItems,
+  preferred,
+  removeItem,
+  totalOf,
+  wasAdjusted,
+} from "../mobile/src/meal-estimate.ts";
 import {
   GOAL_OPTIONS,
   LIFE_STAGES,
@@ -3376,4 +3385,194 @@ test("a withheld sequence says why, and is not silently unreachable", () => {
     assert.ok(real.has(m[1]), m[1] + " is not a movement");
     assert.ok(m[2].length > 40, m[1] + " is held without a real reason");
   }
+});
+
+/* ------------------------------------------------------------------ *
+ * Meal estimates she has not agreed to yet
+ *
+ * A photo estimate used to be written straight into her diary, outranking
+ * what she had typed, with the item breakdown discarded. These cover the
+ * arithmetic behind the confirm step that replaced it.
+ * ------------------------------------------------------------------ */
+
+const roti = {
+  name: "Roti",
+  quantity: 2,
+  unit: "piece",
+  calories: 240,
+  protein: 8,
+  carbs: 46,
+  fat: 2,
+};
+const dal = {
+  name: "Dal",
+  quantity: 1,
+  unit: "bowl",
+  calories: 180,
+  protein: 9,
+  carbs: 28,
+  fat: 3,
+};
+
+test("changing a portion scales that food and nothing else", () => {
+  const [scaled, untouched] = adjustQuantity([roti, dal], 0, 1);
+  assert.equal(scaled.quantity, 1);
+  assert.equal(scaled.calories, 120);
+  assert.equal(scaled.protein, 4);
+  assert.deepEqual(untouched, dal);
+});
+
+test("adjusting a portion twice does not drift", () => {
+  // Scaling from the current numbers rather than the per-unit figure makes
+  // 2 -> 3 -> 2 land somewhere near, but not on, where it started.
+  let items = [roti];
+  items = adjustQuantity(items, 0, 3);
+  items = adjustQuantity(items, 0, 7);
+  items = adjustQuantity(items, 0, 2);
+  assert.deepEqual(items[0], roti);
+});
+
+test("a portion cannot go negative", () => {
+  const [item] = adjustQuantity([roti], 0, -1);
+  assert.equal(item.quantity, 0);
+  assert.equal(item.calories, 0);
+});
+
+test("an item the model gave no quantity does not produce NaN", () => {
+  const odd = { ...roti, quantity: 0, calories: 120 };
+  const [item] = adjustQuantity([odd], 0, 2);
+  assert.ok(Number.isFinite(item.calories));
+  assert.equal(item.calories, 240);
+});
+
+test("the total is rounded once, not per item", () => {
+  // Rounding each item and summing is how a plate of five foods ends up two
+  // calories away from its own parts.
+  const thirds = Array.from({ length: 3 }, () => ({
+    ...roti,
+    quantity: 1,
+    calories: 100 / 3,
+    protein: 1 / 3,
+    carbs: 0,
+    fat: 0,
+  }));
+  const total = totalOf(thirds);
+  assert.equal(total.calories, 100);
+  assert.equal(total.protein, 1);
+});
+
+test("removing an item removes it from the total", () => {
+  assert.equal(totalOf([roti, dal]).calories, 420);
+  assert.equal(totalOf(removeItem([roti, dal], 1)).calories, 240);
+  assert.deepEqual(totalOf([]), {
+    calories: 0,
+    protein: 0,
+    carbs: 0,
+    fat: 0,
+  });
+});
+
+test("the breakdown reads as a meal, not as a data structure", () => {
+  assert.equal(describeItems([roti, dal]), "2 × Roti · 1 × Dal");
+  assert.equal(describeItems(adjustQuantity([roti], 0, 1.5)), "1.5 × Roti");
+  assert.equal(describeItems([]), "No items identified");
+});
+
+test("an adjustment is noticed, so it can be recorded honestly", () => {
+  const original = [roti, dal];
+  assert.equal(wasAdjusted(original, original), false);
+  assert.equal(wasAdjusted(original, adjustQuantity(original, 0, 1)), true);
+  assert.equal(wasAdjusted(original, removeItem(original, 0)), true);
+});
+
+test("her own words are never discarded by a photo", () => {
+  // The specific defect this replaced: the photo estimate overwrote the typed
+  // one and the typed one was not shown anywhere.
+  const typed = {
+    source: "description",
+    items: [],
+    confident: true,
+    basis: "Roti, dal",
+  };
+  const photo = {
+    source: "photo",
+    items: [roti],
+    confident: true,
+    basis: "2 × Roti",
+  };
+  assert.equal(preferred(typed, photo).source, "photo");
+  // Unreadable photo: her description leads instead of a number nobody stands behind.
+  assert.equal(
+    preferred(typed, { ...photo, confident: false }).source,
+    "description",
+  );
+  assert.equal(preferred(typed, null).source, "description");
+});
+
+test("a meal she deleted stays deleted after a server read", () => {
+  // The tombstone is the only thing keeping the row hidden: the server merges
+  // these logs by union, so the entry itself always comes back. Dropping
+  // deletedAt in the normaliser meant a deleted meal reappeared, with its
+  // calories, on the next sync.
+  const doc = normalizeMemberDoc({
+    member: {
+      id: "m1",
+      name: "A",
+      week: 1,
+      phase: "Stabilise",
+      weeklyFocus: [],
+      goals: [],
+      constraints: [],
+      activeModuleIds: [],
+    },
+    foodEntries: [
+      {
+        id: "f1",
+        memberId: "m1",
+        loggedDate: todayIso(),
+        meal: "Lunch",
+        description: "Roti and dal",
+        calories: 420,
+        deletedAt: "2026-08-24T10:00:00.000Z",
+      },
+    ],
+  });
+  assert.equal(doc.foodEntries[0].deletedAt, "2026-08-24T10:00:00.000Z");
+  assert.equal(liveMeals(doc).length, 0);
+});
+
+test("where an estimate came from survives a server read", () => {
+  const doc = normalizeMemberDoc({
+    member: {
+      id: "m1",
+      name: "A",
+      week: 1,
+      phase: "Stabilise",
+      weeklyFocus: [],
+      goals: [],
+      constraints: [],
+      activeModuleIds: [],
+    },
+    foodEntries: [
+      {
+        id: "f1",
+        memberId: "m1",
+        loggedDate: todayIso(),
+        meal: "Lunch",
+        description: "Roti and dal",
+        calories: 420,
+        estimate: {
+          source: "photo",
+          items: [{ name: "Roti", quantity: 2 }],
+          confident: true,
+          model: "gpt-5",
+          promptVersion: "meal-photo-2026-08-24",
+          adjusted: false,
+          acceptedAt: "2026-08-24T10:00:00.000Z",
+        },
+      },
+    ],
+  });
+  assert.equal(doc.foodEntries[0].estimate.source, "photo");
+  assert.equal(doc.foodEntries[0].estimate.promptVersion, "meal-photo-2026-08-24");
 });

@@ -35,6 +35,15 @@ export const dynamic = "force-dynamic";
 /** Generous enough for a plate of food, small enough to stay one request. */
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 
+/**
+ * Bump this whenever the developer prompt below changes.
+ *
+ * Stored on the food entry alongside the model name, so a number in someone's
+ * diary can still be explained six months after the prompt that produced it
+ * was rewritten. Without it, "the estimate looks wrong" is unanswerable.
+ */
+const PROMPT_VERSION = "meal-photo-2026-08-24";
+
 const estimateSchema = {
   type: "object",
   additionalProperties: false,
@@ -218,6 +227,10 @@ export async function POST(req: Request) {
       // An empty list is an honest answer, and the app shows it as one rather
       // than falling back to numbers nobody stands behind.
       confident: Boolean(parsed.confident) && items.length > 0,
+      // Provenance, so the app can store where the numbers came from rather
+      // than only what they were.
+      model: process.env.OPENAI_VISION_MODEL || "gpt-5",
+      promptVersion: PROMPT_VERSION,
       ...total,
     });
   } catch (err) {

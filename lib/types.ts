@@ -467,6 +467,14 @@ export interface FoodEntry {
   photoUri?: string;
   confidence?: "member" | "estimated";
   memberCorrected?: boolean;
+  /**
+   * Where an estimated number came from. See mobile/src/meal-estimate.ts.
+   *
+   * Opaque here: the coach console renders it as a breakdown and never
+   * recomputes from it. Kept loose so a change to the estimate shape does not
+   * require a migration on the server before the app can ship it.
+   */
+  estimate?: Record<string, unknown>;
   /** Set when the member removes the entry. See mobile/src/types.ts. */
   deletedAt?: string;
   createdAt?: string;

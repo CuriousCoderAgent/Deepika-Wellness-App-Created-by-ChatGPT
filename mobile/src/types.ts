@@ -1,4 +1,5 @@
 import type { MemberProfile } from "./profile";
+import type { EstimateProvenance } from "./meal-estimate";
 
 export type EffortLevel = "minimum" | "target" | "stretch";
 export type JourneyPhase = "Stabilise" | "Build" | "Consolidate";
@@ -183,6 +184,16 @@ export interface FoodEntry {
   photoUri?: string;
   confidence: "member" | "estimated";
   memberCorrected?: boolean;
+  /**
+   * Where these numbers came from, kept with the entry.
+   *
+   * The item breakdown used to be rendered into a string once and lost with
+   * component state, so nothing afterwards could answer "where did 520 kcal
+   * come from" and she could not correct one portion without retyping every
+   * number. Absent on entries logged before this existed, and on entries she
+   * typed herself — a number she chose needs no provenance.
+   */
+  estimate?: EstimateProvenance;
   /**
    * Set when she removes the entry. A tombstone rather than a deletion,
    * because the server merges these logs by union — a row that simply

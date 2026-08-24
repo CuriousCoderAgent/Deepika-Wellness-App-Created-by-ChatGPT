@@ -435,6 +435,9 @@ export async function estimateMealPhoto(
       fat: number;
     }[];
     confident: boolean;
+    /** Which model read the photo, and under which prompt. Stored on the entry. */
+    model?: string;
+    promptVersion?: string;
     calories: number;
     protein: number;
     carbs: number;

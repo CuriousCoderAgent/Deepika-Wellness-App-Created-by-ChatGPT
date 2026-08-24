@@ -205,6 +205,19 @@ function normalizeFood(entry: Record<string, unknown>): FoodEntry {
         ? "member"
         : "estimated",
     memberCorrected: Boolean(entry.memberCorrected ?? entry.proteinEdited),
+    /*
+     * The tombstone, which was being dropped here.
+     *
+     * Deleting a meal sets deletedAt and meals.ts filters on it. The server
+     * merges these logs by union, so the row itself always comes back — the
+     * tombstone is the only thing that keeps it hidden. Stripping it here
+     * meant a meal she deleted reappeared, with its calories, on the next
+     * server read.
+     */
+    deletedAt:
+      typeof entry.deletedAt === "string" ? entry.deletedAt : undefined,
+    /* Where an estimated number came from. Opaque; see meal-estimate.ts. */
+    estimate: entry.estimate as FoodEntry["estimate"],
     createdAt: String(
       entry.createdAt ??
         (entry.provenance as { at?: string } | undefined)?.at ??
