@@ -29,6 +29,9 @@ import {
 } from "../lib/coach-ai.ts";
 import { COACH_NAME as MOBILE_COACH_NAME } from "../mobile/src/coach.ts";
 import { CITIES, canonicalCity, suggestCities } from "../mobile/src/cities.ts";
+import { C, SURFACES, TEXT_COLOURS } from "../mobile/src/design/tokens.ts";
+import { AWARDS, awardMetrics } from "../mobile/src/awards.ts";
+import { compactKcal, liveMeals } from "../mobile/src/meals.ts";
 import { deterministicSafetyRecommendation } from "../lib/recommendation-safety.ts";
 import {
   latestRecommendation,
@@ -1677,24 +1680,11 @@ function contrastRatio(a, b) {
 }
 
 test("every text colour clears WCAG AA on both surfaces", () => {
-  // Kept in step with the C palette in mobile/App.tsx by hand; there is no
-  // module to import from while it lives inside that file.
-  const PAPER = "#F3F1EA";
-  const CARD = "#FCFBF7";
-  const TEXT_COLOURS = {
-    ink: "#132D2E",
-    soft: "#566665",
-    faint: "#5F6B66",
-    marigoldInk: "#7F6024",
-    green: "#0B5557",
-    greenDeep: "#073F43",
-  };
-
+  // Read from the real module, not a copy. The duplicate this replaces was
+  // exactly the kind that passes while the app regresses.
   for (const [name, colour] of Object.entries(TEXT_COLOURS)) {
-    for (const [surfaceName, surface] of [
-      ["paper", PAPER],
-      ["card", CARD],
-    ]) {
+    for (const surface of SURFACES) {
+      const surfaceName = surface === C.paper ? "paper" : "card";
       const ratio = contrastRatio(colour, surface);
       assert.ok(
         ratio >= 4.5,
@@ -1750,4 +1740,110 @@ test("compactKcal never shows a day as a thousand times too large", () => {
   assert.equal(compactKcal(1650), "1.7k");
   assert.equal(compactKcal(12000), "12k");
   assert.notEqual(compactKcal(1650), "1650k");
+});
+
+/* ------------------------------------------------------------------ */
+/* Award counting                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * These could not be tested before: the rules lived in App.tsx, which pulls
+ * in React Native. Extracting them to mobile/src/awards.ts with named icons
+ * is what makes the two counting fixes below assertable rather than reviewed.
+ */
+const awardDoc = (overrides = {}) => ({
+  member: { id: "m", name: "Test" },
+  actions: [],
+  foodEntries: [],
+  pulses: [],
+  ...overrides,
+});
+
+test("a rest day is recorded but is not an active day", () => {
+  const rested = awardMetrics(
+    awardDoc({
+      actions: [
+        { id: "a", dayOffset: 0, domain: "movement", completed: "rest" },
+      ],
+    }),
+  );
+  assert.equal(rested.rests, 1, "the rest itself is still counted");
+  assert.equal(rested.activeDays, 0, "but it is not a day she showed up");
+  assert.equal(rested.actions, 0);
+});
+
+test("a session is a day trained, not an exercise finished", () => {
+  // One ordinary morning: six movements, one day.
+  const oneMorning = awardMetrics(
+    awardDoc({
+      actions: Array.from({ length: 6 }, (_, i) => ({
+        id: `ex-${i}`,
+        dayOffset: 0,
+        domain: "movement",
+        completed: "target",
+      })),
+    }),
+  );
+  assert.equal(oneMorning.movements, 1, "six exercises are one session");
+
+  const twoMornings = awardMetrics(
+    awardDoc({
+      actions: [
+        { id: "a", dayOffset: 0, domain: "movement", completed: "target" },
+        { id: "b", dayOffset: -1, domain: "movement", completed: "target" },
+      ],
+    }),
+  );
+  assert.equal(twoMornings.movements, 2);
+});
+
+test("a whole day needs all five domains, not five actions", () => {
+  const fiveOfOne = awardMetrics(
+    awardDoc({
+      actions: Array.from({ length: 5 }, (_, i) => ({
+        id: `x-${i}`,
+        dayOffset: 0,
+        domain: "movement",
+        completed: "target",
+      })),
+    }),
+  );
+  assert.equal(fiveOfOne.wholeDays, 0);
+
+  const allFive = awardMetrics(
+    awardDoc({
+      actions: ["movement", "walking", "nutrition", "recovery", "mindset"].map(
+        (domain) => ({ id: domain, dayOffset: 0, domain, completed: "target" }),
+      ),
+    }),
+  );
+  assert.equal(allFive.wholeDays, 1);
+});
+
+test("removed meals do not count toward a meal award", () => {
+  const metrics = awardMetrics(
+    awardDoc({
+      foodEntries: [
+        { id: "m1", description: "kept" },
+        { id: "m2", description: "removed", deletedAt: "2026-08-24T10:00:00Z" },
+      ],
+    }),
+  );
+  assert.equal(metrics.meals, 1);
+});
+
+test("every award has a distinct id and reachable copy", () => {
+  const ids = AWARDS.map((award) => award.id);
+  assert.equal(new Set(ids).size, ids.length, "duplicate award id");
+  for (const award of AWARDS) {
+    assert.ok(award.title.length, `${award.id} has no title`);
+    assert.ok(award.copy.length, `${award.id} has no copy`);
+    // No invented population statistics. This one was real: "Very few people
+    // who start ever reach this", on an award, with no retention data behind it.
+    assert.doesNotMatch(
+      award.copy,
+      /very few|most people|only \d+%|\d+% of/i,
+      `${award.id} makes an unsupported population claim`,
+    );
+  }
 });
