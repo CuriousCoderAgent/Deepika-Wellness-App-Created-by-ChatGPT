@@ -109,7 +109,12 @@ export async function POST(req: Request) {
     );
   }
 
-  if (required && code.trim() !== required) {
+  // Compared without case, because a join code is copied off a message and
+  // typed by hand on a phone keyboard that helpfully capitalises things. Case
+  // sensitivity caught no attackers and locked out invited members. It costs
+  // some guess space (62^n down to 36^n for an alphanumeric code); the rate
+  // limiter above is what actually makes guessing impractical.
+  if (required && code.trim().toLowerCase() !== required.toLowerCase()) {
     return NextResponse.json(
       { error: "That join code isn't right." },
       { status: 403 },
