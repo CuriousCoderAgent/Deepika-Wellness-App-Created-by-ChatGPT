@@ -139,6 +139,7 @@ import {
   writePendingDoc,
 } from "./src/storage";
 import { openHealthSettings, syncHealth } from "./src/health";
+import { canonicalCity, suggestCities } from "./src/cities";
 import { COACH_NAME, COACH_OPENERS } from "./src/coach";
 import { LEARNING_ARTICLES } from "./src/learning";
 import { isoDate, offsetFromDate } from "./src/normalize";
@@ -1033,10 +1034,23 @@ function DailyInsight({ doc }: { doc: MemberDoc }) {
   let evidence = "0–1 recent inputs · no causal conclusion";
   let label = "WHAT BHAROSA NOTICED";
   if (pendingReview) {
-    title = "A human review is the right next step";
-    copy = pendingReview.rationale;
+    // This used to announce "a human review is the right next step" and
+    // "coach review requested" to every member, including the overwhelming
+    // majority who have no coach and no way to get one. It described a queue
+    // in the coach console, not anything she could see or act on.
+    //
+    // What actually happened is worth telling her, so say that instead: she
+    // reported something, the app held that item rather than guessing around
+    // it, and nothing about her plan was inferred from one report.
+    const coached = doc.coaching?.mode === "coached";
+    title = coached
+      ? "Sent to your coach to look at"
+      : "Held, pending a person";
+    copy = coached
+      ? pendingReview.rationale
+      : `${pendingReview.rationale} Bharosa will not work around this on its own. Ask ${COACH_NAME} in the Coach tab what it means, or bring it to your doctor.`;
     evidence = pendingReview.evidence[0] ?? "A review flag was recorded today.";
-    label = "COACH REVIEW REQUESTED";
+    label = coached ? "WITH YOUR COACH" : "WAITING ON A PERSON";
   } else if (applicable) {
     title = "Why today’s plan looks this way";
     copy = applicable.rationale;
@@ -1099,20 +1113,20 @@ function CoachConnectionCard({
         </View>
         <View style={s.flex}>
           <Text style={s.coachConnectionKicker}>
-            {reviewPending ? "COACH REVIEW REQUESTED" : "HUMAN SUPPORT"}
+            {reviewPending ? "SOMETHING IS ON HOLD" : "HUMAN SUPPORT"}
           </Text>
           <Text style={s.coachConnectionTitle}>
             {reviewPending
-              ? "Your coach has context to review"
+              ? "One item is paused until a person sees it"
               : "A coach is part of the plan"}
           </Text>
         </View>
       </View>
       <Text style={s.coachConnectionCopy}>
         {reviewPending
-          ? "The flagged item is paused; Bharosa has not invented a replacement. Open Coach to add context."
+          ? `You reported something the rules will not train through, so that item is paused and nothing was substituted for it. ${COACH_NAME} can explain which item and why.`
           : (latestCoachMessage?.body ??
-            "Ask a question, share context, or request a plan review when automated guidance is not enough.")}
+            `${COACH_NAME} answers straight away in the Coach tab. A human coach is there for the things software should not decide.`)}
       </Text>
       {nextSession ? (
         <Text style={s.coachConnectionMeta}>
@@ -1133,7 +1147,7 @@ function CoachConnectionCard({
         style={({ pressed }) => [s.coachConnectionButton, pressed && s.pressed]}
       >
         <Text style={s.coachConnectionButtonText}>
-          {reviewPending ? "Open coach review" : "Message your coach"}
+          {reviewPending ? "See what is paused" : `Ask ${COACH_NAME}`}
         </Text>
         <ChevronRight size={17} color="white" />
       </Pressable>
@@ -1154,6 +1168,7 @@ function Onboarding({
   const [customGoal, setCustomGoal] = useState(saved?.customGoal ?? "");
   const [activity, setActivity] = useState(saved?.activityLevel ?? "");
   const [minutes, setMinutes] = useState(saved?.availableMinutes ?? 15);
+  const [otherMinutes, setOtherMinutes] = useState(false);
   const [caution, setCaution] = useState(saved?.movementCaution ?? "");
   const [checkIn, setCheckIn] = useState<"morning" | "evening">(
     saved?.preferredCheckIn ?? "morning",
@@ -1362,7 +1377,7 @@ function Onboarding({
           Choose a normal weekday—not your best-case day.
         </Text>
         <View style={s.minutesRow}>
-          {[5, 10, 15, 25].map((value) => (
+          {[15, 30, 45, 60].map((value) => (
             <Pressable
               key={value}
               onPress={() => setMinutes(value)}
@@ -1380,6 +1395,37 @@ function Onboarding({
             </Pressable>
           ))}
         </View>
+        {/* Somebody who has twenty minutes, or ninety, should be able to say
+            so. movementBudget() reads the number continuously, so any value
+            in range sizes a real session — the four above are shortcuts, not
+            the permitted set. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Enter a different number of minutes"
+          onPress={() => setOtherMinutes(true)}
+        >
+          <Text style={s.minutesOther}>
+            {otherMinutes || ![15, 30, 45, 60].includes(minutes)
+              ? "Some other amount"
+              : "Some other amount?"}
+          </Text>
+        </Pressable>
+        {(otherMinutes || ![15, 30, 45, 60].includes(minutes)) && (
+          <View style={s.minutesCustomRow}>
+            <TextInput
+              style={[s.input, s.flex]}
+              keyboardType="number-pad"
+              value={String(minutes)}
+              onChangeText={(text) => {
+                const value = Number(text.replace(/[^0-9]/g, ""));
+                setMinutes(Number.isFinite(value) ? Math.min(180, value) : 0);
+              }}
+              placeholder="Minutes on a normal weekday"
+              placeholderTextColor={C.faint}
+            />
+            <Text style={s.minutesCustomUnit}>min</Text>
+          </View>
+        )}
       </>
     );
   else if (step === 3)
@@ -3758,6 +3804,45 @@ function Coach({
         </Pressable>
       )}
 
+      {!hasHumanCoach && (
+        <Card style={s.upsell}>
+          <View style={s.rowInline}>
+            <UserRound size={16} color={C.marigold} />
+            <Text style={s.upsellKicker}>WANT A PERSON AS WELL?</Text>
+          </View>
+          <Text style={s.upsellTitle}>Add a human coach</Text>
+          <Text style={s.upsellCopy}>
+            {COACH_NAME} explains your plan and is here at two in the morning. A
+            coach does the things software should not: reads your blood work,
+            watches you move, and overrides the plan when your body disagrees
+            with it.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            style={({ pressed }) => [s.upsellButton, pressed && s.pressed]}
+            onPress={() => {
+              // An actual message into the conversation, which a coach sees in
+              // the console. No fake checkout, and no claim that somebody is
+              // already assigned.
+              update(
+                append(
+                  doc,
+                  "member",
+                  "I would like to know more about adding a human coach.",
+                ),
+              );
+              Alert.alert(
+                "Noted",
+                "That is in your conversation now. Coaching is not on sale yet — when it is, this is where it will appear.",
+              );
+            }}
+          >
+            <Text style={s.upsellButtonText}>Tell me more</Text>
+            <ChevronRight size={16} color={C.greenDeep} />
+          </Pressable>
+        </Card>
+      )}
+
       <Text style={s.responseNote}>
         {COACH_NAME} is software, and she is not a substitute for medical care.
         For anything urgent, call 112. This is not an emergency channel.
@@ -4174,6 +4259,16 @@ function Circle({
     }[]
   >([]);
   const [nearbyNote, setNearbyNote] = useState<string | null>(null);
+  /**
+   * What the phone read, in words, for her eyes only.
+   *
+   * The server holds two grid integers and nothing else, so nothing on the
+   * screen could tell her whether the app had understood where she was — she
+   * shared her area and got no acknowledgement at all. This is reverse-geocoded
+   * on the device and never sent; see mobile/src/location.ts.
+   */
+  const [areaLabel, setAreaLabel] = useState<string | null>(null);
+  const [citySuggestions, setCitySuggestions] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -4252,6 +4347,7 @@ function Circle({
               );
               return;
             }
+            if (result.label) setAreaLabel(result.label);
             await saveSettings({ cell: result.cell });
           },
         },
@@ -4266,8 +4362,12 @@ function Circle({
       setNearbyNote(
         result.message ??
           (result.members.length
-            ? null
-            : "Nobody else nearby has chosen to be found yet."),
+            ? result.basis === "city"
+              ? `Nobody in your immediate area yet, so this is everyone in ${result.city ?? "your city"}.`
+              : null
+            : state?.profile.city || state?.profile.hasLocation
+              ? "Nobody else near you has chosen to be found yet. This gets better as more members join."
+              : "Add your city or share your area first, so there is somewhere to look."),
       );
     } catch (error) {
       Alert.alert(
@@ -4571,19 +4671,61 @@ function Circle({
             {state.profile.hasLocation ? "Update my area" : "Share my area"}
           </Text>
         </Pressable>
+        {/* Read back what was captured. Without this, sharing a location was a
+            button that appeared to do nothing. */}
+        {state.profile.hasLocation ? (
+          <Text style={s.areaCaptured}>
+            {areaLabel
+              ? `Set from your location — around ${areaLabel}. Only the 3km square was sent; the name stays on this phone.`
+              : "Your area is set. Tap again if you have moved."}
+          </Text>
+        ) : null}
+
         <View style={s.habitAddRow}>
           <TextInput
             style={[s.input, s.flex]}
             value={cityDraft}
-            onChangeText={setCityDraft}
+            onChangeText={(text) => {
+              setCityDraft(text);
+              setCitySuggestions(true);
+            }}
             placeholder="Or just your city"
             placeholderTextColor={C.faint}
+            autoCorrect={false}
+            onFocus={() => setCitySuggestions(true)}
             onBlur={() => {
-              if (cityDraft.trim() !== (state.profile.city ?? ""))
-                saveSettings({ city: cityDraft.trim() });
+              // Store the canonical spelling. Discovery matches on lower(city),
+              // so "Bangalore" and "Bengaluru" were two cities whose members
+              // never saw each other.
+              const typed = cityDraft.trim();
+              const settled = canonicalCity(typed) ?? typed;
+              if (settled !== typed) setCityDraft(settled);
+              if (settled !== (state.profile.city ?? ""))
+                saveSettings({ city: settled });
             }}
           />
         </View>
+        {citySuggestions && (
+          <View style={s.cityList}>
+            {suggestCities(cityDraft).map((city) => (
+              <Pressable
+                key={city.name}
+                accessibilityRole="button"
+                accessibilityLabel={`${city.name}, ${city.region}`}
+                style={({ pressed }) => [s.cityRow, pressed && s.pressed]}
+                onPress={() => {
+                  setCityDraft(city.name);
+                  setCitySuggestions(false);
+                  if (city.name !== (state.profile.city ?? ""))
+                    saveSettings({ city: city.name });
+                }}
+              >
+                <Text style={s.cityName}>{city.name}</Text>
+                <Text style={s.cityRegion}>{city.region}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
         <View style={s.rowBetween}>
           <View style={s.flex}>
             <Text style={s.settingLabel}>Let other members find me</Text>
@@ -5886,6 +6028,82 @@ const s = StyleSheet.create({
   historyDotWater: { backgroundColor: "#8FBDB0" },
   historyItem: { color: C.ink, fontSize: 14, lineHeight: 20 },
   historyMeta: { color: C.faint, fontSize: 12, lineHeight: 17, marginTop: 1 },
+  minutesOther: {
+    color: C.greenDeep,
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 12,
+    textAlign: "center",
+  },
+  minutesCustomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 10,
+  },
+  minutesCustomUnit: { color: C.soft, fontSize: 14, fontWeight: "600" },
+
+  /* The circle: what was captured, and help spelling a city. */
+  areaCaptured: {
+    color: C.soft,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 8,
+  },
+  cityList: {
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: C.line,
+    overflow: "hidden",
+    marginTop: 6,
+  },
+  cityRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.line,
+    backgroundColor: C.card,
+  },
+  cityName: { color: C.ink, fontSize: 14, fontWeight: "600" },
+  cityRegion: { color: C.faint, fontSize: 12 },
+
+  /* Offering a human coach, without pretending one is assigned. */
+  upsell: {
+    marginTop: 18,
+    borderColor: "#DDC994",
+    backgroundColor: C.marigoldTint,
+  },
+  upsellKicker: {
+    color: C.marigold,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    marginLeft: 8,
+  },
+  upsellTitle: {
+    color: C.ink,
+    fontSize: 17,
+    fontWeight: "700",
+    marginTop: 9,
+  },
+  upsellCopy: { color: C.soft, fontSize: 13, lineHeight: 19, marginTop: 5 },
+  upsellButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    minHeight: 46,
+    marginTop: 13,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "#DDC994",
+    backgroundColor: C.card,
+  },
+  upsellButtonText: { color: C.greenDeep, fontSize: 14, fontWeight: "700" },
+
   /* The Coach tab. Vera is labelled, never dressed up as a person. */
   coachHead: {
     flexDirection: "row",
@@ -6026,6 +6244,7 @@ const s = StyleSheet.create({
     gap: 8,
     minHeight: 46,
     marginTop: 14,
+    marginBottom: 12,
     paddingHorizontal: 14,
     borderRadius: 13,
     borderWidth: 1,

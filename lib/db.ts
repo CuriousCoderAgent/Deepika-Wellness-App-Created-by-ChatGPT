@@ -789,8 +789,14 @@ function toProfile(row: Record<string, unknown>): StoredCircleProfile {
     displayName: String(row.display_name ?? ""),
     bio: (row.bio as string | null) ?? null,
     city: (row.city as string | null) ?? null,
-    cellX: row.cell_x === null || row.cell_x === undefined ? null : Number(row.cell_x),
-    cellY: row.cell_y === null || row.cell_y === undefined ? null : Number(row.cell_y),
+    cellX:
+      row.cell_x === null || row.cell_x === undefined
+        ? null
+        : Number(row.cell_x),
+    cellY:
+      row.cell_y === null || row.cell_y === undefined
+        ? null
+        : Number(row.cell_y),
     discoverable: Boolean(row.discoverable),
     shareActivity: Boolean(row.share_activity),
     shareSteps: Boolean(row.share_steps),
@@ -822,7 +828,8 @@ export async function readCircleProfiles(
   );
   // A member with no row has simply never opened the screen. Return the
   // all-off default rather than nothing, so callers need no special case.
-  for (const id of userIds) if (!found.has(id)) found.set(id, EMPTY_PROFILE(id));
+  for (const id of userIds)
+    if (!found.has(id)) found.set(id, EMPTY_PROFILE(id));
   return found;
 }
 
@@ -1013,19 +1020,29 @@ export async function discoverNearby(
 ): Promise<StoredCircleProfile[]> {
   if (!cells.length) return [];
   await ensureReady();
+  // Two int arrays walked in step, not a row comparison. The previous form
+  // was `(p.cell_x, p.cell_y) = any($2::record[])`, which Postgres rejects
+  // outright — "input of anonymous composite types is not implemented" —
+  // because record is a pseudo-type with no input function. Nearby discovery
+  // therefore threw on every call and had never once returned a member; the
+  // route caught it and reported itself temporarily unavailable, so it read
+  // as an outage rather than a bug. unnest also keeps the cell index usable.
   const r = await db().query(
     `select p.* from circle_profile p
      where p.discoverable
        and p.user_id <> $1
-       and (p.cell_x, p.cell_y) = any($2::record[])
+       and exists (
+         select 1 from unnest($2::int[], $3::int[]) as g(x, y)
+         where g.x = p.cell_x and g.y = p.cell_y
+       )
        and not exists (
          select 1 from circle_connection c
          where (c.requester_id = $1 and c.addressee_id = p.user_id)
             or (c.requester_id = p.user_id and c.addressee_id = $1)
        )
      order by p.updated_at desc
-     limit $3`,
-    [userId, cells.map((c) => `(${c.x},${c.y})`), limit],
+     limit $4`,
+    [userId, cells.map((c) => c.x), cells.map((c) => c.y), limit],
   );
   return r.rows.map(toProfile);
 }

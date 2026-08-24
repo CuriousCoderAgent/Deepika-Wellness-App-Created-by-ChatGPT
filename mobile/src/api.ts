@@ -339,13 +339,27 @@ export async function saveCircleSettings(
 
 /** Members in the same city who chose to be findable. City is the limit. */
 export async function discoverCircle(token: string) {
-  if (token === DEMO_TOKEN) return { city: null, members: [] };
+  if (token === DEMO_TOKEN)
+    return {
+      city: null,
+      basis: "none" as const,
+      members: [],
+      message: undefined,
+    };
   const response = await request("/api/circle/discover", {
     headers: { Authorization: `Bearer ${token}` },
   });
   return parse(response) as Promise<{
     city: string | null;
-    members: { memberId: string; displayName: string; city?: string }[];
+    /** Which search actually produced the list, so the app can say so. */
+    basis: "area" | "city" | "none";
+    members: {
+      memberId: string;
+      displayName: string;
+      city?: string;
+      proximityLabel?: string;
+      bio?: string;
+    }[];
     message?: string;
   }>;
 }

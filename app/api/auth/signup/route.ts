@@ -29,7 +29,12 @@ import {
   sessionCookieName,
   sessionMaxAge,
 } from "@/lib/auth";
-import { consumeAuthRateLimit, isConfigured } from "@/lib/db";
+import {
+  consumeAuthRateLimit,
+  isConfigured,
+  readAccount,
+  readAccountByEmail,
+} from "@/lib/db";
 import { encodeUserCookie, USER_COOKIE } from "@/lib/session-client";
 
 export const runtime = "nodejs";
@@ -152,6 +157,33 @@ export async function POST(req: Request) {
   }
 
   if (!user) {
+    // Say which one. The old message named neither, so someone whose email was
+    // already registered had no way to tell that from a bad password rule, a
+    // taken username, or a server fault — and the only move left was to retype
+    // the same details and get the same sentence.
+    //
+    // This does confirm that an address or username is registered. Signup
+    // cannot avoid that: a form that must reject duplicates leaks their
+    // existence whatever it says. The real mitigation is email verification,
+    // which is not built yet; until then the join code is what keeps strangers
+    // off the form at all.
+    const [byEmail, byName] = await Promise.all([
+      email.trim() ? readAccountByEmail(email) : Promise.resolve(null),
+      readAccount(username),
+    ]);
+    if (byEmail)
+      return NextResponse.json(
+        {
+          error:
+            "That email already has an account. Try signing in instead, or use the password reset.",
+        },
+        { status: 409 },
+      );
+    if (byName)
+      return NextResponse.json(
+        { error: "That username is already taken. Please pick another." },
+        { status: 409 },
+      );
     return NextResponse.json(
       { error: "An account couldn't be created with those details." },
       { status: 409 },
