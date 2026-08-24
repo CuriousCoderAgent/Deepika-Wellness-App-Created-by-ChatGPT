@@ -952,7 +952,7 @@ function DailySnapshot({
   const actionsDone = todayActions.filter(
     (action) => action.completed && action.completed !== "rest",
   ).length;
-  const meals = doc.foodEntries.filter(
+  const meals = liveMeals(doc).filter(
     (entry) => entry.loggedDate === isoDate(),
   );
   const protein = meals.reduce((total, entry) => total + entry.protein, 0);
@@ -2368,7 +2368,7 @@ function awardMetrics(doc: MemberDoc): AwardMetrics {
     wholeDays: [...domainsByDay.values()].filter((set) => set.size >= 5).length,
     movements: movementDays,
     walks: active.filter((action) => action.domain === "walking").length,
-    meals: doc.foodEntries?.length ?? 0,
+    meals: liveMeals(doc).length,
     checkIns: doc.pulses?.length ?? 0,
     rests: done.filter((action) => action.completed === "rest").length,
     circleSize: doc.engagement?.circle?.memberCount ?? 0,
@@ -2792,7 +2792,7 @@ function History({ doc }: { doc: MemberDoc }) {
     0,
     ...(doc.actions ?? []).map((a) => a.dayOffset),
     ...(doc.pulses ?? []).map((p) => p.dayOffset),
-    ...(doc.foodEntries ?? []).map((f) => f.dayOffset ?? 0),
+    ...liveMeals(doc).map((f) => f.dayOffset ?? 0),
   );
   const available = Math.max(14, Math.abs(oldest) + 1);
 
@@ -2802,7 +2802,7 @@ function History({ doc }: { doc: MemberDoc }) {
     const actions = (doc.actions ?? []).filter(
       (a) => a.dayOffset === offset && a.completed,
     );
-    const meals = (doc.foodEntries ?? []).filter((f) => f.loggedDate === date);
+    const meals = liveMeals(doc).filter((f) => f.loggedDate === date);
     const pulse = (doc.pulses ?? []).find((p) => p.dayOffset === offset);
     const logs = (doc.workoutLogs ?? []).filter((log) => {
       const at = String(
@@ -3097,6 +3097,39 @@ function Progress({ doc }: { doc: MemberDoc }) {
   );
 }
 
+/**
+ * Meals she has not removed.
+ *
+ * A removed entry is tombstoned rather than dropped, because the server
+ * unions these logs by id so two devices cannot erase each other's meals —
+ * a row that merely vanished from the phone would return on the next sync.
+ * That means every read has to filter, and forgetting one shows her a meal
+ * she deleted or counts it in a total.
+ */
+function liveMeals(doc: MemberDoc) {
+  return (doc.foodEntries ?? []).filter((entry) => !entry.deletedAt);
+}
+
+/**
+ * A day's calories, small enough for a calendar cell and still correct.
+ *
+ * The cell used to render `{calories}k` — so 1,650 kcal displayed as "1650k",
+ * which reads as 1.65 million. A number shown to somebody tracking their
+ * intake has to be right before it is compact.
+ */
+function compactKcal(calories: number): string {
+  const value = Math.round(calories);
+  if (value <= 0) return "";
+  if (value < 1000) return String(value);
+  // One decimal up to 9.9k, then whole thousands. "1.7k" fits and is true.
+  //
+  // Rounded arithmetically rather than with toFixed, which is unpredictable
+  // at the half on binary floats: 1650 came out as "1.6k" because 1.65 is
+  // stored a fraction below 1.65.
+  if (value < 10_000) return `${Math.round(value / 100) / 10}k`;
+  return `${Math.round(value / 1000)}k`;
+}
+
 function Food({
   doc,
   update,
@@ -3128,7 +3161,7 @@ function Food({
     carbs: "",
     fat: "",
   });
-  const selectedEntries = doc.foodEntries.filter(
+  const selectedEntries = liveMeals(doc).filter(
     (entry) => entry.loggedDate === selectedDate,
   );
   const total = selectedEntries.reduce((sum, entry) => sum + entry.calories, 0);
@@ -3150,7 +3183,7 @@ function Food({
   }, [month]);
   const dailyTotals = useMemo(
     () =>
-      doc.foodEntries.reduce<
+      liveMeals(doc).reduce<
         Record<string, { calories: number; protein: number }>
       >((result, entry) => {
         const current = result[entry.loggedDate] ?? { calories: 0, protein: 0 };
@@ -3282,6 +3315,47 @@ function Food({
       fat: String(entry.fat),
     });
   };
+
+  /**
+   * Remove a meal she logged.
+   *
+   * There was no way to do this at all: a photo of the wrong plate, or a
+   * duplicate from a double tap, stayed in her record and her totals
+   * permanently. Correcting the numbers was possible; removing the entry was
+   * not.
+   *
+   * Confirmed first, because it is not recoverable — and note this is the one
+   * place that makes the server's union-merge of foodEntries wrong, so the
+   * removal has to reach the server rather than only the phone. It does,
+   * because `update()` saves the whole document and the entry is gone from
+   * it. When there are more deletions than this, that merge needs tombstones.
+   */
+  const removeEntry = (entry: FoodEntry) =>
+    Alert.alert(
+      "Remove this meal?",
+      `“${entry.description}” will be taken out of your record and your totals for that day.`,
+      [
+        { text: "Keep it", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => {
+            if (editingId === entry.id) setEditingId(undefined);
+            update({
+              ...doc,
+              // Tombstoned, not dropped. The server unions these logs by id so
+              // two devices cannot erase each other's meals, which means a row
+              // that merely disappeared here would come back on the next sync.
+              foodEntries: doc.foodEntries.map((item) =>
+                item.id === entry.id
+                  ? { ...item, deletedAt: new Date().toISOString() }
+                  : item,
+              ),
+            });
+          },
+        },
+      ],
+    );
   const saveCorrection = () => {
     if (!editingId) return;
     update({
@@ -3400,12 +3474,19 @@ function Food({
                             s.calendarDayNumberSelected,
                         ]}
                       >
-                        {dailyTotals[cell.date]?.calories ?? 0}k
+                        {compactKcal(dailyTotals[cell.date]?.calories ?? 0)}
                       </Text>
                       <View
                         style={[
                           s.proteinDot,
-                          (dailyTotals[cell.date]?.protein ?? 0) >= 20 &&
+                          // Filled when protein was logged at all — which is
+                          // what the legend below has always said. It used to
+                          // fill at 20g, a threshold nothing set and nobody
+                          // chose, presented to her as a judgement about her
+                          // day. The app does not have a protein target for
+                          // her unless a coach sets one, so it does not imply
+                          // one.
+                          (dailyTotals[cell.date]?.protein ?? 0) > 0 &&
                             s.proteinDotFull,
                         ]}
                       />
@@ -3585,14 +3666,23 @@ function Food({
                         ? "MEMBER CONFIRMED"
                         : "STARTER ESTIMATE"}
                     </Text>
-                    <Pressable
-                      accessibilityLabel="Correct meal estimate"
-                      onPress={() => beginCorrection(entry)}
-                      style={s.editFoodButton}
-                    >
-                      <Pencil size={13} color={C.greenDeep} />
-                      <Text style={s.editFoodText}>Correct</Text>
-                    </Pressable>
+                    <View style={s.rowInline}>
+                      <Pressable
+                        accessibilityLabel="Correct meal estimate"
+                        onPress={() => beginCorrection(entry)}
+                        style={s.editFoodButton}
+                      >
+                        <Pencil size={13} color={C.greenDeep} />
+                        <Text style={s.editFoodText}>Correct</Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityLabel={`Remove ${entry.description}`}
+                        onPress={() => removeEntry(entry)}
+                        style={s.editFoodButton}
+                      >
+                        <Text style={s.removeFoodText}>Remove</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 </>
               )}
@@ -8097,6 +8187,11 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 8,
+  },
+  removeFoodText: {
+    color: C.soft,
+    fontSize: 12,
+    fontWeight: "700",
   },
   editFoodText: { color: C.greenDeep, fontSize: 10, fontWeight: "700" },
   inlineEditDescription: { minHeight: 45 },

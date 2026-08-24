@@ -168,6 +168,13 @@ export interface FoodEntry {
   photoUri?: string;
   confidence: "member" | "estimated";
   memberCorrected?: boolean;
+  /**
+   * Set when she removes the entry. A tombstone rather than a deletion,
+   * because the server merges these logs by union — a row that simply
+   * vanished from the phone would be restored from the server copy on the
+   * next sync. Everything reading foodEntries must filter these out.
+   */
+  deletedAt?: string;
   createdAt: string;
 }
 

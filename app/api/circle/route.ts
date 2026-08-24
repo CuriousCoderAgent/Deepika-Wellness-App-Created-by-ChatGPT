@@ -35,7 +35,11 @@ import {
   rankByConsistency,
   type CircleActivity,
 } from "@/lib/circle";
-import { consistencyFor, circleTotal, type ConsistencySummary } from "@/lib/consistency";
+import {
+  consistencyFor,
+  circleTotal,
+  type ConsistencySummary,
+} from "@/lib/consistency";
 import { proximityBetween, toCell } from "@/lib/proximity";
 import { todayIso } from "@/lib/day-offset";
 
@@ -71,7 +75,9 @@ function publicProfile(profile: StoredCircleProfile) {
  * strictly: dates only, no content. Knowing someone showed up on the 14th says
  * nothing about what she ate or how she felt.
  */
-function consistencyFrom(doc: Awaited<ReturnType<typeof readMemberDoc>>): ConsistencySummary {
+function consistencyFrom(
+  doc: Awaited<ReturnType<typeof readMemberDoc>>,
+): ConsistencySummary {
   const active = new Set<string>();
   const movement = new Set<string>();
   const logged = new Set<string>();
@@ -79,18 +85,24 @@ function consistencyFrom(doc: Awaited<ReturnType<typeof readMemberDoc>>): Consis
     new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
 
   for (const action of doc?.actions ?? []) {
-    if (!action.completed || action.dayOffset > 0 || action.dayOffset < -27) continue;
+    if (!action.completed || action.dayOffset > 0 || action.dayOffset < -27)
+      continue;
     const date = dayOf(action.dayOffset);
     active.add(date);
     if ((action.domain ?? "movement") === "movement") movement.add(date);
   }
-  for (const entry of doc?.foodEntries ?? []) {
-    const date = String((entry as unknown as Record<string, unknown>).loggedDate ?? "");
+  // Tombstoned meals are removed, not logged. A day whose only entry she
+  // deleted must not still count as a day she logged something.
+  for (const entry of (doc?.foodEntries ?? []).filter((e) => !e.deletedAt)) {
+    const date = String(
+      (entry as unknown as Record<string, unknown>).loggedDate ?? "",
+    );
     if (date) logged.add(date);
   }
   for (const entry of doc?.hydrationLogs ?? []) logged.add(entry.date);
   for (const pulse of doc?.pulses ?? []) {
-    if (pulse.dayOffset <= 0 && pulse.dayOffset >= -27) logged.add(dayOf(pulse.dayOffset));
+    if (pulse.dayOffset <= 0 && pulse.dayOffset >= -27)
+      logged.add(dayOf(pulse.dayOffset));
   }
   return consistencyFor({
     activeDates: [...active],
@@ -195,7 +207,11 @@ export async function GET() {
       together: circleTotal([
         myConsistency,
         ...activities
-          .map((a) => (a as CircleActivity & { consistency?: ConsistencySummary }).consistency)
+          .map(
+            (a) =>
+              (a as CircleActivity & { consistency?: ConsistencySummary })
+                .consistency,
+          )
           .filter((c): c is ConsistencySummary => Boolean(c)),
       ]),
       requests: {
@@ -278,8 +294,8 @@ export async function PUT(req: Request) {
       // The app sends a grid cell it has already coarsened. Anything that looks
       // like a raw coordinate is refused rather than quietly rounded here — the
       // precision must be destroyed on the device, not in transit.
-      cellX: "cell" in body ? readCell(body.cell)?.x ?? null : existing.cellX,
-      cellY: "cell" in body ? readCell(body.cell)?.y ?? null : existing.cellY,
+      cellX: "cell" in body ? (readCell(body.cell)?.x ?? null) : existing.cellX,
+      cellY: "cell" in body ? (readCell(body.cell)?.y ?? null) : existing.cellY,
       city: "city" in body ? city : existing.city,
       discoverable:
         typeof body.discoverable === "boolean"

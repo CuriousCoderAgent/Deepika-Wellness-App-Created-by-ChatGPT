@@ -455,6 +455,8 @@ export interface FoodEntry {
   photoUri?: string;
   confidence?: "member" | "estimated";
   memberCorrected?: boolean;
+  /** Set when the member removes the entry. See mobile/src/types.ts. */
+  deletedAt?: string;
   createdAt?: string;
   /** True when she corrected the library's figure — hers wins, and is marked. */
   proteinEdited?: boolean;

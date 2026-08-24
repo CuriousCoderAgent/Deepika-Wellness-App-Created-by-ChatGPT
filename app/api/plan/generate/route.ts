@@ -213,11 +213,15 @@ function domainSignals(doc: MemberDoc, signals: DailySignal[]): DomainSignals {
   const stress = rated((s) => s.stress);
 
   const today = todayIso();
-  const recentFood = (doc.foodEntries ?? []).filter((entry) => {
-    const raw = entry as unknown as Record<string, unknown>;
-    const date = String(raw.loggedDate ?? "");
-    return date >= shiftDate(today, -3);
-  });
+  // Excludes meals she removed, so a deleted entry cannot keep the plan
+  // believing she logged more than she did.
+  const recentFood = (doc.foodEntries ?? [])
+    .filter((entry) => !entry.deletedAt)
+    .filter((entry) => {
+      const raw = entry as unknown as Record<string, unknown>;
+      const date = String(raw.loggedDate ?? "");
+      return date >= shiftDate(today, -3);
+    });
   const protein = recentFood.reduce(
     (sum, entry) =>
       sum + Number((entry as unknown as Record<string, unknown>).protein ?? 0),

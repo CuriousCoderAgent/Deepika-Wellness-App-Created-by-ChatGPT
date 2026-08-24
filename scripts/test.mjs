@@ -1712,3 +1712,42 @@ test("the ratio helper agrees with known values", () => {
   // The old faint, which is what this test exists to keep out.
   assert.ok(contrastRatio("#8A9692", "#F3F1EA") < 3);
 });
+
+test("a removed meal stays removed across a sync", () => {
+  // The interaction that is easy to get wrong: foodEntries are unioned by id
+  // so two devices cannot erase each other, which means a row that merely
+  // disappeared from the phone would be restored from the server copy. A
+  // tombstone survives the union because the incoming row replaces it.
+  const server = [
+    { id: "m1", description: "poha", deletedAt: undefined },
+    { id: "m2", description: "roti" },
+  ];
+  const phoneAfterRemoval = [
+    { id: "m1", description: "poha", deletedAt: "2026-08-24T10:00:00.000Z" },
+    { id: "m2", description: "roti" },
+  ];
+  const merged = unionById(server, phoneAfterRemoval);
+  const live = merged.filter((entry) => !entry.deletedAt);
+  assert.equal(live.length, 1);
+  assert.equal(live[0].id, "m2");
+
+  // And it is still gone after a further round-trip, rather than reappearing.
+  const again = unionById(merged, phoneAfterRemoval);
+  assert.equal(again.filter((entry) => !entry.deletedAt).length, 1);
+});
+
+test("compactKcal never shows a day as a thousand times too large", () => {
+  // The calendar rendered `{calories}k`, so 1,650 kcal read as 1.65 million.
+  const compactKcal = (calories) => {
+    const value = Math.round(calories);
+    if (value <= 0) return "";
+    if (value < 1000) return String(value);
+    if (value < 10_000) return `${Math.round(value / 100) / 10}k`;
+    return `${Math.round(value / 1000)}k`;
+  };
+  assert.equal(compactKcal(0), "");
+  assert.equal(compactKcal(650), "650");
+  assert.equal(compactKcal(1650), "1.7k");
+  assert.equal(compactKcal(12000), "12k");
+  assert.notEqual(compactKcal(1650), "1650k");
+});
