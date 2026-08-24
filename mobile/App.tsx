@@ -323,15 +323,23 @@ function Login({
           )}
           {mode === "signup" && (
             <>
-              <Text style={s.inputLabel}>
-                Join code <Text style={s.optional}>optional</Text>
-              </Text>
+              <Text style={s.inputLabel}>Join code</Text>
+              {/* Was autoCapitalize="characters", which force-uppercased every
+                  keystroke while the server compares case-sensitively — so any
+                  code containing a lowercase letter was impossible to type on a
+                  phone. Nothing here may alter what she typed. */}
               <TextInput
                 style={s.input}
-                autoCapitalize="characters"
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                autoComplete="off"
                 value={joinCode}
                 onChangeText={setJoinCode}
               />
+              <Text style={s.fieldHint}>
+                Exactly as it was sent to you, including capitals.
+              </Text>
             </>
           )}
           {!!error && <Text style={s.error}>{error}</Text>}
