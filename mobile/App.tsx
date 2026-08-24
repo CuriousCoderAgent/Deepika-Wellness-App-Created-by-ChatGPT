@@ -61,6 +61,7 @@ import {
   Trophy,
   UserPlus,
   Users,
+  X,
   UserRound,
   Utensils,
 } from "lucide-react-native";
@@ -108,6 +109,17 @@ import {
  * has or has not done.
  */
 import { describeMatches, estimateMeal } from "./src/nutrition";
+import {
+  adjustQuantity,
+  describeItems,
+  preferred,
+  removeItem,
+  totalOf,
+  wasAdjusted,
+  type EstimateItem,
+  type EstimateSource,
+  type MealProposal,
+} from "./src/meal-estimate";
 import {
   READINESS_QUESTIONS,
   evaluateReadiness,
@@ -3446,7 +3458,30 @@ function Food({
 }) {
   const [description, setDescription] = useState("");
   /** What the last estimate was read from, shown so it can be judged. */
-  const [lastEstimate, setLastEstimate] = useState<string | null>(null);
+  /*
+   * The estimate she has not agreed to yet.
+   *
+   * Nothing is written to her diary while this is set. The previous flow
+   * saved first and showed the breakdown afterwards, which meant a number she
+   * never looked at was already counted in her day and already visible to her
+   * coach. See src/meal-estimate.ts.
+   */
+  const [proposal, setProposal] = useState<{
+    /** What she typed, always kept, even when the photo leads. */
+    typed: MealProposal;
+    /** Null when there was no photo, or the model could not read it. */
+    photo: MealProposal | null;
+    /** Which of the two she is currently looking at. */
+    using: EstimateSource;
+    /** The items as she has adjusted them. */
+    items: EstimateItem[];
+    /** The items as they arrived, so an adjustment can be noticed. */
+    original: EstimateItem[];
+    /** Held until she saves, because the entry needs it. */
+    photoFileId?: string;
+    photoUri?: string;
+    description: string;
+  } | null>(null);
   /** The month is for reviewing history, which is occasional. Folded by default. */
   const [showCalendar, setShowCalendar] = useState(false);
   const [photoAsset, setPhotoAsset] = useState<ImagePicker.ImagePickerAsset>();
@@ -3545,20 +3580,37 @@ function Food({
           )
         : null;
       const typed = estimateMeal(description || "meal from photo");
-      let estimate = {
-        calories: typed.calories,
-        protein: typed.protein,
-        carbs: typed.carbs,
-        fat: typed.fat,
+      /*
+       * Her own words, as a proposal in their own right.
+       *
+       * A description estimate has no per-item breakdown — it comes from the
+       * food table rather than from a model — so it carries a single item
+       * standing for the whole meal. That keeps one shape through the confirm
+       * step instead of two.
+       */
+      const typedProposal: MealProposal = {
+        source: "description",
+        confident: typed.confident,
+        basis: typed.confident
+          ? describeMatches(typed.matched)
+          : "No familiar foods recognised",
+        items: [
+          {
+            name: description.trim() || "This meal",
+            quantity: 1,
+            unit: "serving",
+            calories: typed.calories,
+            protein: typed.protein,
+            carbs: typed.carbs,
+            fat: typed.fat,
+          },
+        ],
       };
-      let basis = typed.confident
-        ? describeMatches(typed.matched)
-        : "No familiar foods recognised";
 
-      // A photo is better evidence than a description, so when one was
-      // uploaded it decides the numbers. The typed estimate stays as the
-      // fallback for an unreadable photo or an unavailable service — logging a
-      // meal must never depend on a model answering.
+      // A photograph of the plate is better evidence than a remembered
+      // description, so it leads when the model could read it. It never
+      // replaces what she typed: both are kept and she can switch.
+      let photoProposal: MealProposal | null = null;
       if (stored?.id) {
         try {
           const seen = await estimateMealPhoto(
@@ -3566,41 +3618,34 @@ function Food({
             stored.id,
             description.trim() || undefined,
           );
-          if (seen?.confident && seen.items.length) {
-            estimate = {
-              calories: seen.calories,
-              protein: seen.protein,
-              carbs: seen.carbs,
-              fat: seen.fat,
+          if (seen?.confident && seen.items.length)
+            photoProposal = {
+              source: "photo",
+              items: seen.items,
+              confident: true,
+              basis: describeItems(seen.items),
+              model: seen.model,
+              promptVersion: seen.promptVersion,
             };
-            basis = seen.items
-              .map((item) => `${item.quantity} × ${item.name}`)
-              .join(" · ");
-          }
         } catch {
-          // Keep the typed estimate. She can correct any of it afterwards.
+          // Her description stands. Logging a meal must never depend on a
+          // model answering.
         }
       }
 
-      const entry: FoodEntry = {
-        id: newId("food"),
-        memberId: doc.member.id,
-        dayOffset: offsetFromDate(selectedDate),
-        loggedDate: selectedDate,
-        meal,
-        description: description.trim() || "Meal captured from photo",
-        ...estimate,
+      // Nothing is saved here. She sees the breakdown, adjusts any portion
+      // that is wrong, and decides — see confirmMeal below.
+      const chosen = preferred(typedProposal, photoProposal);
+      setProposal({
+        typed: typedProposal,
+        photo: photoProposal,
+        using: chosen.source,
+        items: chosen.items,
+        original: chosen.items,
         photoFileId: stored?.id,
         photoUri: token === DEMO_TOKEN ? photoUri : undefined,
-        confidence: "estimated",
-        createdAt: new Date().toISOString(),
-      };
-      update({ ...doc, foodEntries: [...doc.foodEntries, entry] });
-      // Say what the estimate was read from. A member who sees "2 × Roti ·
-      // 1 × Dal" can tell at a glance whether the number is worth correcting.
-      setLastEstimate(basis);
-      setDescription("");
-      setPhotoAsset(undefined);
+        description: description.trim() || "Meal captured from photo",
+      });
     } catch (error) {
       Alert.alert(
         "Photo not saved",
@@ -3610,6 +3655,61 @@ function Food({
       setUploadingPhoto(false);
     }
   };
+  /** Switch between what she typed and what the photo read. */
+  const useSource = (source: EstimateSource) =>
+    setProposal((current) => {
+      if (!current) return current;
+      const next = source === "photo" ? current.photo : current.typed;
+      if (!next) return current;
+      return {
+        ...current,
+        using: source,
+        items: next.items,
+        original: next.items,
+      };
+    });
+
+  /** Save what she has agreed to, with a record of where it came from. */
+  const confirmMeal = () => {
+    if (!proposal) return;
+    const chosen =
+      proposal.using === "photo" ? proposal.photo : proposal.typed;
+    const totals = totalOf(proposal.items);
+    const adjusted = wasAdjusted(proposal.original, proposal.items);
+    const entry: FoodEntry = {
+      id: newId("food"),
+      memberId: doc.member.id,
+      dayOffset: offsetFromDate(selectedDate),
+      loggedDate: selectedDate,
+      meal,
+      description: proposal.description,
+      ...totals,
+      photoFileId: proposal.photoFileId,
+      photoUri: proposal.photoUri,
+      // She looked at these numbers and accepted them, but she did not
+      // measure them. "member" is reserved for a figure she typed herself.
+      confidence: "estimated",
+      memberCorrected: adjusted,
+      estimate: {
+        source: proposal.using,
+        items: proposal.items,
+        confident: chosen?.confident ?? false,
+        model: chosen?.model,
+        promptVersion: chosen?.promptVersion,
+        adjusted,
+        acceptedAt: new Date().toISOString(),
+      },
+      createdAt: new Date().toISOString(),
+    };
+    update({ ...doc, foodEntries: [...doc.foodEntries, entry] });
+    setProposal(null);
+    setDescription("");
+    setPhotoAsset(undefined);
+  };
+
+  /** Throw the estimate away. The photo upload is left where it is. */
+  const discardProposal = () => setProposal(null);
+
   const beginCorrection = (entry: FoodEntry) => {
     setEditingId(entry.id);
     setEditValues({
@@ -3876,20 +3976,170 @@ function Food({
           <Pressable
             style={[s.primaryButton, s.estimateButton]}
             onPress={add}
-            disabled={uploadingPhoto}
+            // A second estimate while one is still waiting on her would
+            // silently replace the first, including any portion she had
+            // already corrected.
+            disabled={uploadingPhoto || proposal !== null}
           >
             {uploadingPhoto ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={s.primaryButtonText}>Estimate & add</Text>
+              // It no longer adds anything — it proposes, and she decides.
+              <Text style={s.primaryButtonText}>Estimate this meal</Text>
             )}
           </Pressable>
         </View>
         {photoUri && <Image source={{ uri: photoUri }} style={s.mealPhoto} />}
-        {lastEstimate && (
-          <View style={s.estimateBasis}>
-            <Text style={s.estimateBasisLabel}>ESTIMATED FROM</Text>
-            <Text style={s.estimateBasisText}>{lastEstimate}</Text>
+        {proposal && (
+          <View style={s.proposalCard}>
+            <Text style={s.proposalTitle}>Does this look right?</Text>
+            <Text style={s.proposalCopy}>
+              Nothing is saved yet. Change any portion that is wrong, then add
+              it to your day.
+            </Text>
+
+            {/* Both readings stay available. The photo leads when the model
+                could read the plate, but her own words are never discarded —
+                she is the better witness to her own meal. */}
+            {proposal.photo && (
+              <View style={s.sourceRow}>
+                {(["photo", "description"] as EstimateSource[]).map((source) => {
+                  const active = proposal.using === source;
+                  return (
+                    <Pressable
+                      key={source}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: active }}
+                      style={[s.sourceChip, active && s.sourceChipActive]}
+                      onPress={() => useSource(source)}
+                    >
+                      <Text
+                        style={[
+                          s.sourceChipText,
+                          active && s.sourceChipTextActive,
+                        ]}
+                      >
+                        {source === "photo" ? "From the photo" : "What you typed"}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* Which of her words the food table recognised. Worth saying for
+                a typed estimate, where the item list is just her description
+                back at her; the photo's item list already is the basis. */}
+            {proposal.using === "description" && (
+              <Text style={s.proposalBasis}>
+                Read from: {proposal.typed.basis}
+              </Text>
+            )}
+
+            {proposal.items.map((item, index) => (
+              <View key={item.name + index} style={s.proposalItem}>
+                <View style={s.flex}>
+                  <Text style={s.proposalItemName}>{item.name}</Text>
+                  <Text style={s.proposalItemMacros}>
+                    {Math.round(item.calories)} kcal ·{" "}
+                    {Math.round(item.protein)}g protein
+                  </Text>
+                </View>
+                <View style={s.portionRow}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Less ${item.name}`}
+                    style={s.portionButton}
+                    onPress={() =>
+                      setProposal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              items: adjustQuantity(
+                                current.items,
+                                index,
+                                Math.max(0, item.quantity - 0.5),
+                              ),
+                            }
+                          : current,
+                      )
+                    }
+                  >
+                    <Text style={s.portionButtonText}>−</Text>
+                  </Pressable>
+                  <Text style={s.portionValue}>
+                    {Number.isInteger(item.quantity)
+                      ? item.quantity
+                      : item.quantity.toFixed(1)}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`More ${item.name}`}
+                    style={s.portionButton}
+                    onPress={() =>
+                      setProposal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              items: adjustQuantity(
+                                current.items,
+                                index,
+                                item.quantity + 0.5,
+                              ),
+                            }
+                          : current,
+                      )
+                    }
+                  >
+                    <Text style={s.portionButtonText}>+</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${item.name}`}
+                    style={s.portionRemove}
+                    onPress={() =>
+                      setProposal((current) =>
+                        current
+                          ? { ...current, items: removeItem(current.items, index) }
+                          : current,
+                      )
+                    }
+                  >
+                    <X size={14} color={C.faint} />
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+
+            <View style={s.proposalTotal}>
+              <Text style={s.proposalTotalLabel}>Total</Text>
+              <Text style={s.proposalTotalValue}>
+                {totalOf(proposal.items).calories} kcal ·{" "}
+                {totalOf(proposal.items).protein}g protein
+              </Text>
+            </View>
+
+            <View style={s.proposalActions}>
+              <Pressable
+                accessibilityRole="button"
+                style={s.secondaryButton}
+                onPress={discardProposal}
+              >
+                <Text style={s.secondaryButtonText}>Discard</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                style={[
+                  s.primaryButton,
+                  s.flex,
+                  !proposal.items.length && s.disabledButton,
+                ]}
+                disabled={!proposal.items.length}
+                onPress={confirmMeal}
+              >
+                <Text style={s.primaryButtonText}>Add to my day</Text>
+              </Pressable>
+            </View>
           </View>
         )}
         <Text style={s.estimateNote}>

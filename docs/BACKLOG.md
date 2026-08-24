@@ -2,7 +2,7 @@
 
 **Last updated:** 24 August 2026, after the external audit response
 (`docs/AUDIT-RESPONSE-2026-08-24.md`) and a device-testing round.
-**State:** 226 tests passing, mobile and server typecheck clean, `next build`
+**State:** 237 tests passing, mobile and server typecheck clean, `next build`
 clean. All eight audit P0s closed; P1 and P2 closed. Every movement in the
 library has photography.
 
@@ -143,12 +143,16 @@ says so rather than quietly producing a strength week.
 
 ## P3 — Audit items that matter, after the core is personal
 
-- **Confirmation-first meal estimates.** Today a photo estimate saves
-  immediately and silently outranks the typed description. The audit wants
-  propose → confirm → save, with item-level portions.
-- **Estimate provenance.** Model, prompt version, item breakdown and
-  confidence are not stored, so a later screen cannot explain where a number
-  came from. The breakdown is shown once and lost with component state.
+- ~~Confirmation-first meal estimates~~ and ~~estimate provenance~~ —
+  **done 2026-08-24.** Propose → confirm → save, with per-item portions she
+  can adjust before anything is written. The photo no longer overrides what
+  she typed: both readings are kept and she chooses, with the photo leading
+  only when the model says it could read the plate. Source, items, model,
+  prompt version and whether she adjusted anything are stored on the entry.
+  Arithmetic and its tests live in `mobile/src/meal-estimate.ts`.
+
+  Found while doing it: `normalizeFood` was dropping `deletedAt`, so a meal
+  she deleted came back — with its calories — on the next server read.
 - **Movement session model.** Session-level RPE captured once rather than per
   exercise; rest timer; set checkboxes; "stop workout" without completing
   every card; swap within coach-approved alternatives.

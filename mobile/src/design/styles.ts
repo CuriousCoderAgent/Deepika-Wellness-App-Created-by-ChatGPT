@@ -711,25 +711,101 @@ export const s = StyleSheet.create({
   deleteConfirmText: { color: "#fff", fontSize: 14, fontWeight: "700" },
 
   /* What a meal estimate was read from. */
-  estimateBasis: {
-    marginTop: 12,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
-    borderRadius: 11,
+  /* ---------------------------------------------------------------- */
+  /* An estimate she has not agreed to yet                              */
+  /*                                                                    */
+  /* Deliberately reads as a question rather than as a saved record:    */
+  /* an outlined card rather than a filled one, and the confirm button  */
+  /* says what will happen rather than "OK".                            */
+  /* ---------------------------------------------------------------- */
+  proposalCard: {
+    marginTop: 14,
+    padding: 15,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.green,
     backgroundColor: C.greenTint,
+    gap: 4,
   },
-  estimateBasisLabel: {
-    color: C.green,
-    fontSize: 11,
+  proposalTitle: { color: C.ink, fontSize: 15, fontWeight: "800" },
+  proposalCopy: { color: C.soft, fontSize: 12, lineHeight: 17 },
+  /* Which reading she is looking at: the photo, or her own words. */
+  sourceRow: { flexDirection: "row", gap: 8, marginTop: 12 },
+  sourceChip: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: C.card,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sourceChipActive: { borderColor: C.greenDeep, backgroundColor: C.greenDeep },
+  sourceChipText: { color: C.soft, fontSize: 12, fontWeight: "700" },
+  sourceChipTextActive: { color: "white", fontWeight: "800" },
+  proposalItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: C.line,
+  },
+  proposalItemName: { color: C.ink, fontSize: 14, fontWeight: "700" },
+  proposalItemMacros: {
+    color: C.faint,
+    fontSize: 12,
+    marginTop: 2,
+    fontVariant: ["tabular-nums"],
+  },
+  portionRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  /* 44pt targets: these are tapped repeatedly while correcting a plate. */
+  portionButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  portionButtonText: { color: C.greenDeep, fontSize: 19, fontWeight: "800" },
+  portionValue: {
+    minWidth: 30,
+    textAlign: "center",
+    color: C.ink,
+    fontSize: 14,
     fontWeight: "800",
-    letterSpacing: 1,
+    fontVariant: ["tabular-nums"],
   },
-  estimateBasisText: {
+  portionRemove: {
+    width: 36,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  proposalTotal: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: C.green,
+  },
+  proposalTotalLabel: { color: C.ink, fontSize: 13, fontWeight: "800" },
+  proposalTotalValue: {
     color: C.greenDeep,
-    fontSize: 13,
-    fontWeight: "600",
-    marginTop: 3,
+    fontSize: 14,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
   },
+  proposalActions: { flexDirection: "row", gap: 9, marginTop: 14 },
+  proposalBasis: { color: C.faint, fontSize: 12, marginTop: 10 },
+
   loginPage: { flex: 1, backgroundColor: C.paper },
   authScroll: { flexGrow: 1, paddingBottom: 28 },
   authHero: {
