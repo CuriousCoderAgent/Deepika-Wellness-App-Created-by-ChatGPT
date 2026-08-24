@@ -2541,3 +2541,183 @@ test("every week includes a rest day, described as part of the plan", () => {
   assert.ok(rest);
   assert.doesNotMatch(rest.description, /skip|nothing|off day/i);
 });
+
+/* ------------------------------------------------------------------ */
+/* Event movements and their tagging                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The library grew from movements that were low-risk by construction —
+ * chair, wall, bodyweight — to include sleds, loaded carries and impact.
+ * The tagging is the only thing keeping those away from people they are
+ * wrong for, so it is asserted rather than reviewed.
+ */
+
+const EVENT_IDS = [
+  "ex-sled-push",
+  "ex-sled-pull",
+  "ex-farmers-carry",
+  "ex-sandbag-lunge",
+  "ex-wall-ball",
+  "ex-burpee-broad-jump",
+  "ex-ski-erg",
+  "ex-row-erg",
+];
+
+test("nobody is handed a sled by default", () => {
+  // eligibleExercises defaults to the home equipment set. A member who has
+  // told us nothing about her equipment must get nothing that needs a gym.
+  const defaults = eligibleExercises({});
+  for (const id of EVENT_IDS) {
+    assert.ok(
+      !defaults.some((exercise) => exercise.id === id),
+      `${id} was offered with no equipment stated`,
+    );
+  }
+});
+
+test("no event movement is reachable in the first weeks", () => {
+  // maxTier is 1 in weeks 1-2 and 2 through week 6. All of this is tier 3,
+  // so the existing ramp excludes it without needing a special case.
+  const early = eligibleExercises({
+    maxTier: 2,
+    equipment: [
+      "none",
+      "chair",
+      "wall",
+      "band",
+      "weight",
+      "sled",
+      "sandbag",
+      "medicine_ball",
+      "erg",
+      "box",
+      "open_space",
+    ],
+  });
+  for (const id of EVENT_IDS) {
+    assert.ok(
+      !early.some((exercise) => exercise.id === id),
+      `${id} was offered at maxTier 2`,
+    );
+  }
+});
+
+test("pregnancy rules out every loaded and impact station", () => {
+  const all = EXERCISES.filter((exercise) => EVENT_IDS.includes(exercise.id));
+  for (const id of [
+    "ex-sled-push",
+    "ex-sled-pull",
+    "ex-farmers-carry",
+    "ex-sandbag-lunge",
+    "ex-wall-ball",
+    "ex-burpee-broad-jump",
+  ]) {
+    const exercise = all.find((item) => item.id === id);
+    assert.ok(
+      exercise.avoidIf.includes("pregnancy"),
+      `${id} is not excluded during pregnancy`,
+    );
+  }
+});
+
+test("the burpee broad jump is the most restricted movement in the library", () => {
+  // Impact, a floor transition and a jump. If anything should have the
+  // longest exclusion list, it is this.
+  const burpee = EXERCISES.find((e) => e.id === "ex-burpee-broad-jump");
+  for (const condition of [
+    "pregnancy",
+    "osteoporosis",
+    "dizziness",
+    "high_blood_pressure",
+    "cardiac_condition",
+  ]) {
+    assert.ok(burpee.avoidIf.includes(condition), `burpee allows ${condition}`);
+  }
+  assert.ok(burpee.loads.includes("pelvic_floor"));
+});
+
+test("a cardiac condition removes every maximal sustained effort", () => {
+  const cleared = eligibleExercises({
+    conditions: ["cardiac_condition"],
+    equipment: [
+      "none",
+      "chair",
+      "wall",
+      "band",
+      "weight",
+      "sled",
+      "sandbag",
+      "medicine_ball",
+      "erg",
+      "box",
+      "open_space",
+    ],
+  });
+  // Written the wrong way round first: the original assertion passed for any
+  // movement that simply had not been tagged, which is the failure it was
+  // supposed to catch. The invariant is that cardio_load *implies* the
+  // exclusion — it found two untagged stations the moment it was stated
+  // properly.
+  for (const exercise of EXERCISES) {
+    if (exercise.loads.includes("cardio_load"))
+      assert.ok(
+        exercise.avoidIf.includes("cardiac_condition"),
+        `${exercise.id} is a maximal sustained effort and does not exclude a cardiac condition`,
+      );
+  }
+  for (const exercise of cleared) {
+    assert.ok(
+      !exercise.loads.includes("cardio_load"),
+      `${exercise.id} was offered to a cardiac condition`,
+    );
+  }
+  // And specifically the ergs and sleds are gone.
+  for (const id of ["ex-sled-push", "ex-ski-erg", "ex-row-erg"])
+    assert.ok(!cleared.some((e) => e.id === id), `${id} survived the filter`);
+});
+
+test("every station has a lighter version that trains the same thing", () => {
+  // "Not yet" has to still give her a session.
+  for (const id of EVENT_IDS) {
+    const exercise = EXERCISES.find((item) => item.id === id);
+    assert.ok(exercise.regressesTo, `${id} has no regression`);
+    const easier = EXERCISES.find((item) => item.id === exercise.regressesTo);
+    assert.ok(easier, `${id} regresses to a movement that does not exist`);
+    assert.ok(
+      easier.tier < exercise.tier,
+      `${id} regresses to something no easier`,
+    );
+  }
+});
+
+test("every progression and regression points at a real movement", () => {
+  const ids = new Set(EXERCISES.map((exercise) => exercise.id));
+  for (const exercise of EXERCISES) {
+    if (exercise.progressesTo)
+      assert.ok(
+        ids.has(exercise.progressesTo),
+        `${exercise.id} progresses to missing ${exercise.progressesTo}`,
+      );
+    if (exercise.regressesTo)
+      assert.ok(
+        ids.has(exercise.regressesTo),
+        `${exercise.id} regresses to missing ${exercise.regressesTo}`,
+      );
+  }
+});
+
+test("every movement in the library is fully described", () => {
+  for (const exercise of EXERCISES) {
+    assert.equal(exercise.frames.length, 5, `${exercise.id} frame count`);
+    assert.ok(exercise.why.length, `${exercise.id} has no why`);
+    assert.ok(exercise.cue.length, `${exercise.id} has no cue`);
+    assert.ok(exercise.equipment.length, `${exercise.id} has no equipment`);
+    assert.ok(exercise.minutes > 0, `${exercise.id} has no duration`);
+  }
+});
+
+test("no movement id is duplicated", () => {
+  const ids = EXERCISES.map((exercise) => exercise.id);
+  assert.equal(new Set(ids).size, ids.length);
+});
