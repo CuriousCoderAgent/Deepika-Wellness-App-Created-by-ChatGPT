@@ -137,6 +137,12 @@ import { AWARDS, awardMetrics, type AwardIcon } from "./src/awards";
 import { C } from "./src/design/tokens";
 import { activeDays } from "./src/activity";
 import {
+  SKIP_OPTIONS,
+  describeSkip,
+  isDeliberateRest,
+  type SkipReason,
+} from "./src/outcomes";
+import {
   BODY_SIGNALS,
   DOMAIN_META,
   HEALTH_LABELS,
@@ -608,6 +614,7 @@ function ActionCard({
     level: EffortLevel | "rest",
     effort?: 1 | 2 | 3 | 4 | 5,
     pain?: boolean,
+    skipKind?: SkipReason,
   ) => void;
   /** Rendered inside the day card, so it drops its own background and border. */
   inline?: boolean;
@@ -616,6 +623,7 @@ function ActionCard({
     Boolean(inline || action.isPrimary || action.exercise),
   );
   const [pendingLevel, setPendingLevel] = useState<EffortLevel | null>(null);
+  const [skipping, setSkipping] = useState(false);
   const [effort, setEffort] = useState<1 | 2 | 3 | 4 | 5>(3);
   const [pain, setPain] = useState(false);
   const domain = DOMAIN_META[action.domain];
@@ -819,9 +827,31 @@ function ActionCard({
               </Pressable>
             </View>
           )}
-          <Pressable onPress={() => onComplete("rest")}>
-            <Text style={s.notToday}>Not today</Text>
-          </Pressable>
+          {/* Was a single "Not today" that recorded every skip as a
+              deliberate rest — see src/outcomes.ts. Offered as three equally
+              valid descriptions of a day, never ranked, never a request for
+              a justification. */}
+          {skipping ? (
+            <View style={s.skipRow}>
+              {SKIP_OPTIONS.map((option) => (
+                <Pressable
+                  key={option.reason}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [s.skipOption, pressed && s.pressed]}
+                  onPress={() => {
+                    setSkipping(false);
+                    onComplete("rest", undefined, false, option.reason);
+                  }}
+                >
+                  <Text style={s.skipOptionText}>{option.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : (
+            <Pressable onPress={() => setSkipping(true)}>
+              <Text style={s.notToday}>Not today</Text>
+            </Pressable>
+          )}
         </>
       )}
     </Card>
@@ -1958,6 +1988,7 @@ function Today({
     level: EffortLevel | "rest",
     effort: 1 | 2 | 3 | 4 | 5 = 3,
     pain = false,
+    skipKind?: SkipReason,
   ) => {
     const action = doc.actions.find((item) => item.id === id);
     const workoutLogs =
@@ -2012,7 +2043,7 @@ function Today({
     update({
       ...doc,
       actions: doc.actions.map((a) =>
-        a.id === id ? { ...a, completed: level } : a,
+        a.id === id ? { ...a, completed: level, skipKind } : a,
       ),
       workoutLogs,
       messages: [...doc.messages, ...painMessage],
@@ -2706,7 +2737,7 @@ function History({ doc }: { doc: MemberDoc }) {
                     <Text style={s.historyItem}>{action.title}</Text>
                     <Text style={s.historyMeta}>
                       {action.completed === "rest"
-                        ? "Rest — which counts"
+                        ? describeSkip(action.skipKind)
                         : `${action.completed}${effort ? ` · felt ${["", "very easy", "easy", "steady", "hard", "very hard"][effort]}` : ""}`}
                     </Text>
                   </View>

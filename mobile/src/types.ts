@@ -70,6 +70,19 @@ export interface DailyAction {
   stretch: EffortSpec;
   measurement: OutcomeMeasurement;
   completed: EffortLevel | "rest" | null;
+  /**
+   * Free text, in her own words, shown to a coach in quotation marks.
+   * Predates the structured field below and is left alone: the console
+   * renders it as something she said, so it must never contain a code.
+   */
+  skipReason?: string;
+  /**
+   * Which of the three offered descriptions she chose, for logic rather than
+   * display. Sits alongside `completed` rather than widening it, so the dose
+   * ladder and every existing reader are untouched. See
+   * mobile/src/outcomes.ts.
+   */
+  skipKind?: "rested" | "no_time" | "unwell";
   isPrimary?: boolean;
   coachLimits?: { minimumValue: number; maximumValue: number };
   exercise?: {

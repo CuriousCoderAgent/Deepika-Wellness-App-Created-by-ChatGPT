@@ -159,7 +159,19 @@ export interface DailyAction {
   coachLimits?: { minimumValue: number; maximumValue: number };
   /** null = untouched, "rest" = explicitly not today (never a failure state). */
   completed: EffortLevel | "rest" | null;
+  /**
+   * Free text, in her own words, shown to a coach in quotation marks.
+   * Predates the structured field below and is left alone: the console
+   * renders it as something she said, so it must never contain a code.
+   */
   skipReason?: string;
+  /**
+   * Which of the three offered descriptions she chose, for logic rather than
+   * display. Sits alongside `completed` rather than widening it, so the dose
+   * ladder and every existing reader are untouched. See
+   * mobile/src/outcomes.ts.
+   */
+  skipKind?: "rested" | "no_time" | "unwell";
   provenance?: Provenance;
   /** Links a movement action to a workout definition. */
   workoutId?: string;

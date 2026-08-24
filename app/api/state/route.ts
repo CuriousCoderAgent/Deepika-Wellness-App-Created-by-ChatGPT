@@ -175,6 +175,7 @@ function mergeMemberUpdate(
           ...action,
           completed: update.completed,
           skipReason: update.skipReason,
+          skipKind: update.skipKind,
         }
       : action;
   });

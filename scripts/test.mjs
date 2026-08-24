@@ -34,6 +34,11 @@ import { C, SURFACES, TEXT_COLOURS } from "../mobile/src/design/tokens.ts";
 import { AWARDS, awardMetrics } from "../mobile/src/awards.ts";
 import { compactKcal, liveMeals } from "../mobile/src/meals.ts";
 import { activeDays, isActive } from "../mobile/src/activity.ts";
+import {
+  SKIP_OPTIONS,
+  describeSkip,
+  isDeliberateRest,
+} from "../mobile/src/outcomes.ts";
 import { DOMAIN_META, NUDGE_OPTIONS } from "../mobile/src/content.ts";
 import { deterministicSafetyRecommendation } from "../lib/recommendation-safety.ts";
 import {
@@ -1797,13 +1802,63 @@ test("a rest day is recorded but is not an active day", () => {
   const rested = awardMetrics(
     awardDoc({
       actions: [
-        { id: "a", dayOffset: 0, domain: "movement", completed: "rest" },
+        {
+          id: "a",
+          dayOffset: 0,
+          domain: "movement",
+          completed: "rest",
+          skipKind: "rested",
+        },
       ],
     }),
   );
   assert.equal(rested.rests, 1, "the rest itself is still counted");
   assert.equal(rested.activeDays, 0, "but it is not a day she showed up");
   assert.equal(rested.actions, 0);
+});
+
+test("only a rest she chose counts as a rest", () => {
+  // "Rest counts" congratulates a considered recovery decision. Firing it at
+  // someone who ran out of time tells her she made a choice she did not make.
+  const byKind = (skipKind) =>
+    awardMetrics(
+      awardDoc({
+        actions: [
+          {
+            id: "a",
+            dayOffset: 0,
+            domain: "movement",
+            completed: "rest",
+            skipKind,
+          },
+        ],
+      }),
+    ).rests;
+
+  assert.equal(byKind("rested"), 1);
+  assert.equal(byKind("no_time"), 0);
+  assert.equal(byKind("unwell"), 0);
+  // Recorded before the app asked. A build that never offered the question
+  // cannot be read as though she answered it.
+  assert.equal(byKind(undefined), 0);
+});
+
+test("every way a day went reads back without reproach", () => {
+  for (const reason of ["rested", "no_time", "unwell", undefined]) {
+    const text = describeSkip(reason);
+    assert.ok(text.length, `${reason} has no description`);
+    assert.doesNotMatch(
+      text,
+      /missed|failed|behind|skipped|should have|didn'?t manage/i,
+      `"${text}" reads as a reprimand`,
+    );
+  }
+  // The three offered options are neutral descriptions, not requests for an
+  // excuse.
+  assert.equal(SKIP_OPTIONS.length, 3);
+  for (const option of SKIP_OPTIONS) {
+    assert.doesNotMatch(option.label, /why|excuse|sorry|unfortunately/i);
+  }
 });
 
 test("a session is a day trained, not an exercise finished", () => {

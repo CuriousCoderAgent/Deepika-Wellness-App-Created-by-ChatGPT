@@ -28,6 +28,7 @@
  */
 
 import { liveMeals } from "./meals";
+import { isDeliberateRest } from "./outcomes";
 import type { MemberDoc } from "./types";
 
 /**
@@ -240,7 +241,13 @@ export function awardMetrics(doc: MemberDoc): AwardMetrics {
     walks: active.filter((action) => action.domain === "walking").length,
     meals: liveMeals(doc).length,
     checkIns: doc.pulses?.length ?? 0,
-    rests: done.filter((action) => action.completed === "rest").length,
+    // Only a rest she actually chose. An unstated skip is not a considered
+    // recovery decision, and "Rest counts" congratulating someone who simply
+    // ran out of time is a small lie about her own week.
+    rests: done.filter(
+      (action) =>
+        action.completed === "rest" && isDeliberateRest(action.skipKind),
+    ).length,
     circleSize: doc.engagement?.circle?.memberCount ?? 0,
     healthConnected: health === "connected" || health === "partial",
   };

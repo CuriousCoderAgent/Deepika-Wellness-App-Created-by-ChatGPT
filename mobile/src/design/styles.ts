@@ -1279,6 +1279,17 @@ export const s = StyleSheet.create({
     marginTop: 6,
   },
   formCue: { color: C.soft, fontSize: 11, lineHeight: 16, marginTop: 10 },
+  /** Three ways a day went, offered without ranking them. */
+  skipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
+  skipOption: {
+    paddingVertical: 9,
+    paddingHorizontal: 13,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: C.card,
+  },
+  skipOptionText: { color: C.greenDeep, fontSize: 13, fontWeight: "600" },
   notToday: {
     color: C.faint,
     fontSize: 12,
