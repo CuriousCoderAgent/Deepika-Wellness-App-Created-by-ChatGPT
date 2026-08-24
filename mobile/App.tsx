@@ -881,6 +881,34 @@ function EngagementPanel({ doc }: { doc: MemberDoc }) {
   );
 }
 
+/**
+ * Whether a recorded date is today, in her timezone.
+ *
+ * Deliberately a date comparison rather than an age in hours: a step count
+ * from 11pm last night is yesterday's, however recent it feels.
+ */
+function isToday(date: string): boolean {
+  return date === isoDate();
+}
+
+/**
+ * How old a health reading is, in words.
+ *
+ * Health sources go quiet — a watch left on the charger, a revoked
+ * permission, a phone that has not synced. The failure mode that matters is
+ * silent: an old number rendered exactly like a current one, so she reads
+ * three-week-old steps as today's and so does her plan. Every reading gets
+ * its age attached.
+ */
+function freshness(date: string): string {
+  if (isToday(date)) return "Today";
+  const days = Math.max(0, -offsetFromDate(date));
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return "Over a week ago";
+  return "Over a fortnight ago";
+}
+
 function DailySnapshot({
   doc,
   onOpenProfile,
@@ -905,16 +933,18 @@ function DailySnapshot({
       key: "actions",
       label: "Daily actions",
       value: `${actionsDone}/${todayActions.length}`,
-      detail: "completed",
+      detail: todayActions.length ? "completed" : "nothing planned yet",
       Icon: Check,
     },
     {
       key: "steps",
       label: "Steps",
+      // A stale reading is not today's, and must not look like it. The number
+      // used to render alone with its date computed and then discarded, so a
+      // three-week-old sync sat on Today looking like this morning's walk.
       value: steps ? Math.round(steps.value).toLocaleString() : "—",
-      detail: steps
-        ? `${steps.provider === "apple_health" ? "Apple Health" : "Health Connect"} · ${steps.date}`
-        : "Connect health",
+      detail: steps ? freshness(steps.date) : "Not connected",
+      stale: Boolean(steps) && !isToday(steps!.date),
       Icon: Footprints,
       onPress: steps ? undefined : onOpenProfile,
     },
@@ -931,7 +961,7 @@ function DailySnapshot({
       key: "sleep",
       label: "Sleep quality",
       value: pulse?.sleep ? `${pulse.sleep}/5` : "—",
-      detail: pulse?.sleep ? "Member check-in" : "Add above",
+      detail: pulse?.sleep ? "You reported this" : "Not recorded yet",
       Icon: MoonStar,
     },
   ];
@@ -963,8 +993,19 @@ function DailySnapshot({
             <Text numberOfLines={1} style={s.snapshotLabel}>
               {tile.label}
             </Text>
-            <Text numberOfLines={1} style={s.snapshotValue}>
+            <Text
+              numberOfLines={1}
+              style={[s.snapshotValue, tile.stale && s.snapshotValueStale]}
+            >
               {tile.value}
+            </Text>
+            {/* Computed since this card was written and never rendered, which
+                is what let a stale figure pass for a current one. */}
+            <Text
+              numberOfLines={1}
+              style={[s.snapshotDetail, tile.stale && s.snapshotDetailStale]}
+            >
+              {tile.detail}
             </Text>
           </Pressable>
         ))}

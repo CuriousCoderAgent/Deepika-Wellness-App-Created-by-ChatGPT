@@ -1908,3 +1908,46 @@ test("nudges are a fixed set with no free text", () => {
     );
   }
 });
+
+/* ------------------------------------------------------------------ */
+/* Health-data freshness                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Mirrors freshness() in App.tsx. The audit sets "stale health data
+ * displayed as current" as a guardrail with a target of zero, and the failure
+ * is silent by nature: an old number renders exactly like a current one, so
+ * she reads three-week-old steps as this morning's and so does her plan.
+ */
+function freshness(date, today) {
+  if (date === today) return "Today";
+  const days = Math.max(0, -offsetFromDate(date, today));
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return "Over a week ago";
+  return "Over a fortnight ago";
+}
+
+test("a health reading always says how old it is", () => {
+  const today = "2026-08-24";
+  assert.equal(freshness("2026-08-24", today), "Today");
+  assert.equal(freshness("2026-08-23", today), "Yesterday");
+  assert.equal(freshness("2026-08-21", today), "3 days ago");
+  assert.equal(freshness("2026-08-16", today), "Over a week ago");
+  assert.equal(freshness("2026-08-01", today), "Over a fortnight ago");
+});
+
+test("only an actual same-day reading is called Today", () => {
+  // The whole point. Anything else must be visibly not-today.
+  const today = "2026-08-24";
+  for (const date of ["2026-08-23", "2026-08-18", "2026-07-30"]) {
+    assert.notEqual(
+      freshness(date, today),
+      "Today",
+      `${date} was described as today's reading`,
+    );
+  }
+  // A future-dated reading (clock skew) is not silently called stale either;
+  // it clamps rather than producing "-2 days ago".
+  assert.doesNotMatch(freshness("2026-08-26", today), /-/);
+});

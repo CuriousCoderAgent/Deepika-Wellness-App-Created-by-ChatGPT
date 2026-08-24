@@ -1004,6 +1004,9 @@ export const s = StyleSheet.create({
     justifyContent: "center",
   },
   snapshotLabel: { color: C.faint, fontSize: 11, marginTop: 6 },
+  /** A reading that is not from today, and must not read as if it were. */
+  snapshotValueStale: { color: C.soft },
+  snapshotDetailStale: { color: C.marigoldInk, fontWeight: "600" },
   snapshotValue: {
     color: C.ink,
     fontSize: 15,
