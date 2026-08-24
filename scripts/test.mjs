@@ -1599,3 +1599,53 @@ test("a verdict reports the session it rests on", () => {
   ]);
   assert.equal(one.latestSession, "2026-08-21");
 });
+
+/* ------------------------------------------------------------------ */
+/* Two devices must not erase each other                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Mirrors unionById in app/api/state/route.ts. That file is a Next.js route
+ * and may only export handlers, so the logic is duplicated here rather than
+ * imported -- kept deliberately small so the two cannot drift far.
+ */
+function unionById(existing, incoming) {
+  if (!incoming) return existing ?? [];
+  if (!existing?.length) return incoming;
+  const merged = new Map();
+  for (const row of existing) if (row?.id) merged.set(row.id, row);
+  for (const row of incoming) if (row?.id) merged.set(row.id, row);
+  return [...merged.values(), ...incoming.filter((row) => !row?.id)];
+}
+
+test("the audit's two-device food scenario no longer loses a meal", () => {
+  // 1. Phone A goes offline holding yesterday's food.
+  const phoneA = [{ id: "yesterday", description: "dal" }];
+  // 2. Phone B logs breakfast online.
+  const server = [
+    { id: "yesterday", description: "dal" },
+    { id: "breakfast", description: "poha" },
+  ];
+  // 3. Phone A logs lunch and reconnects, sending its whole array.
+  phoneA.push({ id: "lunch", description: "roti" });
+
+  const merged = unionById(server, phoneA);
+  const ids = merged.map((row) => row.id).sort();
+  // 4. Breakfast survives, which is what used to be lost silently.
+  assert.deepEqual(ids, ["breakfast", "lunch", "yesterday"]);
+});
+
+test("an edit from the device that made it wins", () => {
+  const server = [{ id: "m1", description: "estimate", protein: 10 }];
+  const phone = [{ id: "m1", description: "corrected by member", protein: 22 }];
+  const merged = unionById(server, phone);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].protein, 22);
+});
+
+test("union leaves the single-device case exactly as it was", () => {
+  assert.deepEqual(unionById([], [{ id: "a" }]), [{ id: "a" }]);
+  assert.deepEqual(unionById(undefined, [{ id: "a" }]), [{ id: "a" }]);
+  // No incoming array at all means the client is not touching this log.
+  assert.deepEqual(unionById([{ id: "a" }], undefined), [{ id: "a" }]);
+});

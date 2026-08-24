@@ -105,6 +105,44 @@ function mergeReadiness(
   };
 }
 
+/**
+ * Combine two copies of an append-only log without losing either side's rows.
+ *
+ * These arrays used to be replaced wholesale by whatever the phone sent, which
+ * quietly lost records the moment two devices existed:
+ *
+ *   1. Phone A goes offline holding yesterday's food.
+ *   2. Phone B logs breakfast online.
+ *   3. Phone A logs lunch and reconnects.
+ *   4. Phone A sends its whole array, and breakfast is gone.
+ *
+ * Nothing errored, and nobody was told. A union by id preserves both — the
+ * incoming copy wins for rows it has, because those are the ones the member
+ * just edited, and rows only the server has are kept, because they came from
+ * somewhere this device has not seen yet.
+ *
+ * This works because these logs are append-and-edit only: nothing in the
+ * product deletes a pulse, a workout log or a food entry. **When deletion is
+ * added, this becomes wrong** — a union will resurrect whatever was deleted —
+ * and it will need tombstones, or these writes need to become real commands
+ * rather than a whole document.
+ */
+function unionById<T extends { id?: string }>(
+  existing: T[] | undefined,
+  incoming: T[] | undefined,
+): T[] {
+  if (!incoming) return existing ?? [];
+  if (!existing?.length) return incoming;
+  const merged = new Map<string, T>();
+  // Server first, so an incoming row with the same id replaces it.
+  for (const row of existing) if (row?.id) merged.set(row.id, row);
+  for (const row of incoming) if (row?.id) merged.set(row.id, row);
+  // Anything without an id cannot be matched up; keep the incoming copy only,
+  // which is the old behaviour and no worse than it was.
+  const idless = incoming.filter((row) => !row?.id);
+  return [...merged.values(), ...idless];
+}
+
 function mergeMemberUpdate(
   existing: MemberDoc,
   incoming: MemberDoc,
@@ -187,11 +225,13 @@ function mergeMemberUpdate(
         existing.member.checkInPreference,
     },
     actions: [...actions, ...generatedCheckIns],
-    pulses: (incoming.pulses ?? existing.pulses).map((entry) => ({
+    // Unioned, not replaced — see unionById. A second device must not be
+    // able to erase what the first one logged.
+    pulses: unionById(existing.pulses, incoming.pulses).map((entry) => ({
       ...entry,
       memberId,
     })),
-    workoutLogs: (incoming.workoutLogs ?? existing.workoutLogs).map(
+    workoutLogs: unionById(existing.workoutLogs, incoming.workoutLogs).map(
       (entry) => ({
         ...entry,
         memberId,
@@ -200,7 +240,7 @@ function mergeMemberUpdate(
     messages,
     sessions: existing.sessions ?? [],
     reports,
-    foodEntries: (incoming.foodEntries ?? existing.foodEntries).map(
+    foodEntries: unionById(existing.foodEntries, incoming.foodEntries).map(
       (entry) => ({
         ...entry,
         memberId,
@@ -208,9 +248,10 @@ function mergeMemberUpdate(
     ),
     // Hydration, habits and their logs are hers alone: the coach console has
     // no editor for them, so the member's copy is authoritative.
-    hydrationLogs: (incoming.hydrationLogs ?? existing.hydrationLogs ?? []).map(
-      (entry) => ({ ...entry, memberId }),
-    ),
+    hydrationLogs: unionById(
+      existing.hydrationLogs,
+      incoming.hydrationLogs,
+    ).map((entry) => ({ ...entry, memberId })),
     habits: (incoming.habits ?? existing.habits ?? []).map((entry) => ({
       ...entry,
       memberId,
