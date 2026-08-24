@@ -1494,7 +1494,13 @@ test("a currently-open review flag is still shown", () => {
       },
     ],
   });
-  assert.equal(needsHumanReview(doc), true);
+  // Pinned to a fixed "now", because the flag is only shown while it is
+  // recent — a fixture date drifts out of that window as time passes and the
+  // test would start failing for a reason that has nothing to do with it.
+  assert.equal(
+    needsHumanReview(doc, new Date("2026-08-10T12:00:00.000Z")),
+    true,
+  );
 });
 
 test("no recommendations yet means nothing pending", () => {
@@ -2058,4 +2064,44 @@ test("ids keep their prefix, for reading a log", () => {
   assert.match(newId("message-ai"), /^message-ai-/);
   // And carry enough after it to be worth having.
   assert.ok(newId("x").length > 12);
+});
+
+test("a review flag nothing can resolve does not stay on screen forever", () => {
+  // Nothing anywhere clears needs_coach_review, and for an uncoached member
+  // no person is coming. An account that accumulated flags from a
+  // since-fixed trigger would otherwise be pinned permanently, because the
+  // flag holding it there is also the newest entry.
+  const flagged = (createdAt) => ({
+    member: { id: "m", name: "T" },
+    recommendations: [
+      {
+        id: "r",
+        createdAt,
+        kind: "coach_review",
+        status: "needs_coach_review",
+        evidence: ["e"],
+        rationale: "r",
+        confidence: 1,
+        safety: "coach_review",
+        source: "deterministic",
+      },
+    ],
+  });
+  const now = new Date("2026-08-24T12:00:00.000Z");
+
+  assert.equal(
+    needsHumanReview(flagged("2026-08-24T09:00:00.000Z"), now),
+    true,
+  );
+  assert.equal(
+    needsHumanReview(flagged("2026-08-23T09:00:00.000Z"), now),
+    true,
+  );
+  // Three days old: nobody is coming, and saying so was a lie.
+  assert.equal(
+    needsHumanReview(flagged("2026-08-21T09:00:00.000Z"), now),
+    false,
+  );
+  // A malformed date is not a reason to show it.
+  assert.equal(needsHumanReview(flagged("not-a-date"), now), false);
 });

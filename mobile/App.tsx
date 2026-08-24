@@ -3559,12 +3559,22 @@ function Coach({
     current: MemberDoc,
     from: Message["from"],
     body: string,
+    /**
+     * The id the server stored this under, when it stored one.
+     *
+     * Vera's replies are written server-side — see persistExchange in
+     * app/api/coach/ask. Storing them under the server's id is what makes
+     * them survive: mergeMemberUpdate only accepts *new* client messages from
+     * "member", so an id the server has never seen is discarded, which is why
+     * her half of the conversation used to vanish on reload.
+     */
+    id?: string,
   ): MemberDoc => ({
     ...current,
     messages: [
       ...current.messages,
       {
-        id: newId(`message-${from}`),
+        id: id ?? newId(`message-${from}`),
         memberId: current.member.id,
         from,
         kind: "text",
@@ -3606,7 +3616,7 @@ function Coach({
           content: m.body,
         }));
       const result = await askCoach(token, question, history.slice(0, -1));
-      update(append(withQuestion, "ai", result.reply));
+      update(append(withQuestion, "ai", result.reply, result.messageId));
     } catch {
       update(
         append(

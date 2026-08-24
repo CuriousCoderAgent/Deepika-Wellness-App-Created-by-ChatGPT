@@ -519,5 +519,14 @@ export async function askCoach(
     refused?: boolean;
     unavailable?: boolean;
     throttled?: boolean;
+    /**
+     * The id the server stored this reply under.
+     *
+     * Present whenever the exchange was persisted. The app must use it rather
+     * than minting its own: the server writes Vera's words itself, and a
+     * locally-invented id would not match the stored one, so the reply would
+     * be dropped on the next sync — which is exactly what used to happen.
+     */
+    messageId?: string;
   }>;
 }

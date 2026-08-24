@@ -1280,7 +1280,16 @@ export const s = StyleSheet.create({
   },
   formCue: { color: C.soft, fontSize: 11, lineHeight: 16, marginTop: 10 },
   /** Three ways a day went, offered without ranking them. */
-  skipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
+  skipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    // Centred. Without this the row defaults to flex-start and three pills
+    // hug the left edge under a full-width three-column block above them,
+    // which reads as a mistake rather than a choice.
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 12,
+  },
   skipOption: {
     paddingVertical: 9,
     paddingHorizontal: 13,

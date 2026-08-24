@@ -30,10 +30,40 @@ export function latestRecommendation(doc: MemberDoc): AiRecommendation | null {
   );
 }
 
-/** Whether the current state — not the history — is waiting on a person. */
-export function needsHumanReview(doc: MemberDoc): boolean {
+/**
+ * How long a "waiting on a person" flag stays on screen.
+ *
+ * Nothing anywhere resolves one. There is no queue, no owner, and for an
+ * uncoached member — nearly everyone — no person is ever coming. A banner
+ * that says someone is looking at this, indefinitely, is untrue after the
+ * first day and becomes furniture after the second.
+ *
+ * Two days is long enough to be seen across a couple of app opens and short
+ * enough that it cannot become permanent. When a real review queue exists
+ * this should key off that case's status instead of the clock, and this
+ * constant should go.
+ */
+const REVIEW_VISIBLE_DAYS = 2;
+
+/**
+ * Whether the current state — not the history — is waiting on a person.
+ *
+ * Reads only the most recent recommendation, because scanning the whole
+ * history meant a single old flag haunted every day after it. It also expires:
+ * an account that accumulated flags from a since-fixed trigger would otherwise
+ * be stuck showing them forever, since the flag that pinned it is also the
+ * newest thing in the list.
+ */
+export function needsHumanReview(
+  doc: MemberDoc,
+  now: Date = new Date(),
+): boolean {
   const latest = latestRecommendation(doc);
-  return (
-    latest?.kind === "coach_review" && latest?.status === "needs_coach_review"
-  );
+  if (latest?.kind !== "coach_review") return false;
+  if (latest.status !== "needs_coach_review") return false;
+
+  const raisedAt = Date.parse(latest.createdAt);
+  if (!Number.isFinite(raisedAt)) return false;
+  const daysOld = (now.getTime() - raisedAt) / 86_400_000;
+  return daysOld < REVIEW_VISIBLE_DAYS;
 }

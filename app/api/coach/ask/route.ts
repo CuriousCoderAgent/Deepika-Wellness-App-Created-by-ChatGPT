@@ -27,7 +27,8 @@ import { NextResponse } from "next/server";
 import { cookies, headers } from "next/headers";
 import OpenAI from "openai";
 import { readSessionToken, sessionCookieName } from "@/lib/auth";
-import { isConfigured, readMemberDoc } from "@/lib/db";
+import { randomUUID } from "node:crypto";
+import { isConfigured, readMemberDoc, writeMemberDoc } from "@/lib/db";
 import {
   buildCoachContext,
   COACH_INSTRUCTIONS,
@@ -72,6 +73,71 @@ async function session() {
   );
 }
 
+/**
+ * Store Vera's reply in her record, and hand back the id it was stored under.
+ *
+ * Vera's replies used to be created on the phone from the text this route
+ * returned. They were then discarded on the next sync, every time, because
+ * `mergeMemberUpdate` only accepts *new* client-authored messages where
+ * `from === "member"` — a deliberate rule, so a phone cannot fabricate a
+ * message from a coach. Vera is not a coach, but she is not the member
+ * either, so her words fell into the gap: the member's side of the
+ * conversation survived and Vera's half vanished.
+ *
+ * Relaxing that filter would have been the wrong fix. It would let a client
+ * post anything it liked as `from: "ai"`, and a coach reading a fabricated
+ * "Vera said to take 50mg" in a member's record is exactly the failure the
+ * rule exists to prevent.
+ *
+ * So the exchange is written here instead, server-side, with server-issued
+ * ids. The client stores what it is given rather than inventing it, which
+ * means the ids already exist by the time anything syncs and the strict
+ * filter preserves them untouched. Vera's words are now authored by the
+ * server, which is the only place they can be trusted to come from.
+ *
+ * Failing to persist is not worth failing the answer over: she still sees the
+ * reply, it is simply not kept. That is a better outcome than an error where
+ * a reply should be.
+ */
+async function persistReply(
+  userId: string,
+  reply: string,
+): Promise<{ id: string } | null> {
+  if (!isConfigured()) return null;
+  try {
+    const doc = await readMemberDoc(userId);
+    if (!doc) return null;
+    const replyId = `message-ai-${randomUUID()}`;
+    await writeMemberDoc(userId, {
+      ...doc,
+      // Only Vera's half. Her question already reaches the document by the
+      // ordinary route — mergeMemberUpdate accepts new client messages from
+      // "member" — so writing it here too would store it twice, once under
+      // each id.
+      messages: [
+        ...(doc.messages ?? []),
+        {
+          id: replyId,
+          memberId: userId,
+          from: "ai",
+          kind: "text",
+          body: reply,
+          dayOffset: 0,
+          time: "just now",
+          read: true,
+        },
+      ],
+    });
+    return { id: replyId };
+  } catch (err) {
+    console.error(
+      "[coach] could not store the exchange",
+      err instanceof Error ? err.name : "UnknownError",
+    );
+    return null;
+  }
+}
+
 export async function POST(req: Request) {
   const user = await session();
   if (!user)
@@ -101,16 +167,29 @@ export async function POST(req: Request) {
 
   /* 1. Emergencies, before anything else can fail. --------------------- */
   const urgent = matchUrgent(message);
-  if (urgent)
+  if (urgent) {
+    // Kept, and deliberately so. If somebody described chest pain to this app
+    // it belongs in the record, both because she may want to show it to
+    // someone and because we should be able to see it happened.
+    const stored = await persistReply(user.sub, urgent.reply);
     return NextResponse.json({
       reply: urgent.reply,
       urgent: true,
       category: urgent.category,
+      messageId: stored?.id,
     });
+  }
 
   /* 2. Questions that need a clinician. -------------------------------- */
   const refusal = matchRefusal(message);
-  if (refusal) return NextResponse.json({ reply: refusal, refused: true });
+  if (refusal) {
+    const stored = await persistReply(user.sub, refusal);
+    return NextResponse.json({
+      reply: refusal,
+      refused: true,
+      messageId: stored?.id,
+    });
+  }
 
   /* 3. Slow down a client that has got stuck. -------------------------- */
   if (overRate(user.sub))
@@ -168,7 +247,9 @@ export async function POST(req: Request) {
       ],
     });
 
-    return NextResponse.json({ reply: sanitiseReply(response.output_text) });
+    const reply = sanitiseReply(response.output_text);
+    const stored = await persistReply(user.sub, reply);
+    return NextResponse.json({ reply, messageId: stored?.id });
   } catch (err) {
     console.error(
       "[coach] reply failed",
