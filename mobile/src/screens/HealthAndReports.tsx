@@ -4,6 +4,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { HeartPulse, RefreshCw, ShieldCheck } from "lucide-react-native";
 import { DEMO_TOKEN, uploadMemberFile } from "../api";
 import { HEALTH_LABELS } from "../content";
+import { CONNECTED_HEALTH_NAME } from "../health";
 import { s } from "../design/styles";
 import { C } from "../design/tokens";
 import { openHealthSettings, syncHealth } from "../health";

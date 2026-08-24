@@ -147,7 +147,11 @@ import {
   writeCachedDoc,
   writePendingDoc,
 } from "./src/storage";
-import { openHealthSettings, syncHealth } from "./src/health";
+import {
+  CONNECTED_HEALTH_NAME,
+  openHealthSettings,
+  syncHealth,
+} from "./src/health";
 import { canonicalCity, suggestCities } from "./src/cities";
 import { AWARDS, awardMetrics, type AwardIcon } from "./src/awards";
 import { Card, ScrollTopContext, useScrollToTop } from "./src/ui";
@@ -224,9 +228,6 @@ import type {
   Message,
   PulseEntry,
 } from "./src/types";
-
-const CONNECTED_HEALTH_NAME =
-  Platform.OS === "ios" ? "Apple Health" : "Health Connect";
 
 type Tab = "today" | "plan" | "log" | "coach" | "profile";
 /**

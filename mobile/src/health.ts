@@ -730,3 +730,13 @@ export async function openHealthSettings() {
   }
   if (Platform.OS === "ios") await Linking.openSettings();
 }
+
+/**
+ * What the platform's health store is called, in her words.
+ *
+ * Several screens name it in copy — the consent rows, the connection panel,
+ * the circle's privacy note. Getting it wrong on one of them is the kind of
+ * small wrongness that makes an app feel unfinished, so there is one of it.
+ */
+export const CONNECTED_HEALTH_NAME =
+  Platform.OS === "ios" ? "Apple Health" : "Health Connect";

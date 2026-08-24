@@ -7,6 +7,7 @@ import { DEMO_TOKEN, answerConnection, discoverCircle, loadCircle, loadNudges, r
 import { canonicalCity, suggestCities } from "../cities";
 import { consistencySentence, type ConsistencySummary } from "../consistency";
 import { NUDGE_OPTIONS } from "../content";
+import { CONNECTED_HEALTH_NAME } from "../health";
 import { s } from "../design/styles";
 import { C } from "../design/tokens";
 import { currentCell } from "../location";
