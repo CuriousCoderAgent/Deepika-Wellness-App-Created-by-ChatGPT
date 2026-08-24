@@ -1,8 +1,8 @@
 # Response to the product & technical audit
 
 **Audit reviewed:** *Bharosa Wellness — Product, Experience, AI, Safety and Technical Audit*, 24 August 2026, baseline `6618902`.
-**This response:** 24 August 2026, work landed between `1a9075e` and `e0221e3`.
-**Tests:** 114 → 137, all passing. Mobile and server typecheck clean, `next build` clean.
+**This response:** 24 August 2026, work landed between `1a9075e` and `d7236d3`.
+**Tests:** 114 → 141, all passing. Mobile and server typecheck clean, `next build` clean.
 
 Every claim was checked against the code before acting, and several against the
 live database. Two turned out overstated and are recorded as such — not to
@@ -129,6 +129,29 @@ Accepted and landed:
   AI prompts said "she" throughout. Rewritten in the second person.
 - **Meal deletion**, **`1650k` → `1.7k`**, **the invented 20g protein
   threshold**, **`runSync` with no `catch`/`finally`**.
+
+### Second pass
+
+- **"Not today" meant four things at once.** Every skip stored as
+  , so "Rest counts" congratulated people who had simply
+  run out of time, and the plan could not tell "no time" from "unwell". Now
+  three neutral descriptions in a separate . First attempt reused
+  the existing  field, which is free text the coach console
+  renders in quotation marks as her own words — that would have shown a coach
+  . Caught by seed data failing to typecheck.
+- **Record ids could collide, which my own union-merge turned into data
+  loss.** Every id was . Unique only within a
+  millisecond, across all devices. Since the merge now keys on id, a collision
+  silently discards a record. Fixed at 21 sites across app, server and coach
+  console; zero remain.
+- **Blocking.** A social feature with no way to stop unwanted contact. The
+  status existed in the database and was narrowed away in the mobile type.
+  Wiring it naively would have produced a button that did nothing for an
+  already-accepted connection —  only matches *pending*
+  rows — so a new  handles any state and either direction.
+  Verified against the live database, not reasoned about.
+- **Module names**, **VO₂ query window**, **gendered AI prompts**, **stale
+  health readings**: see the commits.
 
 ### Decomposition
 
