@@ -28,6 +28,11 @@ import {
 } from "../lib/coach-ai.ts";
 import { COACH_NAME as MOBILE_COACH_NAME } from "../mobile/src/coach.ts";
 import { CITIES, canonicalCity, suggestCities } from "../mobile/src/cities.ts";
+import { deterministicSafetyRecommendation } from "../lib/recommendation-safety.ts";
+import {
+  latestRecommendation,
+  needsHumanReview,
+} from "../mobile/src/recommendations.ts";
 
 const AUG_23 = new Date("2026-08-23T06:00:00Z");
 
@@ -1235,4 +1240,164 @@ test("every city is listed once, and aliases never collide", () => {
     assert.ok(!names.includes(alias), `alias shadows a real name: ${alias}`);
   // Aliases are matched lowercase, so they must be stored that way.
   for (const alias of aliases) assert.equal(alias, alias.toLowerCase());
+});
+
+/* ------------------------------------------------------------------ */
+/* Recommendation safety: acute signals, not permanent profile facts   */
+/* ------------------------------------------------------------------ */
+
+function baseMemberDoc(overrides = {}) {
+  return {
+    member: {
+      id: "m1",
+      name: "Test Member",
+      age: 40,
+      city: "",
+      initials: "TM",
+      week: 3,
+      phase: "Stabilise",
+      lifeStage: "",
+      goals: [],
+      constraints: [],
+      wontDo: "",
+      medical: [],
+      medications: [],
+      engagement: {},
+      weeklyFocus: [],
+      activeModuleIds: [],
+      assessmentComplete: 0,
+    },
+    actions: [],
+    pulses: [],
+    workoutLogs: [],
+    messages: [],
+    sessions: [],
+    reports: [],
+    foodEntries: [],
+    recommendations: [],
+    ...overrides,
+  };
+}
+
+test("picking a normal onboarding goal never blocks AI recommendations", () => {
+  // This is the confirmed production bug: one of seven goal choices, aimed
+  // at this app's own stated demographic, used to permanently trigger
+  // needs_coach_review via HORMONE_OR_CLINICAL_LANGUAGE matching "hormonal".
+  const doc = baseMemberDoc({
+    member: {
+      ...baseMemberDoc().member,
+      goals: ["Feel stronger", "Support hormonal or life-stage wellbeing"],
+    },
+  });
+  assert.equal(deterministicSafetyRecommendation(doc), null);
+});
+
+test("a written caution never blocks AI recommendations on its own", () => {
+  // The caution field explicitly invites "pain, injury, pregnancy, a
+  // limitation, medical guidance" -- almost any honest answer used to match.
+  // That caution still drives the movement plan through the readiness
+  // screen; it must not also permanently jam recommendations.
+  const doc = baseMemberDoc({
+    member: {
+      ...baseMemberDoc().member,
+      constraints: ["Recovering from a knee injury, avoid deep squats"],
+    },
+  });
+  assert.equal(deterministicSafetyRecommendation(doc), null);
+});
+
+test("a recent pain flag on a logged workout still requires a person", () => {
+  const doc = baseMemberDoc({
+    workoutLogs: [{ actionId: "a1", pain: true }],
+  });
+  const result = deterministicSafetyRecommendation(doc);
+  assert.equal(result?.kind, "coach_review");
+  assert.equal(result?.status, "needs_coach_review");
+});
+
+test("a symptom reported in the last week still requires a person", () => {
+  const doc = baseMemberDoc({
+    pulses: [{ dayOffset: -2, symptoms: ["dizziness"] }],
+  });
+  const result = deterministicSafetyRecommendation(doc);
+  assert.equal(result?.kind, "coach_review");
+});
+
+test("a symptom from over a week ago no longer blocks a fresh day", () => {
+  // Time-boxed on purpose -- a quiet week should let this clear on its own,
+  // the same way a fresh log supersedes an old one everywhere else.
+  const doc = baseMemberDoc({
+    pulses: [{ dayOffset: -9, symptoms: ["headache"] }],
+  });
+  assert.equal(deterministicSafetyRecommendation(doc), null);
+});
+
+/* ------------------------------------------------------------------ */
+/* Today shows the current state, not the whole history                */
+/* ------------------------------------------------------------------ */
+
+test("an old review flag does not haunt every day after it", () => {
+  const doc = baseMemberDoc({
+    recommendations: [
+      {
+        id: "r1",
+        createdAt: "2026-08-01T09:00:00.000Z",
+        kind: "coach_review",
+        evidence: ["e"],
+        rationale: "r",
+        confidence: 1,
+        safety: "coach_review",
+        status: "needs_coach_review",
+        source: "deterministic",
+      },
+      {
+        id: "r2",
+        createdAt: "2026-08-10T09:00:00.000Z",
+        kind: "no_change",
+        evidence: ["e"],
+        rationale: "r",
+        confidence: 1,
+        safety: "low_risk",
+        status: "proposed",
+        source: "deterministic",
+      },
+    ],
+  });
+  assert.equal(needsHumanReview(doc), false);
+  assert.equal(latestRecommendation(doc)?.id, "r2");
+});
+
+test("a currently-open review flag is still shown", () => {
+  const doc = baseMemberDoc({
+    recommendations: [
+      {
+        id: "r1",
+        createdAt: "2026-08-01T09:00:00.000Z",
+        kind: "no_change",
+        evidence: ["e"],
+        rationale: "r",
+        confidence: 1,
+        safety: "low_risk",
+        status: "proposed",
+        source: "deterministic",
+      },
+      {
+        id: "r2",
+        createdAt: "2026-08-10T09:00:00.000Z",
+        kind: "coach_review",
+        evidence: ["e"],
+        rationale: "r",
+        confidence: 1,
+        safety: "coach_review",
+        status: "needs_coach_review",
+        source: "deterministic",
+      },
+    ],
+  });
+  assert.equal(needsHumanReview(doc), true);
+});
+
+test("no recommendations yet means nothing pending", () => {
+  assert.equal(needsHumanReview(baseMemberDoc()), false);
+  assert.equal(latestRecommendation(baseMemberDoc()), null);
 });

@@ -140,6 +140,7 @@ import {
 } from "./src/storage";
 import { openHealthSettings, syncHealth } from "./src/health";
 import { canonicalCity, suggestCities } from "./src/cities";
+import { latestRecommendation, needsHumanReview } from "./src/recommendations";
 import { COACH_NAME, COACH_OPENERS } from "./src/coach";
 import { LEARNING_ARTICLES } from "./src/learning";
 import { isoDate, offsetFromDate } from "./src/normalize";
@@ -1015,15 +1016,12 @@ function DailySnapshot({
 
 function DailyInsight({ doc }: { doc: MemberDoc }) {
   const current = doc.pulses.find((entry) => entry.dayOffset === 0);
-  const applicable = [...doc.recommendations]
-    .reverse()
-    .find((item) => ["applied", "approved"].includes(item.status));
-  const pendingReview = [...doc.recommendations]
-    .reverse()
-    .find(
-      (item) =>
-        item.kind === "coach_review" && item.status === "needs_coach_review",
-    );
+  // Only the most recent recommendation decides what shows here -- see
+  // src/recommendations.ts for why scanning the whole history was wrong.
+  const latest = latestRecommendation(doc);
+  const applicable =
+    latest && ["applied", "approved"].includes(latest.status) ? latest : null;
+  const pendingReview = needsHumanReview(doc) ? latest : null;
   const steps = [...doc.healthSnapshots]
     .filter((item) => item.metric === "steps" && item.available)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
@@ -1101,10 +1099,7 @@ function CoachConnectionCard({
       (session) => session.status === "scheduled" && session.dayOffset >= 0,
     )
     .sort((a, b) => a.dayOffset - b.dayOffset)[0];
-  const reviewPending = doc.recommendations.some(
-    (item) =>
-      item.kind === "coach_review" && item.status === "needs_coach_review",
-  );
+  const reviewPending = needsHumanReview(doc);
   return (
     <Card style={[s.coachConnection, reviewPending && s.coachConnectionReview]}>
       <View style={s.coachConnectionTop}>

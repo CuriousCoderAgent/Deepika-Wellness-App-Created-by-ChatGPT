@@ -3,6 +3,11 @@ import { NextResponse } from "next/server";
 import { cookies, headers } from "next/headers";
 import { readSessionToken, sessionCookieName } from "@/lib/auth";
 import { isConfigured, readMemberDoc, writeMemberDoc } from "@/lib/db";
+import {
+  deterministicSafetyRecommendation,
+  HORMONE_OR_CLINICAL_LANGUAGE,
+  painFlagFor,
+} from "@/lib/recommendation-safety";
 import type {
   AiRecommendation,
   DailyAction,
@@ -24,82 +29,9 @@ const ALLOWED_KINDS = new Set<AiRecommendation["kind"]>([
 async function session() {
   const authorization = (await headers()).get("authorization");
   const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
-  return readSessionToken(bearer ?? (await cookies()).get(sessionCookieName)?.value);
-}
-
-type RecommendationDoc = NonNullable<Awaited<ReturnType<typeof readMemberDoc>>>;
-
-type CompatibleWorkoutLog = {
-  actionId?: string;
-  workoutId?: string;
-  pain?: boolean;
-  painFlag?: boolean;
-  coachReviewRequired?: boolean;
-};
-
-const HORMONE_OR_CLINICAL_LANGUAGE =
-  /\b(body\s*signals?|symptoms?|pain(?:ful)?|injur(?:y|ed)|bleed(?:ing)?|hot\s*(?:flash|flush)(?:es)?|night\s*sweats?|dizz(?:y|iness)|faint(?:ing)?|palpitations?|cramps?|cramping|pregnan(?:t|cy)|hormon(?:e|al|es)?|progesterone|oestrogen|estrogen|testosterone|cortisol|thyroid|perimenopaus(?:e|al)?|menopaus(?:e|al)?|postmenopaus(?:e|al)?|menstrual|diagnos(?:e|ed|is|tic)|clinical|medications?|dosage|prescri(?:be|bed|ption)|blood\s*(?:test|work)|lab\s*(?:test|result)|disease|syndrome)\b/i;
-
-function workoutLogsFor(doc: RecommendationDoc): CompatibleWorkoutLog[] {
-  return (doc.workoutLogs ?? []) as unknown as CompatibleWorkoutLog[];
-}
-
-function painFlagFor(doc: RecommendationDoc) {
-  return [...workoutLogsFor(doc)]
-    .reverse()
-    .find(
-      (log) => log.pain || log.painFlag || log.coachReviewRequired === true,
-    );
-}
-
-/**
- * Safety signals are evaluated before any model call. The model must never be
- * asked to improvise around pain or a member-reported body signal.
- */
-function deterministicSafetyRecommendation(
-  doc: RecommendationDoc,
-): AiRecommendation | null {
-  const now = new Date().toISOString();
-  const pain = painFlagFor(doc);
-  if (pain) {
-    return {
-      id: `recommendation-${Date.now()}`,
-      createdAt: now,
-      kind: "coach_review",
-      actionId: pain.actionId ?? pain.workoutId,
-      evidence: ["A recent movement was logged with pain"],
-      rationale:
-        "Pain needs human review. Bharosa has not substituted or prescribed another exercise.",
-      confidence: 1,
-      safety: "coach_review",
-      status: "needs_coach_review",
-      source: "deterministic",
-    };
-  }
-
-  const bodySignal =
-    (doc.pulses ?? []).some(
-      (pulse) => pulse.dayOffset >= -7 && (pulse.symptoms?.length ?? 0) > 0,
-    ) ||
-    [...(doc.member.constraints ?? []), ...(doc.member.goals ?? [])].some(
-      (value) => HORMONE_OR_CLINICAL_LANGUAGE.test(value),
-    );
-  if (bodySignal) {
-    return {
-      id: `recommendation-${Date.now()}`,
-      createdAt: now,
-      kind: "coach_review",
-      evidence: ["A recent check-in includes a member-reported body signal"],
-      rationale:
-        "A coach should review this check-in. Bharosa has not inferred a cause or changed the plan in response.",
-      confidence: 1,
-      safety: "coach_review",
-      status: "needs_coach_review",
-      source: "deterministic",
-    };
-  }
-
-  return null;
+  return readSessionToken(
+    bearer ?? (await cookies()).get(sessionCookieName)?.value,
+  );
 }
 
 function deterministicRecommendation(
@@ -168,20 +100,12 @@ function compactInput(
     .filter((snapshot) => snapshot.available)
     .slice(-28)
     .map(
-      ({
+      ({ date, metric, value, unit, source, provider, measurementMethod }) => ({
         date,
         metric,
         value,
         unit,
         source,
-        provider,
-        measurementMethod,
-      }) => ({
-      date,
-      metric,
-      value,
-      unit,
-      source,
         provider: provider ?? null,
         measurementMethod: measurementMethod ?? null,
       }),
