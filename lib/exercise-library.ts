@@ -932,7 +932,7 @@ export const EXERCISES: Exercise[] = [
       "Legs drive, back stays long",
       "Reset between pulls",
     ],
-    regressesTo: "ex-band-row-seated",
+    regressesTo: "ex-band-row",
   },
   {
     id: "ex-farmers-carry",
@@ -1249,26 +1249,6 @@ export const EXERCISES: Exercise[] = [
       "Return slowly",
     ],
     progressesTo: "ex-ski-erg",
-  },
-  {
-    id: "ex-band-row-seated",
-    name: "Seated band row",
-    pattern: "pull",
-    tier: 2,
-    loads: ["shoulder", "lower_back"],
-    avoidIf: ["recent_surgery"],
-    equipment: ["chair", "band"],
-    minutes: 3,
-    why: "Teaches the pull that keeps a sled pull out of your lower back.",
-    cue: "Elbows back, shoulder blades together, chest stays tall.",
-    frames: [
-      "Band around your feet",
-      "Sit tall",
-      "Pull elbows back",
-      "Squeeze the shoulder blades",
-      "Return slowly",
-    ],
-    progressesTo: "ex-sled-pull",
   },
 
   /* ---- Keeping a runner in one piece ------------------------------- *
