@@ -416,16 +416,28 @@ export interface Article {
 }
 
 /**
- * Food logging — protein only, deliberately.
+ * The food table — protein only, deliberately.
  *
- * This is not a calorie tracker and must never become one. Radhika's own
- * stated boundary is "I will not count calories", and turning her plate into
- * a ledger of everything she ate is the fastest way to lose her. One number,
- * one question: was there protein on the plate.
+ * One number per food, because the question this table answers is "was there
+ * protein on the plate", not "what did this plate contain".
  *
  * Portions are household measures — katori, roti, glass — because that is how
  * this kitchen actually thinks. Grams-and-scales is the input model that kills
  * food diaries in week two.
+ *
+ * **This comment used to say the product was not a calorie tracker and must
+ * never become one**, citing Radhika's stated boundary, "I will not count
+ * calories". That is no longer true of the product: FoodEntry carries
+ * calories, carbs and fat, the app shows a kcal total per day, and the photo
+ * estimator returns all four macros. Those numbers do not come from here —
+ * this table still holds protein alone — but the boundary the paragraph
+ * described is gone, and leaving it in place made this file describe a
+ * product that no longer exists.
+ *
+ * The concern behind it has not gone anywhere: a plate rendered as a ledger
+ * is still the fastest way to lose a member who said she would not count.
+ * Whoever revisits this should decide it deliberately rather than inherit it
+ * from a stale comment.
  */
 export interface FoodItem {
   id: string;

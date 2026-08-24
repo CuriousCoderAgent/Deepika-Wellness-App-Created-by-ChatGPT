@@ -165,8 +165,12 @@ says so rather than quietly producing a strength week.
   nothing reviews an upload and the current framing implies something does.
 - **Learning content citations** — author, source, review date, and a visible
   line between general education and Bharosa's own guidance.
-- **A stale server comment** still says food is "protein only, not a calorie
-  tracker", which the UI has contradicted for some time.
+- ~~A stale server comment~~ — **done 2026-08-24.** `lib/types.ts` said the
+  product was not a calorie tracker and must never become one. The food table
+  itself is still protein-only, but the app shows kcal and the estimator
+  returns four macros, so the boundary is gone. The comment now says what is
+  true, records what changed, and leaves the concern for whoever revisits it
+  rather than deleting it.
 
 ---
 
