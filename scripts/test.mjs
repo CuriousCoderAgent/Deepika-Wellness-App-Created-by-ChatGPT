@@ -22,6 +22,7 @@ import {
 import { estimateMeal } from "../mobile/src/nutrition.ts";
 import {
   buildCoachContext,
+  COACH_INSTRUCTIONS,
   COACH_NAME,
   matchRefusal,
   matchUrgent,
@@ -1246,9 +1247,40 @@ test("Vera is only given facts the app actually holds", () => {
   // Yesterday is not today's plan.
   assert.doesNotMatch(context, /Yesterday/);
   assert.match(context, /modified/);
-  assert.match(context, /does not have a human coach/);
+  assert.match(context, /do not have a human coach/);
   // Nothing leaks that was never put in.
   assert.doesNotMatch(context, /Rao/);
+});
+
+test("nothing describing the member to Vera assumes a gender", () => {
+  // Member.gender accepts "woman", "man" and "other", and onboarding asks.
+  // The instructions used to say "her plan" throughout, so a man using the
+  // app had Vera briefed to misgender him. Second person removes the problem
+  // rather than papering over it.
+  const gendered = /\b(she|her|hers|he|him|his)\b/i;
+  assert.doesNotMatch(
+    COACH_INSTRUCTIONS,
+    gendered,
+    "Vera's instructions assume a gender",
+  );
+
+  const context = buildCoachContext({
+    member: { name: "Sam Roy", week: 2, phase: "Stabilise" },
+    actions: [
+      {
+        dayOffset: 0,
+        domain: "movement",
+        title: "Sit to stand",
+        completed: null,
+      },
+    ],
+    onboarding: { movementCaution: "sore knee" },
+    workoutLogs: [{ perceivedEffort: 2 }],
+    healthConnection: { status: "connected" },
+    coaching: { mode: "none" },
+    pulses: [{ dayOffset: 0, sleep: 3, energy: 3, stress: 3 }],
+  });
+  assert.doesNotMatch(context, gendered, "the member context assumes a gender");
 });
 
 test("the phone and the server call her the same thing", () => {
