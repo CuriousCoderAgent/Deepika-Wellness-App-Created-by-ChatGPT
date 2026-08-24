@@ -263,6 +263,13 @@ function mergeMemberUpdate(
         memberId,
       }),
     ),
+    // Union-merged like food entries: append-and-edit only, and a note
+    // she removed carries a tombstone rather than vanishing, because a row
+    // that simply disappeared from the phone would be restored from here.
+    notes: unionById(existing.notes, incoming.notes).map((note) => ({
+      ...note,
+      memberId,
+    })),
     // Hers for the same reason. This was absent from the server type
     // altogether, so the merge dropped it on every sync and a reminder she
     // had just switched on came back off on the next read.

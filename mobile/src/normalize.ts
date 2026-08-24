@@ -324,6 +324,7 @@ export function normalizeMemberDoc(
     hydrationLogs: raw.hydrationLogs ?? [],
     habits: raw.habits ?? [],
     habitLogs: raw.habitLogs ?? [],
+    notes: raw.notes ?? [],
     engagement: raw.engagement,
     // Server-owned, and previously dropped here.
     //

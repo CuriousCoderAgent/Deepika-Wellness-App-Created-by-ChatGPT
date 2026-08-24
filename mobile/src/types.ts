@@ -1,4 +1,5 @@
 import type { MemberProfile } from "./profile";
+import type { MemberNote } from "./log-feed";
 import type { EstimateProvenance } from "./meal-estimate";
 
 export type EffortLevel = "minimum" | "target" | "stretch";
@@ -468,6 +469,14 @@ export interface MemberDoc {
   /** Session dates already folded into the dose. Server-owned; read-only here. */
   doseAdaptedThrough?: Record<string, string>;
   pausedExerciseIds?: string[];
+  /**
+   * Short things she wanted to remember. See src/log-feed.ts.
+   *
+   * Append-and-edit only, with a tombstone, because the server merges these
+   * by union exactly like food entries — a note that simply vanished from
+   * the phone would be restored from the server copy on the next sync.
+   */
+  notes?: MemberNote[];
   hydrationLogs?: HydrationLog[];
   habits?: HabitDefinition[];
   habitLogs?: HabitLog[];

@@ -72,6 +72,8 @@ export interface MemberDoc {
   hydrationLogs?: HydrationLog[];
   habits?: HabitDefinition[];
   habitLogs?: HabitLog[];
+  /** Short things she wanted to remember. Member-owned, union-merged. */
+  notes?: Record<string, unknown>[];
   /** Pre-exercise readiness answers and the outcome derived from them. */
   readiness?: ReadinessState;
   /** Where each exercise sits on the dose ladder. See `lib/adaptation.ts`. */
@@ -117,6 +119,7 @@ type MemberExtensions = Pick<
   | "hydrationLogs"
   | "habits"
   | "habitLogs"
+  | "notes"
   | "readiness"
   | "doseSteps"
   | "pausedExerciseIds"
@@ -205,6 +208,7 @@ export function stateFromMemberDoc<S extends PersistedState>(
         hydrationLogs: doc.hydrationLogs,
         habits: doc.habits,
         habitLogs: doc.habitLogs,
+        notes: doc.notes,
         readiness: doc.readiness,
         doseSteps: doc.doseSteps,
         pausedExerciseIds: doc.pausedExerciseIds,

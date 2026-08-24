@@ -35,6 +35,11 @@ import { C, SURFACES, TEXT_COLOURS } from "../mobile/src/design/tokens.ts";
 import { AWARDS, awardMetrics } from "../mobile/src/awards.ts";
 import { compactKcal, liveMeals } from "../mobile/src/meals.ts";
 import { normalizeMemberDoc } from "../mobile/src/normalize.ts";
+import {
+  buildLogFeed,
+  loggedToday,
+  whenLabel,
+} from "../mobile/src/log-feed.ts";
 import { activeDays, isActive } from "../mobile/src/activity.ts";
 import { newId } from "../mobile/src/ids.ts";
 import { checkMacros, parseMacro } from "../mobile/src/meal-values.ts";
@@ -3631,4 +3636,184 @@ test("the default home set stays small", () => {
       );
     }
   }
+});
+
+/* ------------------------------------------------------------------ *
+ * The Log feed
+ *
+ * Four kinds of thing, one list. The risks are ordering across kinds that
+ * store time differently, and resurrecting something she deleted.
+ * ------------------------------------------------------------------ */
+
+const TODAY = "2026-08-24";
+const feedDoc = (over = {}) => ({
+  member: { id: "m1", name: "A", week: 1, phase: "Stabilise", weeklyFocus: [], goals: [], constraints: [], activeModuleIds: [] },
+  foodEntries: [],
+  pulses: [],
+  workoutLogs: [],
+  actions: [],
+  messages: [],
+  sessions: [],
+  reports: [],
+  ...over,
+});
+
+test("the feed gathers every kind into one list", () => {
+  const feed = buildLogFeed(
+    feedDoc({
+      foodEntries: [
+        {
+          id: "f1",
+          meal: "Breakfast",
+          calories: 410,
+          protein: 24,
+          loggedDate: TODAY,
+          createdAt: "2026-08-24T08:12:00.000Z",
+        },
+      ],
+      pulses: [{ id: "p1", dayOffset: 0, energy: 3, sleep: 2, symptoms: [] }],
+      workoutLogs: [
+        {
+          id: "w1",
+          perceivedEffort: 4,
+          level: "target",
+          pain: false,
+          completedAt: "2026-08-24T18:00:00.000Z",
+        },
+      ],
+    }),
+    TODAY,
+    { notes: [{ id: "n1", body: "Knee felt fine", loggedDate: TODAY, createdAt: "2026-08-24T20:00:00.000Z" }] },
+  );
+  assert.deepEqual(
+    feed.map((item) => item.kind),
+    ["note", "workout", "checkin", "meal"],
+  );
+  assert.equal(feed.find((i) => i.kind === "meal").detail, "410 kcal · 24g protein");
+});
+
+test("a deleted meal never comes back through the feed", () => {
+  // Food entries use tombstones because the server merges by union. A feed
+  // that read the raw array would show every meal she had removed.
+  const feed = buildLogFeed(
+    feedDoc({
+      foodEntries: [
+        {
+          id: "f1",
+          meal: "Lunch",
+          calories: 500,
+          protein: 20,
+          loggedDate: TODAY,
+          createdAt: "2026-08-24T13:00:00.000Z",
+          deletedAt: "2026-08-24T14:00:00.000Z",
+        },
+      ],
+    }),
+    TODAY,
+  );
+  assert.deepEqual(feed, []);
+});
+
+test("a deleted note is gone too", () => {
+  const feed = buildLogFeed(feedDoc(), TODAY, {
+    notes: [
+      { id: "n1", body: "gone", loggedDate: TODAY, createdAt: "2026-08-24T09:00:00.000Z", deletedAt: "2026-08-24T10:00:00.000Z" },
+      { id: "n2", body: "kept", loggedDate: TODAY, createdAt: "2026-08-24T09:30:00.000Z" },
+    ],
+  });
+  assert.deepEqual(feed.map((i) => i.detail), ["kept"]);
+});
+
+test("a check-in orders sensibly against timed entries", () => {
+  // Pulses carry a day, not a moment. Placing them at midnight would put
+  // every check-in below every meal on the same day, which reads as wrong.
+  const feed = buildLogFeed(
+    feedDoc({
+      foodEntries: [
+        { id: "f-am", meal: "Breakfast", calories: 300, protein: 10, loggedDate: TODAY, createdAt: "2026-08-24T08:00:00.000Z" },
+        { id: "f-pm", meal: "Dinner", calories: 600, protein: 30, loggedDate: TODAY, createdAt: "2026-08-24T20:00:00.000Z" },
+      ],
+      pulses: [{ id: "p1", dayOffset: 0, energy: 4, sleep: 4, symptoms: [] }],
+    }),
+    TODAY,
+  );
+  assert.deepEqual(feed.map((i) => i.id), ["f-pm", "p1", "f-am"]);
+});
+
+test("the feed reads back words, not scores", () => {
+  // "Energy 3" is not a memory of anything a week later.
+  const feed = buildLogFeed(
+    feedDoc({ pulses: [{ id: "p1", dayOffset: 0, energy: 4, sleep: 2, symptoms: [] }] }),
+    TODAY,
+  );
+  assert.equal(feed[0].detail, "Energy good · slept low");
+});
+
+test("pain is said plainly in the feed", () => {
+  // Someone scanning her week should see where something hurt without
+  // opening anything.
+  const feed = buildLogFeed(
+    feedDoc({
+      workoutLogs: [{ id: "w1", perceivedEffort: 5, level: "minimum", pain: true, completedAt: "2026-08-24T07:00:00.000Z" }],
+    }),
+    TODAY,
+  );
+  assert.match(feed[0].detail, /pain reported/);
+});
+
+test("yesterday is named, not dated", () => {
+  const item = { id: "x", kind: "meal", title: "Lunch", detail: "", at: "", loggedDate: "2026-08-23" };
+  assert.equal(whenLabel(item, TODAY), "yesterday");
+  assert.equal(whenLabel({ ...item, loggedDate: TODAY }, TODAY), "today");
+  assert.match(whenLabel({ ...item, loggedDate: "2026-08-01" }, TODAY), /Aug/);
+});
+
+test("the hub knows what she has already given today", () => {
+  // So a capture card can say "done" instead of asking again.
+  const state = loggedToday(
+    feedDoc({
+      foodEntries: [{ id: "f1", meal: "Lunch", calories: 400, protein: 20, loggedDate: TODAY, createdAt: TODAY + "T13:00:00.000Z" }],
+      pulses: [{ id: "p1", dayOffset: -1, energy: 3, sleep: 3, symptoms: [] }],
+    }),
+    TODAY,
+  );
+  assert.equal(state.meal, true);
+  assert.equal(state.checkin, false, "yesterday's check-in is not today's");
+  assert.equal(state.workout, false);
+  assert.equal(state.note, false);
+});
+
+test("an empty document produces an empty feed, not a crash", () => {
+  assert.deepEqual(buildLogFeed(feedDoc(), TODAY), []);
+  assert.deepEqual(buildLogFeed({ member: { id: "m" } }, TODAY), []);
+});
+
+test("a note survives a server read, and a removed one stays removed", () => {
+  // Fourth field in a row that the normaliser could have dropped. Notes are
+  // union-merged on the server exactly like food entries, so the tombstone is
+  // the only thing keeping a removed note hidden.
+  const doc = normalizeMemberDoc({
+    member: {
+      id: "m1", name: "A", week: 1, phase: "Stabilise",
+      weeklyFocus: [], goals: [], constraints: [], activeModuleIds: [],
+    },
+    notes: [
+      { id: "n1", memberId: "m1", body: "Knee felt fine", loggedDate: "2026-08-24", createdAt: "2026-08-24T09:00:00.000Z" },
+      { id: "n2", memberId: "m1", body: "gone", loggedDate: "2026-08-24", createdAt: "2026-08-24T10:00:00.000Z", deletedAt: "2026-08-24T11:00:00.000Z" },
+    ],
+  });
+  assert.equal(doc.notes.length, 2, "the row itself is kept");
+  assert.equal(doc.notes[1].deletedAt, "2026-08-24T11:00:00.000Z");
+  const feed = buildLogFeed(doc, "2026-08-24", { notes: doc.notes });
+  assert.deepEqual(feed.map((i) => i.detail), ["Knee felt fine"]);
+});
+
+test("a document with no notes still normalises", () => {
+  const doc = normalizeMemberDoc({
+    member: {
+      id: "m1", name: "A", week: 1, phase: "Stabilise",
+      weeklyFocus: [], goals: [], constraints: [], activeModuleIds: [],
+    },
+  });
+  assert.deepEqual(doc.notes, []);
 });

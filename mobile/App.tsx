@@ -35,6 +35,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import {
+  Activity,
   Bell,
   Brain,
   CalendarDays,
@@ -53,6 +54,8 @@ import {
   MessageCircle,
   MoonStar,
   Pencil,
+  PencilLine,
+  PlusCircle,
   RefreshCw,
   ShieldCheck,
   MapPin,
@@ -148,6 +151,12 @@ import { openHealthSettings, syncHealth } from "./src/health";
 import { canonicalCity, suggestCities } from "./src/cities";
 import { AWARDS, awardMetrics, type AwardIcon } from "./src/awards";
 import {
+  buildLogFeed,
+  loggedToday,
+  whenLabel,
+  type LogKind,
+} from "./src/log-feed";
+import {
   AGE_BANDS,
   EQUIPMENT_OPTIONS,
   GOAL_OPTIONS,
@@ -214,11 +223,24 @@ import type {
 const CONNECTED_HEALTH_NAME =
   Platform.OS === "ios" ? "Apple Health" : "Health Connect";
 
-type Tab = "today" | "plan" | "food" | "coach" | "profile";
+type Tab = "today" | "plan" | "log" | "coach" | "profile";
+/**
+ * Five tabs, and the middle one is a verb.
+ *
+ * "Food" was a tab because meals were the only thing the app asked her to
+ * record. Everything else she logged was somewhere else entirely: the daily
+ * check-in was a card on Today, a workout was a side effect of finishing a
+ * session, and there was nowhere at all to write down that her knee felt odd.
+ * There was no way to answer "what did I log yesterday" without visiting
+ * three screens, and no single place that meant *capture*.
+ *
+ * Log is that place. Meals are still the common case and still one tap from
+ * here; they are no longer the only case.
+ */
 const tabs = [
   { key: "today", label: "Today", Icon: Home },
   { key: "plan", label: "Plan", Icon: CalendarDays },
-  { key: "food", label: "Food", Icon: Utensils },
+  { key: "log", label: "Log", Icon: PlusCircle },
   { key: "coach", label: "Coach", Icon: MessageCircle },
   { key: "profile", label: "You", Icon: UserRound },
 ] as const;
@@ -3486,14 +3508,371 @@ function Progress({ doc }: { doc: MemberDoc }) {
   );
 }
 
-function Food({
+/**
+ * Where anything gets recorded.
+ *
+ * A hub rather than a screen: four kinds of capture, the common one reachable
+ * without opening anything, and one list of what she has actually logged. The
+ * sections behind it are the screens that already existed — this does not
+ * reimplement meal capture or the check-in, it gives them a shared front door
+ * and a shared history.
+ *
+ * The Recent list is deliberately mixed rather than grouped by kind. Her day
+ * happened in one order, and a member looking for "did I log lunch" is
+ * looking for a moment, not for a category.
+ */
+function Log({
   doc,
   update,
   token,
+  onOpenToday,
 }: {
   doc: MemberDoc;
   update: (doc: MemberDoc) => void;
   token: string;
+  /** Workouts are logged by finishing the session, which lives on Today. */
+  onOpenToday: () => void;
+}) {
+  const [section, setSection] = useState<null | LogKind>(null);
+  const [mealMode, setMealMode] = useState<"photo" | "describe">("photo");
+  const scrollToTop = useScrollToTop();
+  useEffect(() => {
+    scrollToTop();
+  }, [section, scrollToTop]);
+
+  const today = isoDate();
+  const done = loggedToday(doc, today, doc.notes ?? []);
+  const feed = buildLogFeed(doc, today, { limit: 6, notes: doc.notes ?? [] });
+
+  const movementToday = (doc.actions ?? []).find(
+    (action) => action.dayOffset === 0 && action.domain === "movement",
+  );
+
+  const CARDS: {
+    kind: LogKind;
+    Icon: typeof Utensils;
+    label: string;
+    detail: string;
+  }[] = [
+    {
+      kind: "meal",
+      Icon: Utensils,
+      label: "Meal",
+      detail: "Photo or description",
+    },
+    {
+      kind: "checkin",
+      Icon: Activity,
+      label: "Check-in",
+      detail: "Energy, sleep, stress",
+    },
+    {
+      kind: "workout",
+      Icon: Dumbbell,
+      label: "Workout",
+      detail: "Effort and any pain",
+    },
+    {
+      kind: "note",
+      Icon: PencilLine,
+      label: "Note",
+      detail: "Anything worth remembering",
+    },
+  ];
+
+  if (section !== null)
+    return (
+      <>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to log"
+          style={s.backRow}
+          onPress={() => setSection(null)}
+        >
+          <ChevronLeft size={18} color={C.green} />
+          <Text style={s.backRowText}>Log</Text>
+        </Pressable>
+        {section === "meal" && (
+          <Food doc={doc} update={update} token={token} startMode={mealMode} />
+        )}
+        {section === "checkin" && <Pulse doc={doc} onChange={update} />}
+        {section === "workout" &&
+          (movementToday ? (
+            <Card>
+              <Text style={s.cardTitle}>{movementToday.title}</Text>
+              <Text style={s.cardCopy}>
+                A workout is recorded by finishing the session itself, so that
+                what gets logged is what you actually did rather than what you
+                remember of it afterwards. Effort and any pain are asked at the
+                end of the session.
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                style={s.primaryButton}
+                onPress={onOpenToday}
+              >
+                <Text style={s.primaryButtonText}>Open today's session</Text>
+              </Pressable>
+            </Card>
+          ) : (
+            <Card>
+              <Text style={s.cardTitle}>No movement planned today</Text>
+              <Text style={s.cardCopy}>
+                A workout is logged by finishing the session on Today, so there
+                is nothing to record until one is planned. If you did something
+                of your own, a note is the honest place for it.
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                style={s.secondaryButton}
+                onPress={() => setSection("note")}
+              >
+                <Text style={s.secondaryButtonText}>Write a note instead</Text>
+              </Pressable>
+            </Card>
+          ))}
+        {section === "note" && <NoteCapture doc={doc} update={update} />}
+      </>
+    );
+
+  return (
+    <>
+      <Text style={s.eyebrow}>LOG</Text>
+      <Text style={s.hero}>What would you like to capture?</Text>
+      <Text style={s.heroCopy}>
+        Small inputs are what make tomorrow's plan feel like yours.
+      </Text>
+
+      <View style={s.captureGrid}>
+        {CARDS.map((card) => (
+          <Pressable
+            key={card.kind}
+            accessibilityRole="button"
+            accessibilityLabel={`${card.label}. ${card.detail}${done[card.kind] ? ". Already logged today" : ""}`}
+            style={({ pressed }) => [
+              s.captureCard,
+              pressed && s.domainRowPressed,
+            ]}
+            onPress={() => setSection(card.kind)}
+          >
+            <View style={s.captureIcon}>
+              <card.Icon size={17} color={C.greenDeep} />
+            </View>
+            <Text style={s.captureLabel}>{card.label}</Text>
+            <Text style={s.captureDetail}>{card.detail}</Text>
+            {/* Said quietly. It marks what she has given, and never asks her
+                to give it again or implies she owes another. */}
+            {done[card.kind] && (
+              <Text style={s.captureDone}>Logged today</Text>
+            )}
+          </Pressable>
+        ))}
+      </View>
+
+      <Card style={s.quickCaptureCard}>
+        <Text style={s.cardTitle}>Quick meal capture</Text>
+        <View style={s.quickModeRow}>
+          {(
+            [
+              ["photo", "Take photo"],
+              ["describe", "Describe meal"],
+            ] as const
+          ).map(([mode, label]) => (
+            <Pressable
+              key={mode}
+              accessibilityRole="button"
+              style={[
+                s.quickModeChip,
+                mealMode === mode && s.quickModeChipActive,
+              ]}
+              onPress={() => {
+                setMealMode(mode);
+                setSection("meal");
+              }}
+            >
+              <Text
+                style={[
+                  s.quickModeText,
+                  mealMode === mode && s.quickModeTextActive,
+                ]}
+              >
+                {label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={s.captureDetail}>
+          Bharosa suggests the foods and portions it can see. Nothing is saved
+          until you confirm it.
+        </Text>
+      </Card>
+
+      <Text style={s.sectionTitle}>Recent</Text>
+      {feed.length === 0 ? (
+        <Card>
+          <Text style={s.cardCopy}>
+            Nothing logged yet. Whatever you record here is what tomorrow's
+            plan is built from.
+          </Text>
+        </Card>
+      ) : (
+        <Card style={s.glanceCard}>
+          {feed.map((item, index) => (
+            <View
+              key={item.kind + item.id}
+              style={[s.domainRow, index === 0 && s.domainRowFirst]}
+            >
+              <View style={s.domainRowIcon}>
+                {item.kind === "meal" && <Utensils size={15} color={C.greenDeep} />}
+                {item.kind === "checkin" && <Activity size={15} color={C.greenDeep} />}
+                {item.kind === "workout" && <Dumbbell size={15} color={C.greenDeep} />}
+                {item.kind === "note" && <PencilLine size={15} color={C.greenDeep} />}
+              </View>
+              <View style={s.flex}>
+                <Text style={s.domainRowTitle}>
+                  {item.title}
+                  <Text style={s.feedWhen}> · {whenLabel(item, today)}</Text>
+                </Text>
+                <Text style={s.domainRowDetail} numberOfLines={2}>
+                  {item.detail}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </Card>
+      )}
+    </>
+  );
+}
+
+/**
+ * A short note, and the list of them.
+ *
+ * The only capture kind with no prior home. Deliberately unstructured: the
+ * things worth remembering about a body — a knee that felt odd on stairs, a
+ * week of bad sleep before a trip — do not fit the fields we already ask for,
+ * and asking her to categorise them is how they stop being written down.
+ *
+ * Nothing reads these but her and her coach. They are not parsed, scored, or
+ * fed to the plan, and the screen says so.
+ */
+function NoteCapture({
+  doc,
+  update,
+}: {
+  doc: MemberDoc;
+  update: (doc: MemberDoc) => void;
+}) {
+  const [body, setBody] = useState("");
+  const notes = (doc.notes ?? [])
+    .filter((note) => !note.deletedAt)
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+
+  const save = () => {
+    const text = body.trim();
+    if (!text) return;
+    update({
+      ...doc,
+      notes: [
+        ...(doc.notes ?? []),
+        {
+          id: newId("note"),
+          memberId: doc.member.id,
+          loggedDate: isoDate(),
+          body: text,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+    setBody("");
+  };
+
+  const remove = (id: string) =>
+    update({
+      ...doc,
+      // A tombstone, not a deletion — the server merges these by union.
+      notes: (doc.notes ?? []).map((note) =>
+        note.id === id ? { ...note, deletedAt: new Date().toISOString() } : note,
+      ),
+    });
+
+  return (
+    <>
+      <Text style={s.hero}>A note</Text>
+      <Text style={s.heroCopy}>
+        Anything worth remembering. Nothing reads these but you and your coach
+        — they are not scored and they do not change your plan.
+      </Text>
+      <Card>
+        <TextInput
+          value={body}
+          onChangeText={setBody}
+          multiline
+          style={[s.input, s.detailInput]}
+          placeholder="Knee felt fine on the stairs today"
+          placeholderTextColor={C.faint}
+        />
+        <Pressable
+          accessibilityRole="button"
+          style={[s.primaryButton, !body.trim() && s.disabledButton]}
+          disabled={!body.trim()}
+          onPress={save}
+        >
+          <Text style={s.primaryButtonText}>Save note</Text>
+        </Pressable>
+      </Card>
+      {notes.length > 0 && (
+        <>
+          <Text style={s.sectionTitle}>Earlier notes</Text>
+          {notes.map((note) => (
+            <Card key={note.id}>
+              <Text style={s.cardCopy}>{note.body}</Text>
+              <View style={s.rowBetween}>
+                <Text style={s.captureDetail}>
+                  {whenLabel(
+                    {
+                      id: note.id,
+                      kind: "note",
+                      title: "Note",
+                      detail: note.body,
+                      at: note.createdAt,
+                      loggedDate: note.loggedDate,
+                    },
+                    isoDate(),
+                  )}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove this note"
+                  onPress={() => remove(note.id)}
+                >
+                  <Text style={s.removeLink}>Remove</Text>
+                </Pressable>
+              </View>
+            </Card>
+          ))}
+        </>
+      )}
+    </>
+  );
+}
+
+function Food({
+  doc,
+  update,
+  token,
+  startMode,
+}: {
+  doc: MemberDoc;
+  update: (doc: MemberDoc) => void;
+  token: string;
+  /**
+   * Which capture the Log hub's quick buttons asked for.
+   *
+   * Only an opening position — she can still switch once she is here, and
+   * the screen behaves identically when it is absent.
+   */
+  startMode?: "photo" | "describe";
 }) {
   const [description, setDescription] = useState("");
   /** What the last estimate was read from, shown so it can be judged. */
@@ -3603,6 +3982,19 @@ function Food({
       { text: "Choose library", onPress: choosePhoto },
       { text: "Cancel", style: "cancel" },
     ]);
+  /*
+   * Tapping "Take photo" on the Log hub means take a photo.
+   *
+   * Opening the chooser on arrival is the whole point of that button; making
+   * her tap a second one would make the quick path slower than the ordinary
+   * one. Runs once, and only when she asked for it.
+   */
+  const openedFromHub = useRef(false);
+  useEffect(() => {
+    if (startMode !== "photo" || openedFromHub.current) return;
+    openedFromHub.current = true;
+    addPhoto();
+  }, [startMode]);
   const add = async () => {
     if (!description.trim() && !photoUri) return;
     setUploadingPhoto(true);
@@ -3999,6 +4391,10 @@ function Food({
           multiline
           value={description}
           onChangeText={setDescription}
+          // Focused when she arrived by tapping "Describe meal", so that
+          // button lands her on a keyboard rather than on a screen she has
+          // to tap again.
+          autoFocus={startMode === "describe"}
           placeholder="e.g. 2 rotis, paneer bhurji and salad"
           placeholderTextColor={C.faint}
         />
@@ -6907,8 +7303,15 @@ function MemberApp({
           </Card>
         </>
       );
-  else if (tab === "food")
-    content = <Food doc={doc} update={update} token={token} />;
+  else if (tab === "log")
+    content = (
+      <Log
+        doc={doc}
+        update={update}
+        token={token}
+        onOpenToday={() => setTab("today")}
+      />
+    );
   else if (tab === "coach")
     content = <Coach doc={doc} update={update} token={token} />;
   else
