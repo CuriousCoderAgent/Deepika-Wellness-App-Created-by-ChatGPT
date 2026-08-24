@@ -118,6 +118,17 @@ export interface Exercise {
     | "wall"
     | "band"
     | "weight"
+    /**
+     * Something solid at home to hook the feet under — a sofa base, a heavy
+     * bed frame, or another person holding the ankles.
+     *
+     * Exists because "assisted hamstring lower" was tagged `["none"]` while
+     * its own first frame reads "Kneel, ankles held or hooked". A movement
+     * whose instructions require an anchor cannot claim to need nothing; that
+     * combination put it in the default home set, so a member who told us
+     * nothing could be offered a movement she had no way to perform.
+     */
+    | "household_anchor"
     | "sled"
     | "sandbag"
     | "medicine_ball"
@@ -1285,7 +1296,9 @@ export const EXERCISES: Exercise[] = [
     tier: 3,
     loads: ["knee", "hip"],
     avoidIf: ["recent_surgery", "pregnancy"],
-    equipment: ["none"],
+    // Not "none": the first frame says "ankles held or hooked", and without
+    // that this is a controlled fall rather than a hamstring lower.
+    equipment: ["household_anchor"],
     minutes: 4,
     why: "One of the most strongly evidenced injury-prevention movements there is for anyone running fast.",
     cue: "Lower as slowly as you can control, then use your hands to push back up.",

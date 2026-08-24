@@ -1247,6 +1247,7 @@ function DetailQuestions({
   wontDo,
   setWontDo,
   toggleIn,
+  showGymEquipment,
 }: {
   equipment: Equipment[];
   setEquipment: (value: Equipment[]) => void;
@@ -1259,6 +1260,8 @@ function DetailQuestions({
   wontDo: string;
   setWontDo: (value: string) => void;
   toggleIn: <T,>(list: T[], value: T) => T[];
+  /** Gym equipment is only worth asking about when she is training for an event. */
+  showGymEquipment: boolean;
 }) {
   return (
     <>
@@ -1269,23 +1272,58 @@ function DetailQuestions({
           plan from what you pick here.
         </Text>
         <View style={s.chipWrap}>
-          {EQUIPMENT_OPTIONS.map((option) => {
-            const selected = equipment.includes(option.id);
-            return (
-              <Pressable
-                key={option.id}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: selected }}
-                style={[s.chip, selected && s.chipActive]}
-                onPress={() => setEquipment(toggleIn(equipment, option.id))}
-              >
-                <Text style={[s.chipText, selected && s.chipTextActive]}>
-                  {option.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+          {EQUIPMENT_OPTIONS.filter((option) => option.place === "home").map(
+            (option) => {
+              const selected = equipment.includes(option.id);
+              return (
+                <Pressable
+                  key={option.id}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: selected }}
+                  style={[s.chip, selected && s.chipActive]}
+                  onPress={() => setEquipment(toggleIn(equipment, option.id))}
+                >
+                  <Text style={[s.chipText, selected && s.chipTextActive]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            },
+          )}
         </View>
+        {/* Sleds, ergs and medicine balls exist in the library as event
+            stations, so they are only worth asking about when she is training
+            for one. Without this list those movements are unreachable by
+            everybody, which is what they were. */}
+        {showGymEquipment && (
+          <>
+            <Text style={s.detailHint}>
+              And at a gym, if you train at one:
+            </Text>
+            <View style={s.chipWrap}>
+              {EQUIPMENT_OPTIONS.filter((option) => option.place === "gym").map(
+                (option) => {
+                  const selected = equipment.includes(option.id);
+                  return (
+                    <Pressable
+                      key={option.id}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: selected }}
+                      style={[s.chip, selected && s.chipActive]}
+                      onPress={() =>
+                        setEquipment(toggleIn(equipment, option.id))
+                      }
+                    >
+                      <Text style={[s.chipText, selected && s.chipTextActive]}>
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                },
+              )}
+            </View>
+          </>
+        )}
       </View>
 
       <View style={s.detailBlock}>
@@ -2065,6 +2103,7 @@ function Onboarding({
           wontDo={wontDo}
           setWontDo={setWontDo}
           toggleIn={toggleIn}
+          showGymEquipment={wantsEvent}
         />
       </>
     );
@@ -5949,6 +5988,7 @@ function AboutYou({
             edited();
           }}
           toggleIn={toggleIn}
+          showGymEquipment={wantsEvent}
         />
 
         <Pressable

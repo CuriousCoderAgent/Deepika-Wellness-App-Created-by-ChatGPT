@@ -2,7 +2,7 @@
 
 **Last updated:** 24 August 2026, after the external audit response
 (`docs/AUDIT-RESPONSE-2026-08-24.md`) and a device-testing round.
-**State:** 237 tests passing, mobile and server typecheck clean, `next build`
+**State:** 241 tests passing, mobile and server typecheck clean, `next build`
 clean. All eight audit P0s closed; P1 and P2 closed. Every movement in the
 library has photography.
 
@@ -134,6 +134,13 @@ says so rather than quietly producing a strength week.
   have sequences; 51 are wired and 4 are held pending a reshoot. See
   `WITHHELD_MEDIA` in `mobile/src/exerciseMedia.ts` for what is wrong with
   each, and `EXERCISE-MEDIA-BRIEF.md` for the review note.
+- ~~Nine movements unreachable by any member~~ — **done 2026-08-24.** The
+  library gained sleds, ergs and medicine balls; the equipment question did
+  not, so every Group B event movement could never be selected by anybody.
+  `Equipment` now covers the full vocabulary, the gym items are asked only of
+  members training for an event, and `ex-nordic-hamstring-eased` no longer
+  claims to need no equipment while its own first frame says "ankles held or
+  hooked". Four tests hold it.
 - **Reshoot four sequences.** `ex-single-leg-calf-raise` (no heel rise),
   `ex-nordic-hamstring-eased` (ankles never anchored), `ex-seated-hinge` (no
   hinge), `ex-band-lat-pulldown` (frame order, and frame 3 is the wrong

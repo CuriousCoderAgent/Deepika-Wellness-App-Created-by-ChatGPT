@@ -200,13 +200,49 @@ export function goalNeedsEnduranceModel(goalId: string): boolean {
 /* ------------------------------------------------------------------ */
 
 /** What she can train with. Drives which movements are even offerable. */
-export type Equipment = "none" | "chair" | "wall" | "band" | "weight";
+/** Must match `Equipment` in lib/member-profile.ts. A test compares them. */
+export type Equipment =
+  | "none"
+  | "chair"
+  | "wall"
+  | "band"
+  | "weight"
+  | "household_anchor"
+  | "open_space"
+  | "sled"
+  | "sandbag"
+  | "medicine_ball"
+  | "erg";
 
-export const EQUIPMENT_OPTIONS: { id: Equipment; label: string }[] = [
-  { id: "chair", label: "A sturdy chair" },
-  { id: "wall", label: "Clear wall space" },
-  { id: "band", label: "A resistance band" },
-  { id: "weight", label: "Dumbbells or weights" },
+/**
+ * Where she would find a piece of equipment.
+ *
+ * The gym list is only shown to someone training for an event, because that
+ * is the only thing it unlocks — sleds, ergs and wall balls exist in the
+ * library as Hyrox stations. Showing them to a seventy-year-old choosing
+ * between a chair and a wall would be noise.
+ */
+export type EquipmentPlace = "home" | "gym";
+
+export const EQUIPMENT_OPTIONS: {
+  id: Equipment;
+  label: string;
+  place: EquipmentPlace;
+}[] = [
+  { id: "chair", label: "A sturdy chair", place: "home" },
+  { id: "wall", label: "Clear wall space", place: "home" },
+  { id: "band", label: "A resistance band", place: "home" },
+  { id: "weight", label: "Dumbbells or weights", place: "home" },
+  {
+    id: "household_anchor",
+    label: "Something to hook your feet under",
+    place: "home",
+  },
+  { id: "open_space", label: "Room to move — a park or terrace", place: "home" },
+  { id: "sled", label: "A sled", place: "gym" },
+  { id: "sandbag", label: "A sandbag", place: "gym" },
+  { id: "medicine_ball", label: "A medicine ball", place: "gym" },
+  { id: "erg", label: "A ski or rowing machine", place: "gym" },
 ];
 
 /**

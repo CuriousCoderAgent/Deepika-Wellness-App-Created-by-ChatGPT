@@ -21,7 +21,26 @@ import type { EnduranceEvent } from "./endurance";
 
 export type AgeBand = "18-29" | "30-39" | "40-49" | "50-59" | "60-69" | "70+";
 export type GoalGroup = "wellbeing" | "capacity" | "event";
-export type Equipment = "none" | "chair" | "wall" | "band" | "weight";
+/**
+ * What she can tell us she has.
+ *
+ * Must cover every value `Exercise["equipment"]` uses, or the movements
+ * needing the missing ones are unreachable by everybody — which is what
+ * happened when the library gained sleds, ergs and medicine balls and this
+ * list did not. A test holds the two together.
+ */
+export type Equipment =
+  | "none"
+  | "chair"
+  | "wall"
+  | "band"
+  | "weight"
+  | "household_anchor"
+  | "open_space"
+  | "sled"
+  | "sandbag"
+  | "medicine_ball"
+  | "erg";
 export type LifeStage =
   | "pregnant"
   | "postpartum"

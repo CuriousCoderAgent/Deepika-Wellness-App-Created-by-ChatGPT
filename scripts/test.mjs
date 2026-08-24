@@ -49,6 +49,7 @@ import {
 } from "../mobile/src/meal-estimate.ts";
 import {
   GOAL_OPTIONS,
+  EQUIPMENT_OPTIONS,
   LIFE_STAGES,
   goalNeedsEnduranceModel,
   goalIdFromLabel as mobileGoalIdFromLabel,
@@ -3575,4 +3576,59 @@ test("where an estimate came from survives a server read", () => {
   });
   assert.equal(doc.foodEntries[0].estimate.source, "photo");
   assert.equal(doc.foodEntries[0].estimate.promptVersion, "meal-photo-2026-08-24");
+});
+
+test("no movement is unreachable by every member", () => {
+  // The library gained sleds, ergs and medicine balls; the equipment question
+  // did not. Nine movements — most of the event library — could therefore
+  // never be selected by anybody, and nothing said so: eligibleExercises
+  // simply never returned them.
+  const best = ["none", ...EQUIPMENT_OPTIONS.map((option) => option.id)];
+  const reachable = new Set(
+    eligibleExercises({ equipment: best, maxTier: 3 }).map((e) => e.id),
+  );
+  const stranded = EXERCISES.filter((e) => !reachable.has(e.id)).map(
+    (e) => `${e.id} (needs ${e.equipment.join(" + ")})`,
+  );
+  assert.deepEqual(stranded, []);
+});
+
+test("the app can offer every kind of equipment the library asks for", () => {
+  // The same gap one level up, caught before it reaches selection.
+  const offered = new Set(["none", ...EQUIPMENT_OPTIONS.map((o) => o.id)]);
+  const needed = new Set(EXERCISES.flatMap((e) => e.equipment));
+  const missing = [...needed].filter((kind) => !offered.has(kind));
+  assert.deepEqual(missing, []);
+});
+
+test("a movement that needs an anchor does not claim to need nothing", () => {
+  // "Assisted hamstring lower" was tagged equipment: ["none"] while its own
+  // first frame reads "Kneel, ankles held or hooked". That combination put it
+  // in the default home set, so a member who told us nothing could be offered
+  // a movement she had no way to perform.
+  const anchored = EXERCISES.filter((e) =>
+    e.frames.some((frame) => /hook|held|anchor|secured/i.test(frame)),
+  );
+  assert.ok(anchored.length > 0, "the test no longer finds its own subject");
+  for (const exercise of anchored) {
+    assert.ok(
+      !exercise.equipment.includes("none") || exercise.equipment.length > 1,
+      `${exercise.id} needs an anchor and claims to need nothing`,
+    );
+  }
+});
+
+test("the default home set stays small", () => {
+  // equipmentFor() falls back to this for anyone who has told us nothing, so
+  // anything added here is offered to every silent member by default.
+  assert.deepEqual(equipmentFor(undefined), ["none", "chair", "wall"]);
+  const home = eligibleExercises({ maxTier: 3 });
+  for (const exercise of home) {
+    for (const kind of exercise.equipment) {
+      assert.ok(
+        ["none", "chair", "wall"].includes(kind),
+        `${exercise.id} reaches the default set but needs ${kind}`,
+      );
+    }
+  }
 });
