@@ -40,9 +40,10 @@ import { findWeekWin } from "../mobile/src/week-win.ts";
 import {
   GOAL_OPTIONS,
   LIFE_STAGES,
-  goalIsSupported,
+  goalNeedsEnduranceModel,
   profileCompleteness,
 } from "../mobile/src/profile.ts";
+import { assessFeasibility, planWeek } from "../lib/endurance.ts";
 import {
   SKIP_OPTIONS,
   describeSkip,
@@ -2299,16 +2300,16 @@ test("a win never scolds, and never counts", () => {
 /* The member profile                                                  */
 /* ------------------------------------------------------------------ */
 
-test("event goals are marked unsupported until the library covers them", () => {
-  // Sled pushes and loaded carries are a different risk profile from chair
-  // squats and none of it has passed the review every current movement did.
-  // Quietly handing back wall slides would teach her the product is shallow.
-  assert.equal(goalIsSupported("stronger"), true);
-  assert.equal(goalIsSupported("sleep"), true);
-  assert.equal(goalIsSupported("event-hybrid"), false);
-  assert.equal(goalIsSupported("event-endurance"), false);
-  // An unknown id is not quietly supported either.
-  assert.equal(goalIsSupported("made-up"), false);
+test("event goals route to the endurance model, not the dose ladder", () => {
+  // Not "unsupported" — progressed differently. The dose ladder moves sets
+  // and reps and cannot express weekly volume, a long run or a taper, so a
+  // race goal handed to it would produce strength training with a race
+  // label: a more expensive kind of wrong, because it looks like an answer.
+  assert.equal(goalNeedsEnduranceModel("event-hybrid"), true);
+  assert.equal(goalNeedsEnduranceModel("event-endurance"), true);
+  assert.equal(goalNeedsEnduranceModel("stronger"), false);
+  assert.equal(goalNeedsEnduranceModel("sleep"), false);
+  assert.equal(goalNeedsEnduranceModel("made-up"), false);
 });
 
 test("every goal has a distinct id and explains itself", () => {
@@ -2365,4 +2366,178 @@ test("prefer-not-to-say is a real life-stage answer", () => {
   const ids = LIFE_STAGES.map((stage) => stage.id);
   assert.ok(ids.includes("prefer_not_to_say"));
   assert.ok(ids.includes("none_of_these"));
+});
+
+/* ------------------------------------------------------------------ */
+/* Endurance and event training                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The dose ladder moves sets and reps and cannot express weekly volume, a
+ * long run or a taper. These rules are the second model. Every constant they
+ * encode is long-established endurance practice, which is exactly why it
+ * belongs in tested code rather than in a prompt.
+ */
+
+test("an impossible block is refused with a real alternative", () => {
+  // Sixteen weeks does not take somebody from nothing to a marathon, and a
+  // plan that pretends otherwise is how people get hurt.
+  const tooSoon = assessFeasibility({
+    event: "marathon",
+    weeksAway: 8,
+    currentWeeklyKm: 40,
+    daysPerWeek: 5,
+  });
+  assert.equal(tooSoon.ok, false);
+  assert.match(tooSoon.suggestion, /half marathon/i);
+
+  const noBase = assessFeasibility({
+    event: "marathon",
+    weeksAway: 20,
+    currentWeeklyKm: 5,
+    daysPerWeek: 4,
+  });
+  assert.equal(noBase.ok, false);
+  // The refusal names a goal she can actually pursue now.
+  assert.match(noBase.suggestion, /build to/i);
+});
+
+test("a realistic block is accepted", () => {
+  assert.equal(
+    assessFeasibility({
+      event: "marathon",
+      weeksAway: 20,
+      currentWeeklyKm: 32,
+      daysPerWeek: 5,
+    }).ok,
+    true,
+  );
+});
+
+test("weekly volume never climbs faster than the tissue can adapt", () => {
+  const profile = {
+    event: "half",
+    weeksAway: 16,
+    currentWeeklyKm: 20,
+    daysPerWeek: 4,
+  };
+  let previous = profile.currentWeeklyKm;
+  for (let week = 1; week <= 12; week++) {
+    const plan = planWeek(profile, week);
+    if (!plan.isCutback && !plan.isTaper) {
+      // Allow a kilometre of rounding on top of the 10% brake.
+      assert.ok(
+        plan.totalKm <= Math.ceil(previous * 1.1) + 1,
+        `week ${week} jumped from ${previous} to ${plan.totalKm}`,
+      );
+    }
+    if (!plan.isCutback) previous = plan.totalKm;
+  }
+});
+
+test("every fourth week is lighter on purpose", () => {
+  const profile = {
+    event: "half",
+    weeksAway: 16,
+    currentWeeklyKm: 20,
+    daysPerWeek: 4,
+  };
+  assert.equal(planWeek(profile, 4).isCutback, true);
+  assert.equal(planWeek(profile, 8).isCutback, true);
+  assert.equal(planWeek(profile, 3).isCutback, false);
+  // And it is genuinely lighter than the week before it.
+  assert.ok(planWeek(profile, 4).totalKm < planWeek(profile, 3).totalKm);
+});
+
+test("intensity is never added to a recovery week", () => {
+  // Stacking volume and intensity is the classic way to break a build, and
+  // adding a hard session to a cutback defeats the cutback.
+  const profile = {
+    event: "half",
+    weeksAway: 16,
+    currentWeeklyKm: 20,
+    daysPerWeek: 5,
+  };
+  const cutback = planWeek(profile, 4);
+  assert.equal(cutback.isCutback, true);
+  assert.ok(
+    !cutback.sessions.some((s) => s.kind === "tempo" || s.kind === "intervals"),
+  );
+});
+
+test("the long run never becomes most of the week", () => {
+  for (const event of ["5k", "10k", "half", "marathon", "hyrox"]) {
+    const profile = {
+      event,
+      weeksAway: 20,
+      currentWeeklyKm: 30,
+      daysPerWeek: 5,
+    };
+    for (let week = 1; week <= 16; week++) {
+      const plan = planWeek(profile, week);
+      const long = plan.sessions.find((s) => s.kind === "long");
+      if (long?.km && plan.totalKm > 0)
+        assert.ok(
+          long.km <= plan.totalKm * 0.5,
+          `${event} week ${week}: long run ${long.km} of ${plan.totalKm}`,
+        );
+    }
+  }
+});
+
+test("the block tapers into the event rather than peaking at it", () => {
+  const profile = {
+    event: "marathon",
+    weeksAway: 18,
+    currentWeeklyKm: 35,
+    daysPerWeek: 5,
+  };
+  const peak = planWeek(profile, 14).totalKm;
+  const raceWeek = planWeek(profile, 18);
+  assert.equal(raceWeek.isTaper, true);
+  assert.ok(
+    raceWeek.totalKm < peak / 2,
+    `race week ${raceWeek.totalKm}km is not a taper from ${peak}km`,
+  );
+  // Sharpness is kept, volume is not.
+  assert.ok(raceWeek.sessions.some((s) => s.kind === "intervals"));
+});
+
+test("Hyrox trains running under fatigue, which is what the race tests", () => {
+  const plan = planWeek(
+    { event: "hyrox", weeksAway: 12, currentWeeklyKm: 15, daysPerWeek: 4 },
+    3,
+  );
+  assert.ok(plan.sessions.some((s) => s.kind === "compromised"));
+  assert.ok(plan.sessions.some((s) => s.kind === "stations"));
+});
+
+test("no session prescribes a pace or a heart rate", () => {
+  // Those depend on testing and on the individual. A plausible-looking pace
+  // is exactly the confident wrongness this architecture exists to prevent.
+  for (const event of ["5k", "marathon", "hyrox"]) {
+    for (let week = 1; week <= 10; week++) {
+      const plan = planWeek(
+        { event, weeksAway: 16, currentWeeklyKm: 20, daysPerWeek: 5 },
+        week,
+      );
+      for (const session of plan.sessions) {
+        assert.doesNotMatch(
+          session.description,
+          /\d+\s*(min\/km|bpm|% ?(of )?(max|hr)|zone \d)/i,
+          `"${session.description}" prescribes a pace or zone`,
+        );
+      }
+    }
+  }
+});
+
+test("every week includes a rest day, described as part of the plan", () => {
+  const plan = planWeek(
+    { event: "marathon", weeksAway: 20, currentWeeklyKm: 35, daysPerWeek: 6 },
+    5,
+  );
+  const rest = plan.sessions.find((s) => s.kind === "rest");
+  assert.ok(rest);
+  assert.doesNotMatch(rest.description, /skip|nothing|off day/i);
 });

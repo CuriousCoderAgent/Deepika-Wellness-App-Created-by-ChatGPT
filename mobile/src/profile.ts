@@ -138,17 +138,15 @@ export const GOAL_OPTIONS: GoalOption[] = [
 ];
 
 /**
- * Whether the library can actually serve this goal today.
+ * Goals that need the endurance model rather than the dose ladder.
  *
- * Event training is a materially different risk profile — sled pushes and
- * loaded carries are not chair squats — and none of it has been through the
- * professional review that every current movement passed. Until it has, the
- * app says so plainly rather than quietly handing back the same wall slides
- * and letting her conclude the product is shallow.
+ * These are not "unsupported" — they are progressed differently. The dose
+ * ladder in `lib/adaptation.ts` moves sets and reps, which cannot express
+ * weekly running volume, a long run, or a taper. Event goals route to
+ * `lib/endurance.ts` instead.
  */
-export function goalIsSupported(goalId: string): boolean {
-  const goal = GOAL_OPTIONS.find((option) => option.id === goalId);
-  return Boolean(goal) && goal!.group !== "event";
+export function goalNeedsEnduranceModel(goalId: string): boolean {
+  return GOAL_OPTIONS.find((option) => option.id === goalId)?.group === "event";
 }
 
 /* ------------------------------------------------------------------ */
