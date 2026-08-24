@@ -280,12 +280,31 @@ async function readLatestHeartRateVariability(
   ];
 }
 
+/**
+ * The newest VO2 max estimate Health Connect will give us.
+ *
+ * Thirty days, not ninety. Health Connect requires READ_HEALTH_DATA_HISTORY
+ * to return anything older than thirty days and the app does not declare it —
+ * that permission needs its own Play Store justification, and asking for a
+ * year of a member's health history to populate one sparse tile is not a
+ * trade worth making.
+ *
+ * So the query matches what the app is actually permitted to read. Asking for
+ * ninety and receiving thirty would have been indistinguishable from a member
+ * having no readings, which is the kind of quiet wrongness that is impossible
+ * to debug later.
+ *
+ * The Apple path keeps its wider window because HealthKit imposes no such
+ * limit. That divergence is an operating-system constraint rather than a
+ * product decision, and it is safe because every reading now carries its age
+ * on screen — a sixty-day-old estimate is labelled as one on both platforms.
+ */
 async function readLatestVo2Max(
   health: HealthConnectModule,
   syncedAt: string,
 ): Promise<HealthSnapshot[]> {
   const vo2 = await health.readRecords("Vo2Max", {
-    timeRangeFilter: range(90),
+    timeRangeFilter: range(30),
   });
   const latest = latestByTime(vo2.records);
   if (!latest) return [];
@@ -345,7 +364,9 @@ function requestedApplePermissions(): HealthConnection["permissions"] {
 }
 
 function appleSourceDetails(sources: readonly AppleSource[]) {
-  const names = [...new Set(sources.map((source) => source.name).filter(Boolean))];
+  const names = [
+    ...new Set(sources.map((source) => source.name).filter(Boolean)),
+  ];
   const origins = [
     ...new Set(
       sources.map((source) => source.bundleIdentifier).filter(Boolean),

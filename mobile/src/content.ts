@@ -92,3 +92,37 @@ export const HEALTH_LABELS: Record<
   heartRateVariability: { label: "Heart-rate variability", unit: "ms" },
   vo2Max: { label: "VO₂ max", unit: "ml/kg/min" },
 };
+
+/**
+ * Module ids to the names they were given.
+ *
+ * The Plan screen rendered the raw id with its hyphens swapped for spaces, so
+ * a member's week was labelled "mv strength a" and "hr perimenopause". Every
+ * one of these already had a proper name in the content library; the screen
+ * had simply never been given it.
+ *
+ * Unknown ids fall back to the old de-hyphenated form via `moduleName()` —
+ * ugly, but a legible fallback beats a blank chip, and a module published
+ * later should not vanish from a plan because this map has not caught up.
+ */
+const MODULE_NAMES: Record<string, string> = {
+  "mv-strength-a": "Strength Foundations",
+  "mv-strength-b": "Balance & Carry",
+  "mv-mobility-10": "10-minute Mobility",
+  "mv-walk-base": "Walking Base",
+  "nu-protein": "Protein Basics",
+  "nu-plate": "Plate Structure",
+  "sl-reset": "Sleep Reset Week",
+  "sl-winddown": "Evening Wind-down",
+  "hr-perimenopause": "Understanding Perimenopause",
+  "hr-bone-muscle": "Bone & Muscle Health",
+  "hr-doctor-questions": "Preparing Questions for Your Doctor",
+  "bh-minimum-day": "Minimum Day",
+  "bh-if-then": "If-Then Planning",
+  "bh-comeback": "Comeback Week",
+};
+
+/** What a member should see a module called. Never the raw id. */
+export function moduleName(id: string): string {
+  return MODULE_NAMES[id] ?? id.replace(/[-_]/g, " ");
+}

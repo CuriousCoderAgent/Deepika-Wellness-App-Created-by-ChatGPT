@@ -141,6 +141,7 @@ import {
   DOMAIN_META,
   HEALTH_LABELS,
   NUDGE_OPTIONS,
+  moduleName,
   type DomainIcon,
 } from "./src/content";
 import { s } from "./src/design/styles";
@@ -2439,9 +2440,7 @@ function Journey({ doc }: { doc: MemberDoc }) {
         <View style={s.moduleChips}>
           {selected.moduleIds.map((module) => (
             <View key={module} style={s.moduleChip}>
-              <Text style={s.moduleChipText}>
-                {module.replace(/[-_]/g, " ")}
-              </Text>
+              <Text style={s.moduleChipText}>{moduleName(module)}</Text>
             </View>
           ))}
         </View>
