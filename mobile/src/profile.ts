@@ -72,6 +72,15 @@ export interface GoalOption {
   group: GoalGroup;
   /** Shown under the label, so the choice is not a guess. */
   detail: string;
+  /**
+   * Every label this goal has ever been shown as, lower-cased.
+   *
+   * Goals were stored as display strings for the whole pilot, and several of
+   * those strings were reworded when this list grew. Without them a member
+   * who chose "Feel stronger" in June would open the app to an unselected
+   * goals screen. Old labels are answers too.
+   */
+  legacy: string[];
 }
 
 export const GOAL_OPTIONS: GoalOption[] = [
@@ -80,62 +89,99 @@ export const GOAL_OPTIONS: GoalOption[] = [
     label: "Steadier energy",
     group: "wellbeing",
     detail: "Fewer afternoons where everything runs out",
+    legacy: ["steadier energy"],
   },
   {
     id: "sleep",
     label: "Sleep more consistently",
     group: "wellbeing",
     detail: "A routine that protects the evening",
+    legacy: ["sleep more consistently"],
   },
   {
     id: "stress",
     label: "Manage stress",
     group: "wellbeing",
     detail: "Small things that reliably settle a day",
+    legacy: ["manage stress"],
   },
   {
     id: "life-stage",
     label: "Support a life-stage change",
     group: "wellbeing",
     detail: "Perimenopause, postpartum, or another transition",
+    legacy: ["support a life-stage change", "support hormonal or life-stage wellbeing"],
   },
   {
     id: "stronger",
     label: "Get stronger",
     group: "capacity",
     detail: "Progressive strength, starting where you are",
+    legacy: ["get stronger", "feel stronger"],
   },
   {
     id: "mobility",
     label: "Move more easily",
     group: "capacity",
     detail: "Stairs, floors, carrying, reaching",
+    legacy: ["move more easily", "improve mobility"],
   },
   {
     id: "endurance",
     label: "Build endurance",
     group: "capacity",
     detail: "Walking or running further without it costing the day",
+    legacy: ["build endurance", "improve endurance"],
   },
   {
     id: "bone-health",
     label: "Protect bone and muscle",
     group: "capacity",
     detail: "Loading that holds density as you age",
+    legacy: ["protect bone and muscle"],
   },
   {
     id: "event-endurance",
     label: "Train for a race or ride",
     group: "event",
     detail: "A distance event with a date",
+    legacy: ["train for a race or ride"],
   },
   {
     id: "event-hybrid",
     label: "Train for a hybrid event",
     group: "event",
     detail: "Hyrox, obstacle races, and similar",
+    legacy: ["train for a hybrid event"],
   },
 ];
+
+/** Resolve a stored id or label — current or historic — to a goal id. */
+export function goalIdFromLabel(value: string): string | undefined {
+  const needle = value.trim().toLowerCase();
+  if (!needle) return undefined;
+  return GOAL_OPTIONS.find(
+    (option) =>
+      option.id === needle ||
+      option.label.toLowerCase() === needle ||
+      option.legacy.includes(needle),
+  )?.id;
+}
+
+/** Every resolvable goal id in a stored list, in her own order. */
+export function goalIdsFrom(stored: string[]): string[] {
+  const ids: string[] = [];
+  for (const value of stored) {
+    const id = goalIdFromLabel(value);
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+/** The label to show and to store for a goal id. */
+export function goalLabel(id: string): string {
+  return GOAL_OPTIONS.find((option) => option.id === id)?.label ?? id;
+}
 
 /**
  * Goals that need the endurance model rather than the dose ladder.
@@ -237,6 +283,8 @@ export interface MemberProfile {
   trainingDays?: Weekday[];
   /** Free text. Excluded outright rather than discouraged. */
   wontDo?: string;
+  /** Set only when one of her goals is an event. See EventTarget. */
+  event?: EventTarget;
 
   /**
    * Whether she was asked for detail, and what she said.
@@ -272,4 +320,80 @@ export function profileCompleteness(profile: MemberProfile): {
     known: fields.filter((value) => value !== undefined).length,
     total: fields.length,
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * Events
+ * ------------------------------------------------------------------ */
+
+/** Must match `EnduranceEvent` in lib/endurance.ts. A test compares them. */
+export type EventKind = "5k" | "10k" | "half" | "marathon" | "hyrox";
+
+export const EVENT_KINDS: { id: EventKind; label: string }[] = [
+  { id: "5k", label: "5k" },
+  { id: "10k", label: "10k" },
+  { id: "half", label: "Half marathon" },
+  { id: "marathon", label: "Marathon" },
+  { id: "hyrox", label: "Hyrox" },
+];
+
+/**
+ * How far away the event is, in weeks.
+ *
+ * Asked as weeks rather than as a date because there is no date picker in
+ * this app and a typed date is a typo waiting to happen. The stored value is
+ * still a real date — see the app's save, which stamps it from today.
+ */
+export const WEEKS_AWAY_OPTIONS: { weeks: number; label: string }[] = [
+  { weeks: 4, label: "About a month" },
+  { weeks: 8, label: "2 months" },
+  { weeks: 12, label: "3 months" },
+  { weeks: 16, label: "4 months" },
+  { weeks: 20, label: "5 months" },
+  { weeks: 26, label: "6 months or more" },
+];
+
+/**
+ * Her honest current weekly running volume.
+ *
+ * Bands rather than a number, because the plan reads this as "roughly where
+ * is she" and a precise figure invites her to round it up. Overstating this
+ * is the single most dangerous answer in the whole profile: every week of the
+ * block is computed from it.
+ */
+export const WEEKLY_KM_OPTIONS: { km: number; label: string }[] = [
+  { km: 0, label: "I do not run yet" },
+  { km: 5, label: "Around 5km" },
+  { km: 10, label: "Around 10km" },
+  { km: 20, label: "Around 20km" },
+  { km: 30, label: "Around 30km" },
+  { km: 45, label: "40km or more" },
+];
+
+/** The event she is training for. Mirrors `EventTarget` in lib. */
+export interface EventTarget {
+  kind: EventKind;
+  dateIso: string;
+  currentWeeklyKm: number;
+  startedOn: string;
+}
+
+/** Whether any of these goals needs an event to be described. */
+export function needsEventDetail(goals: string[]): boolean {
+  return goals.some(goalNeedsEnduranceModel);
+}
+
+/** Today plus a number of weeks, as an ISO date. */
+export function isoWeeksFromToday(weeks: number, today = new Date()): string {
+  const date = new Date(today.getTime());
+  date.setDate(date.getDate() + weeks * 7);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Whole weeks between two ISO dates, for showing a stored event back. */
+export function weeksUntil(dateIso: string, today = new Date()): number {
+  const target = Date.parse(dateIso + "T00:00:00Z");
+  const from = Date.parse(today.toISOString().slice(0, 10) + "T00:00:00Z");
+  if (Number.isNaN(target)) return 0;
+  return Math.round((target - from) / (7 * 24 * 60 * 60 * 1000));
 }

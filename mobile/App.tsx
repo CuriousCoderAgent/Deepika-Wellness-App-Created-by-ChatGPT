@@ -49,6 +49,7 @@ import {
   Footprints,
   HeartPulse,
   Home,
+  Info,
   MessageCircle,
   MoonStar,
   Pencil,
@@ -134,6 +135,30 @@ import {
 import { openHealthSettings, syncHealth } from "./src/health";
 import { canonicalCity, suggestCities } from "./src/cities";
 import { AWARDS, awardMetrics, type AwardIcon } from "./src/awards";
+import {
+  AGE_BANDS,
+  EQUIPMENT_OPTIONS,
+  GOAL_OPTIONS,
+  LIFE_STAGES,
+  SLEEP_BASELINES,
+  WEEKDAYS,
+  EVENT_KINDS,
+  WEEKS_AWAY_OPTIONS,
+  WEEKLY_KM_OPTIONS,
+  goalIdsFrom,
+  isoWeeksFromToday,
+  needsEventDetail,
+  profileCompleteness,
+  weeksUntil,
+  goalLabel,
+  type AgeBand,
+  type Equipment,
+  type EventKind,
+  type GoalGroup,
+  type LifeStage,
+  type SleepBaseline,
+  type Weekday,
+} from "./src/profile";
 import { C } from "./src/design/tokens";
 import { activeDays } from "./src/activity";
 import { findWeekWin } from "./src/week-win";
@@ -169,6 +194,7 @@ import type {
   FoodEntry,
   HealthMetric,
   MemberDoc,
+  PlanNotice,
   Message,
   PulseEntry,
 } from "./src/types";
@@ -1184,6 +1210,176 @@ function CoachConnectionCard({
   );
 }
 
+/**
+ * The questions we only ask once she has said we may.
+ *
+ * One component, used in two places: the last step of onboarding for anyone
+ * who opts in there, and the About you screen for everyone else and for
+ * anyone changing an answer later. Two copies of these questions would drift,
+ * and the drift would be invisible — a member would answer one version and
+ * the plan would read the other.
+ *
+ * Every question here is skippable. None of them blocks a plan; each one only
+ * narrows what the generator reaches for. See lib/member-profile.ts for what
+ * each answer actually changes.
+ */
+function DetailQuestions({
+  equipment,
+  setEquipment,
+  lifeStage,
+  setLifeStage,
+  sleepBaseline,
+  setSleepBaseline,
+  trainingDays,
+  setTrainingDays,
+  wontDo,
+  setWontDo,
+  toggleIn,
+}: {
+  equipment: Equipment[];
+  setEquipment: (value: Equipment[]) => void;
+  lifeStage: LifeStage | undefined;
+  setLifeStage: (value: LifeStage) => void;
+  sleepBaseline: SleepBaseline | undefined;
+  setSleepBaseline: (value: SleepBaseline) => void;
+  trainingDays: Weekday[];
+  setTrainingDays: (value: Weekday[]) => void;
+  wontDo: string;
+  setWontDo: (value: string) => void;
+  toggleIn: <T,>(list: T[], value: T) => T[];
+}) {
+  return (
+    <>
+      <View style={s.detailBlock}>
+        <Text style={s.detailLabel}>What do you have to train with?</Text>
+        <Text style={s.detailHint}>
+          Choose everything you can reach on a normal day. We only ever build a
+          plan from what you pick here.
+        </Text>
+        <View style={s.chipWrap}>
+          {EQUIPMENT_OPTIONS.map((option) => {
+            const selected = equipment.includes(option.id);
+            return (
+              <Pressable
+                key={option.id}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: selected }}
+                style={[s.chip, selected && s.chipActive]}
+                onPress={() => setEquipment(toggleIn(equipment, option.id))}
+              >
+                <Text style={[s.chipText, selected && s.chipTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={s.detailBlock}>
+        <Text style={s.detailLabel}>Is any of this true right now?</Text>
+        <Text style={s.detailHint}>
+          Some of these change which movements are safe, and some change what
+          is worth prioritising. Prefer not to say is a real answer.
+        </Text>
+        <View style={s.chipWrap}>
+          {LIFE_STAGES.map((option) => {
+            const selected = lifeStage === option.id;
+            return (
+              <Pressable
+                key={option.id}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected }}
+                style={[s.chip, selected && s.chipActive]}
+                onPress={() => setLifeStage(option.id)}
+              >
+                <Text style={[s.chipText, selected && s.chipTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={s.detailBlock}>
+        <Text style={s.detailLabel}>How has your sleep been lately?</Text>
+        <Text style={s.detailHint}>
+          A hard few weeks means we start smaller, not that we ask more of you.
+        </Text>
+        <View style={s.chipWrap}>
+          {SLEEP_BASELINES.map((option) => {
+            const selected = sleepBaseline === option.id;
+            return (
+              <Pressable
+                key={option.id}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected }}
+                style={[s.chip, selected && s.chipActive]}
+                onPress={() => setSleepBaseline(option.id)}
+              >
+                <Text style={[s.chipText, selected && s.chipTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={s.detailBlock}>
+        <Text style={s.detailLabel}>Which days suit you?</Text>
+        <Text style={s.detailHint}>
+          Pick the days you could realistically move on. Leave it blank and we
+          will assume three.
+        </Text>
+        <View style={s.chipWrap}>
+          {WEEKDAYS.map((option) => {
+            const selected = trainingDays.includes(option.id);
+            return (
+              <Pressable
+                key={option.id}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: selected }}
+                style={[s.chip, s.dayChip, selected && s.chipActive]}
+                onPress={() =>
+                  setTrainingDays(toggleIn(trainingDays, option.id))
+                }
+              >
+                <Text style={[s.chipText, selected && s.chipTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={s.detailBlock}>
+        <Text style={s.detailLabel}>Anything you would rather not do?</Text>
+        <Text style={s.detailHint}>
+          In your own words — "nothing on my knees", "no floor work". This is
+          preference, not injury; the health question earlier covers that.
+        </Text>
+        <TextInput
+          value={wontDo}
+          onChangeText={setWontDo}
+          multiline
+          style={[s.input, s.detailInput]}
+          placeholder="Optional"
+          placeholderTextColor={C.faint}
+        />
+      </View>
+    </>
+  );
+}
+
+const GOAL_GROUP_LABELS: { group: GoalGroup; label: string }[] = [
+  { group: "wellbeing", label: "How you want to feel" },
+  { group: "capacity", label: "What you want to be able to do" },
+  { group: "event", label: "Something you are training for" },
+];
+
 function Onboarding({
   doc,
   update,
@@ -1193,8 +1389,74 @@ function Onboarding({
 }) {
   const saved = doc.onboarding;
   const [step, setStep] = useState(saved?.currentStep ?? 0);
-  const [goals, setGoals] = useState<string[]>(saved?.goals ?? []);
-  const [customGoal, setCustomGoal] = useState(saved?.customGoal ?? "");
+  /*
+   * Goal *ids*, not the labels shown on screen.
+   *
+   * Existing members have labels stored, and several of those labels have
+   * since been reworded, so they are resolved through the profile module
+   * rather than compared directly — otherwise a returning member would find
+   * her goals screen blank. Labels are written back out in finish().
+   */
+  const [goals, setGoals] = useState<string[]>(
+    doc.profile?.goals?.length
+      ? doc.profile.goals
+      : goalIdsFrom(saved?.goals ?? []),
+  );
+  /* Core. Asked of everyone, because the plan is not honest without it. */
+  const [ageBand, setAgeBand] = useState<AgeBand | undefined>(
+    doc.profile?.ageBand,
+  );
+  /*
+   * Whether she agreed to be asked the finer questions.
+   *
+   * Undefined until she answers the gate either way, which is what makes
+   * Continue wait for her there rather than skipping past it.
+   */
+  const [wantsDetail, setWantsDetail] = useState<boolean | undefined>(
+    doc.profile?.detailConsent
+      ? doc.profile.detailConsent === "given"
+      : undefined,
+  );
+  const [equipment, setEquipment] = useState<Equipment[]>(
+    doc.profile?.equipment ?? [],
+  );
+  const [lifeStage, setLifeStage] = useState<LifeStage | undefined>(
+    doc.profile?.lifeStage,
+  );
+  const [sleepBaseline, setSleepBaseline] = useState<SleepBaseline | undefined>(
+    doc.profile?.sleepBaseline,
+  );
+  const [trainingDays, setTrainingDays] = useState<Weekday[]>(
+    doc.profile?.trainingDays ?? [],
+  );
+  const [wontDo, setWontDo] = useState(doc.profile?.wontDo ?? "");
+  /*
+   * Her event, held as three separate answers while she edits.
+   *
+   * Assembled into a stored EventTarget only on save, which is where the
+   * week count becomes a real date and the block start is stamped.
+   */
+  const [eventKind, setEventKind] = useState<EventKind | undefined>(
+    doc.profile?.event?.kind,
+  );
+  const [weeksAway, setWeeksAway] = useState<number | undefined>(
+    doc.profile?.event ? weeksUntil(doc.profile.event.dateIso) : undefined,
+  );
+  const [weeklyKm, setWeeklyKm] = useState<number | undefined>(
+    doc.profile?.event?.currentWeeklyKm,
+  );
+  const wantsEvent = needsEventDetail(goals);
+  /** Assembled on save. Undefined until all three are answered. */
+  const eventTarget =
+    wantsEvent && eventKind && weeksAway !== undefined && weeklyKm !== undefined
+      ? {
+          kind: eventKind,
+          dateIso: isoWeeksFromToday(weeksAway),
+          currentWeeklyKm: weeklyKm,
+          startedOn: doc.profile?.event?.startedOn ?? isoWeeksFromToday(0),
+        }
+      : undefined;
+
   const [activity, setActivity] = useState(saved?.activityLevel ?? "");
   const [minutes, setMinutes] = useState(saved?.availableMinutes ?? 15);
   const [otherMinutes, setOtherMinutes] = useState(false);
@@ -1223,15 +1485,6 @@ function Onboarding({
   const [aiConsent, setAiConsent] = useState(
     saved?.consent.aiPersonalisation ?? false,
   );
-  const goalOptions = [
-    "Steadier energy",
-    "Feel stronger",
-    "Improve mobility",
-    "Manage stress",
-    "Sleep more consistently",
-    "Support hormonal or life-stage wellbeing",
-    "Improve endurance",
-  ];
   const toggleGoal = (value: string) =>
     setGoals((current) =>
       current.includes(value)
@@ -1240,12 +1493,11 @@ function Onboarding({
           ? [...current, value]
           : current,
     );
-  const addCustomGoal = () => {
-    const value = customGoal.trim();
-    if (!value || goals.includes(value) || goals.length >= 3) return;
-    setGoals((current) => [...current, value]);
-    setCustomGoal("");
-  };
+  /** Add or remove a value in a multi-select answer. */
+  const toggleIn = <T,>(list: T[], value: T): T[] =>
+    list.includes(value)
+      ? list.filter((item) => item !== value)
+      : [...list, value];
   const finish = () =>
     update({
       ...doc,
@@ -1258,9 +1510,14 @@ function Onboarding({
         // overwriting it, in case she is ever routed back through this flow
         // after already finishing it once.
         onboardedAt: doc.member.onboardedAt ?? new Date().toISOString(),
+        // Labels, not ids. This list is read by her coach and by the
+        // daily-action rules, both of which work in her language. The ids
+        // live in doc.profile, which is what the generator reads.
         goals: [
-          ...goals,
-          ...doc.member.goals.filter((item) => !goals.includes(item)),
+          ...goals.map(goalLabel),
+          ...doc.member.goals.filter(
+            (item) => !goals.map(goalLabel).includes(item),
+          ),
         ],
         constraints: caution.trim()
           ? [
@@ -1276,11 +1533,34 @@ function Onboarding({
         completedAt: new Date().toISOString(),
         ...evaluateReadiness(readinessAnswers),
       },
+      profile: {
+        ageBand,
+        goals,
+        // Recorded either way. "She said no" and "she was never asked" lead
+        // to the same empty profile otherwise, and only one of them should
+        // be asked again.
+        detailConsent: wantsDetail ? "given" : "declined",
+        // Her event sits outside the detail gate: it belongs to the goal,
+        // not to the optional questions, and without it the goal cannot be
+        // acted on at all.
+        event: eventTarget,
+        ...(wantsDetail
+          ? {
+              equipment,
+              lifeStage,
+              sleepBaseline,
+              trainingDays,
+              wontDo: wontDo.trim() || undefined,
+            }
+          : {}),
+      },
       onboarding: {
         completed: true,
-        currentStep: 7,
-        goals,
-        customGoal: goals.find((goal) => !goalOptions.includes(goal)),
+        currentStep: lastStep + 1,
+        goals: goals.map(goalLabel),
+        // Kept rather than re-derived: a goal she typed into the old
+        // free-text box is still hers, even though nothing offers it now.
+        customGoal: saved?.customGoal,
         activityLevel: activity,
         availableMinutes: minutes,
         movementCaution: caution.trim(),
@@ -1295,21 +1575,62 @@ function Onboarding({
         },
       },
     });
+  /*
+   * The last step, which depends on her answer to the gate.
+   *
+   * Declining ends the flow at the gate itself, so saying no costs her
+   * nothing — that is the whole promise the gate makes.
+   */
+  const lastStep = wantsDetail ? 9 : 8;
+
   const canContinue =
     step === 0
-      ? goals.length >= 1
+      ? Boolean(ageBand)
       : step === 1
-        ? Boolean(activity)
-        : step === 3
-          ? Boolean(caution.trim()) || nothingToAdd
-          : step === 5
-            ? readinessIsComplete(readinessAnswers)
+        ? goals.length >= 1
+        : step === 2
+          ? Boolean(activity)
+          : step === 4
+            ? Boolean(caution.trim()) || nothingToAdd
             : step === 6
-              ? wellnessConsent
-              : true;
+              ? readinessIsComplete(readinessAnswers)
+              : step === 7
+                ? wellnessConsent
+                : step === 8
+                  ? wantsDetail !== undefined
+                  : true;
 
   let question: React.ReactNode;
   if (step === 0)
+    question = (
+      <>
+        <Text style={s.onboardingTitle}>Which decade are you in?</Text>
+        <Text style={s.onboardingCopy}>
+          This sets where your plan starts and how fast it builds. A decade is
+          all we need — not a birthday.
+        </Text>
+        <View style={s.optionStack}>
+          {AGE_BANDS.map((option) => {
+            const selected = ageBand === option.band;
+            return (
+              <Pressable
+                key={option.band}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected }}
+                style={[s.option, selected && s.optionActive]}
+                onPress={() => setAgeBand(option.band)}
+              >
+                <Text style={[s.optionText, selected && s.optionTextActive]}>
+                  {option.label}
+                </Text>
+                {selected && <Check size={17} color={C.greenDeep} />}
+              </Pressable>
+            );
+          })}
+        </View>
+      </>
+    );
+  else if (step === 1)
     question = (
       <>
         <Text style={s.onboardingTitle}>
@@ -1325,67 +1646,54 @@ function Onboarding({
             <Text style={s.selectionLimit}>Maximum reached</Text>
           )}
         </View>
-        <View style={s.optionStack}>
-          {goalOptions.map((value) => {
-            const selected = goals.includes(value);
-            return (
-              <Pressable
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: selected }}
-                key={value}
-                style={[s.option, selected && s.optionActive]}
-                onPress={() => toggleGoal(value)}
-              >
-                <View style={s.goalOptionText}>
-                  <Text style={[s.optionText, selected && s.optionTextActive]}>
-                    {value}
-                  </Text>
-                  {selected && (
-                    <Text style={s.goalPriority}>
-                      Priority {goals.indexOf(value) + 1}
-                    </Text>
-                  )}
-                </View>
-                {selected && <Check size={17} color={C.greenDeep} />}
-              </Pressable>
-            );
-          })}
-        </View>
-        <View style={s.customGoalRow}>
-          <TextInput
-            value={customGoal}
-            onChangeText={setCustomGoal}
-            onSubmitEditing={addCustomGoal}
-            editable={goals.length < 3}
-            style={[s.input, s.customGoalInput]}
-            placeholder="Another goal, in your words"
-            placeholderTextColor={C.faint}
+        {GOAL_GROUP_LABELS.map((group) => (
+          <View key={group.group} style={s.goalGroup}>
+            <Text style={s.goalGroupLabel}>{group.label}</Text>
+            <View style={s.optionStack}>
+              {GOAL_OPTIONS.filter(
+                (option) => option.group === group.group,
+              ).map((option) => {
+                const selected = goals.includes(option.id);
+                return (
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: selected }}
+                    key={option.id}
+                    style={[s.option, selected && s.optionActive]}
+                    onPress={() => toggleGoal(option.id)}
+                  >
+                    <View style={s.goalOptionText}>
+                      <Text
+                        style={[s.optionText, selected && s.optionTextActive]}
+                      >
+                        {option.label}
+                      </Text>
+                      <Text style={s.goalDetail}>{option.detail}</Text>
+                    </View>
+                    {selected && (
+                      <Text style={s.goalPriority}>
+                        {goals.indexOf(option.id) + 1}
+                      </Text>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ))}
+        {wantsEvent && (
+          <EventQuestions
+            kind={eventKind}
+            setKind={setEventKind}
+            weeksAway={weeksAway}
+            setWeeksAway={setWeeksAway}
+            weeklyKm={weeklyKm}
+            setWeeklyKm={setWeeklyKm}
           />
-          <Pressable
-            onPress={addCustomGoal}
-            disabled={!customGoal.trim() || goals.length >= 3}
-            style={[
-              s.addGoalButton,
-              (!customGoal.trim() || goals.length >= 3) && s.disabledButton,
-            ]}
-          >
-            <Text style={s.addGoalText}>Add</Text>
-          </Pressable>
-        </View>
-        {goals
-          .filter((goal) => !goalOptions.includes(goal))
-          .map((goal) => (
-            <Pressable
-              key={goal}
-              onPress={() => toggleGoal(goal)}
-              style={s.customGoalChip}
-            >
-              <Text style={s.customGoalChipText}>{goal} · remove</Text>
-            </Pressable>
-          ))}
+        )}
       </>
     );
-  else if (step === 1)
+  else if (step === 2)
     question = (
       <>
         <Text style={s.onboardingTitle}>
@@ -1419,7 +1727,7 @@ function Onboarding({
         </View>
       </>
     );
-  else if (step === 2)
+  else if (step === 3)
     question = (
       <>
         <Text style={s.onboardingTitle}>How much time is realistic?</Text>
@@ -1478,7 +1786,7 @@ function Onboarding({
         )}
       </>
     );
-  else if (step === 3)
+  else if (step === 4)
     question = (
       <>
         <Text style={s.onboardingTitle}>
@@ -1526,7 +1834,7 @@ function Onboarding({
         </Pressable>
       </>
     );
-  else if (step === 4)
+  else if (step === 5)
     question = (
       <>
         <Text style={s.onboardingTitle}>When should Bharosa check in?</Text>
@@ -1553,7 +1861,7 @@ function Onboarding({
         </View>
       </>
     );
-  else if (step === 5)
+  else if (step === 6)
     question = (
       <>
         <Text style={s.onboardingTitle}>
@@ -1622,7 +1930,7 @@ function Onboarding({
         )}
       </>
     );
-  else
+  else if (step === 7)
     question = (
       <>
         <Text style={s.onboardingTitle}>Choose what you share.</Text>
@@ -1664,6 +1972,90 @@ function Onboarding({
         </View>
       </>
     );
+  else if (step === 8)
+    question = (
+      <>
+        <Text style={s.onboardingTitle}>
+          Want to tell us a bit more about you?
+        </Text>
+        <Text style={s.onboardingCopy}>
+          Your plan is ready either way. A few more answers — what you have to
+          train with, how you have been sleeping, anything you would rather not
+          do — let us fit it more closely to your week.
+        </Text>
+        <Text style={s.onboardingCopy}>
+          These are more personal than what we have asked so far, so they are
+          entirely your choice. You can answer them any time from{" "}
+          <Text style={s.emphasis}>About you</Text> in the You tab, and change
+          them whenever you like.
+        </Text>
+        <View style={s.optionStack}>
+          <Pressable
+            accessibilityRole="radio"
+            accessibilityState={{ checked: wantsDetail === true }}
+            style={[s.option, wantsDetail === true && s.optionActive]}
+            onPress={() => setWantsDetail(true)}
+          >
+            <View style={s.goalOptionText}>
+              <Text
+                style={[
+                  s.optionText,
+                  wantsDetail === true && s.optionTextActive,
+                ]}
+              >
+                Yes, ask me now
+              </Text>
+              <Text style={s.goalDetail}>Four short questions</Text>
+            </View>
+            {wantsDetail === true && <Check size={17} color={C.greenDeep} />}
+          </Pressable>
+          <Pressable
+            accessibilityRole="radio"
+            accessibilityState={{ checked: wantsDetail === false }}
+            style={[s.option, wantsDetail === false && s.optionActive]}
+            onPress={() => setWantsDetail(false)}
+          >
+            <View style={s.goalOptionText}>
+              <Text
+                style={[
+                  s.optionText,
+                  wantsDetail === false && s.optionTextActive,
+                ]}
+              >
+                Not now
+              </Text>
+              <Text style={s.goalDetail}>
+                Start with the plan; add details later
+              </Text>
+            </View>
+            {wantsDetail === false && <Check size={17} color={C.greenDeep} />}
+          </Pressable>
+        </View>
+      </>
+    );
+  else if (step === 9)
+    question = (
+      <>
+        <Text style={s.onboardingTitle}>A little more about you</Text>
+        <Text style={s.onboardingCopy}>
+          Skip anything you would rather not answer — every one of these has a
+          sensible default, and none of them blocks your plan.
+        </Text>
+        <DetailQuestions
+          equipment={equipment}
+          setEquipment={setEquipment}
+          lifeStage={lifeStage}
+          setLifeStage={setLifeStage}
+          sleepBaseline={sleepBaseline}
+          setSleepBaseline={setSleepBaseline}
+          trainingDays={trainingDays}
+          setTrainingDays={setTrainingDays}
+          wontDo={wontDo}
+          setWontDo={setWontDo}
+          toggleIn={toggleIn}
+        />
+      </>
+    );
 
   return (
     <>
@@ -1674,7 +2066,7 @@ function Onboarding({
         time you actually have.
       </Text>
       <View style={s.onboardingProgress}>
-        {[0, 1, 2, 3, 4, 5, 6].map((value) => (
+        {Array.from({ length: lastStep + 1 }, (_, value) => value).map((value) => (
           <View
             key={value}
             style={[
@@ -1694,11 +2086,11 @@ function Onboarding({
           )}
           <Pressable
             disabled={!canContinue}
-            onPress={() => (step === 6 ? finish() : setStep(step + 1))}
+            onPress={() => (step === lastStep ? finish() : setStep(step + 1))}
             style={[s.continueButton, !canContinue && s.disabledButton]}
           >
             <Text style={s.continueButtonText}>
-              {step === 6 ? "Create my starting plan" : "Continue"}
+              {step === lastStep ? "Create my starting plan" : "Continue"}
             </Text>
           </Pressable>
         </View>
@@ -1973,6 +2365,48 @@ function CircleToday({
   );
 }
 
+/**
+ * What the plan needs to tell her, above the day it produced.
+ *
+ * These exist because a plan sometimes cannot give her what she asked for,
+ * and the previous behaviour in that case was silence. A member whose
+ * readiness answers held movement back saw an empty movement section with no
+ * explanation anywhere, and the sentence explaining it — including the advice
+ * to speak to a doctor — was generated on the server and discarded with the
+ * response. See PlanNotice in lib/plan-generator.ts.
+ *
+ * Rendered above the day rather than inside a domain, because the whole point
+ * is that the reason is missing from where she would otherwise look.
+ */
+function PlanNotices({ notices }: { notices: PlanNotice[] }) {
+  if (!notices.length) return null;
+  return (
+    <>
+      {notices.map((notice) => (
+        <View
+          key={notice.kind}
+          accessibilityRole="summary"
+          style={[
+            s.planNotice,
+            notice.kind === "movement_held" && s.planNoticeSerious,
+          ]}
+        >
+          <View style={s.planNoticeHead}>
+            <Info
+              size={15}
+              color={
+                notice.kind === "movement_held" ? C.marigoldInk : C.greenDeep
+              }
+            />
+            <Text style={s.planNoticeTitle}>{notice.title}</Text>
+          </View>
+          <Text style={s.planNoticeBody}>{notice.body}</Text>
+        </View>
+      ))}
+    </>
+  );
+}
+
 function Today({
   doc,
   update,
@@ -2131,6 +2565,10 @@ function Today({
           ? `${remaining} of ${actions.length} left today.`
           : "Today’s plan is complete. Recovery counts as part of the work."}
       </Text>
+      {/* Anything the plan could not do, and why. Above the day, because
+          the gap it explains is inside the day. */}
+      <PlanNotices notices={doc.planNotices ?? []} />
+
       {doc.member.lastPlanChange && (
         <View style={s.planChange}>
           <Text style={s.planLabel}>↻ Plan adjusted</Text>
@@ -4919,6 +5357,379 @@ function Circle({
  * are actually contributing. Everything that needs a decision from her is a
  * door rather than a wall of controls.
  */
+/**
+ * What she is training for, asked only when she has said she is training.
+ *
+ * These three answers are not optional detail. An event goal without them is
+ * a goal the plan cannot act on — lib/endurance.ts needs the distance, the
+ * date and her honest current volume before it can build a single week — so
+ * they sit with the goal itself rather than behind the detail gate.
+ *
+ * All three are chips. There is no date picker in this app, and a typed date
+ * or a typed distance is a typo that quietly changes a training block.
+ */
+function EventQuestions({
+  kind,
+  setKind,
+  weeksAway,
+  setWeeksAway,
+  weeklyKm,
+  setWeeklyKm,
+}: {
+  kind: EventKind | undefined;
+  setKind: (value: EventKind) => void;
+  weeksAway: number | undefined;
+  setWeeksAway: (value: number) => void;
+  weeklyKm: number | undefined;
+  setWeeklyKm: (value: number) => void;
+}) {
+  return (
+    <View style={s.eventBlock}>
+      <Text style={s.detailLabel}>What are you training for?</Text>
+      <View style={s.chipWrap}>
+        {EVENT_KINDS.map((option) => {
+          const selected = kind === option.id;
+          return (
+            <Pressable
+              key={option.id}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: selected }}
+              style={[s.chip, selected && s.chipActive]}
+              onPress={() => setKind(option.id)}
+            >
+              <Text style={[s.chipText, selected && s.chipTextActive]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={s.detailBlock}>
+        <Text style={s.detailLabel}>When is it?</Text>
+        <View style={s.chipWrap}>
+          {WEEKS_AWAY_OPTIONS.map((option) => {
+            const selected = weeksAway === option.weeks;
+            return (
+              <Pressable
+                key={option.weeks}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected }}
+                style={[s.chip, selected && s.chipActive]}
+                onPress={() => setWeeksAway(option.weeks)}
+              >
+                <Text style={[s.chipText, selected && s.chipTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={s.detailBlock}>
+        <Text style={s.detailLabel}>
+          How far do you run in a normal week right now?
+        </Text>
+        <Text style={s.detailHint}>
+          Be honest rather than hopeful — every week of your plan is built up
+          from this number, so rounding it up makes the whole block too hard.
+        </Text>
+        <View style={s.chipWrap}>
+          {WEEKLY_KM_OPTIONS.map((option) => {
+            const selected = weeklyKm === option.km;
+            return (
+              <Pressable
+                key={option.km}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected }}
+                style={[s.chip, selected && s.chipActive]}
+                onPress={() => setWeeklyKm(option.km)}
+              >
+                <Text style={[s.chipText, selected && s.chipTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Everything she has told us about herself, in one editable place.
+ *
+ * The promise made by the consent gate during onboarding: whatever she
+ * declined to answer then, she can answer here, and whatever she answered can
+ * be changed. That promise is why the gate is safe to offer — declining costs
+ * her nothing permanent.
+ *
+ * Saving writes doc.profile and mirrors her goal labels back onto
+ * member.goals, which is what her coach reads and what the daily-action rules
+ * match on. The generator reads the ids. Keeping both in step is the whole
+ * job of this screen's save.
+ */
+function AboutYou({
+  doc,
+  update,
+}: {
+  doc: MemberDoc;
+  update: (doc: MemberDoc) => void;
+}) {
+  const saved = doc.profile;
+  const [ageBand, setAgeBand] = useState<AgeBand | undefined>(saved?.ageBand);
+  const [goals, setGoals] = useState<string[]>(
+    saved?.goals?.length
+      ? saved.goals
+      : goalIdsFrom(doc.onboarding?.goals ?? doc.member.goals ?? []),
+  );
+  const [equipment, setEquipment] = useState<Equipment[]>(
+    saved?.equipment ?? [],
+  );
+  const [lifeStage, setLifeStage] = useState<LifeStage | undefined>(
+    saved?.lifeStage,
+  );
+  const [sleepBaseline, setSleepBaseline] = useState<SleepBaseline | undefined>(
+    saved?.sleepBaseline,
+  );
+  const [trainingDays, setTrainingDays] = useState<Weekday[]>(
+    saved?.trainingDays ?? [],
+  );
+  const [wontDo, setWontDo] = useState(saved?.wontDo ?? "");
+  const [savedJustNow, setSavedJustNow] = useState(false);
+  /*
+   * Her event, held as three separate answers while she edits.
+   *
+   * Assembled into a stored EventTarget only on save, which is where the
+   * week count becomes a real date and the block start is stamped.
+   */
+  const [eventKind, setEventKind] = useState<EventKind | undefined>(
+    saved?.event?.kind,
+  );
+  const [weeksAway, setWeeksAway] = useState<number | undefined>(
+    saved?.event ? weeksUntil(saved.event.dateIso) : undefined,
+  );
+  const [weeklyKm, setWeeklyKm] = useState<number | undefined>(
+    saved?.event?.currentWeeklyKm,
+  );
+  const wantsEvent = needsEventDetail(goals);
+  /** Assembled on save. Undefined until all three are answered. */
+  const eventTarget =
+    wantsEvent && eventKind && weeksAway !== undefined && weeklyKm !== undefined
+      ? {
+          kind: eventKind,
+          dateIso: isoWeeksFromToday(weeksAway),
+          currentWeeklyKm: weeklyKm,
+          startedOn: saved?.event?.startedOn ?? isoWeeksFromToday(0),
+        }
+      : undefined;
+
+
+  const toggleIn = <T,>(list: T[], value: T): T[] =>
+    list.includes(value)
+      ? list.filter((item) => item !== value)
+      : [...list, value];
+
+  const toggleGoal = (id: string) =>
+    setGoals((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : current.length < 3
+          ? [...current, id]
+          : current,
+    );
+
+  const save = () => {
+    const labels = goals.map(goalLabel);
+    update({
+      ...doc,
+      member: {
+        ...doc.member,
+        goals: [
+          ...labels,
+          ...doc.member.goals.filter((item) => !labels.includes(item)),
+        ],
+      },
+      onboarding: { ...doc.onboarding, goals: labels },
+      profile: {
+        ageBand,
+        goals,
+        // Editing anything here is itself the consent the gate asked for.
+        detailConsent: "given",
+        event: eventTarget,
+        equipment,
+        lifeStage,
+        sleepBaseline,
+        trainingDays,
+        wontDo: wontDo.trim() || undefined,
+      },
+    });
+    setSavedJustNow(true);
+  };
+
+  /* Any edit puts the save button back, so the confirmation cannot go stale. */
+  const edited = () => setSavedJustNow(false);
+
+  return (
+    <>
+      <Text style={s.hero}>About you</Text>
+      <Text style={s.heroCopy}>
+        These answers decide what your plan reaches for — how hard it starts,
+        which movements it can use, and which it leaves alone. Change any of
+        them whenever they stop being true.
+      </Text>
+
+      <Card>
+        <Text style={s.detailLabel}>Which decade are you in?</Text>
+        <Text style={s.detailHint}>
+          Sets where your plan starts and how quickly it builds.
+        </Text>
+        <View style={s.chipWrap}>
+          {AGE_BANDS.map((option) => {
+            const selected = ageBand === option.band;
+            return (
+              <Pressable
+                key={option.band}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected }}
+                style={[s.chip, selected && s.chipActive]}
+                onPress={() => {
+                  setAgeBand(option.band);
+                  edited();
+                }}
+              >
+                <Text style={[s.chipText, selected && s.chipTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <View style={s.detailBlock}>
+          <Text style={s.detailLabel}>What are you working towards?</Text>
+          <Text style={s.detailHint}>
+            Up to three. The order you pick decides what leads your sessions.
+          </Text>
+        </View>
+        {GOAL_GROUP_LABELS.map((group) => (
+          <View key={group.group} style={s.goalGroup}>
+            <Text style={s.goalGroupLabel}>{group.label}</Text>
+            <View style={s.optionStack}>
+              {GOAL_OPTIONS.filter(
+                (option) => option.group === group.group,
+              ).map((option) => {
+                const selected = goals.includes(option.id);
+                return (
+                  <Pressable
+                    key={option.id}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: selected }}
+                    style={[s.option, selected && s.optionActive]}
+                    onPress={() => {
+                      toggleGoal(option.id);
+                      edited();
+                    }}
+                  >
+                    <View style={s.goalOptionText}>
+                      <Text
+                        style={[s.optionText, selected && s.optionTextActive]}
+                      >
+                        {option.label}
+                      </Text>
+                      <Text style={s.goalDetail}>{option.detail}</Text>
+                    </View>
+                    {selected && (
+                      <Text style={s.goalPriority}>
+                        {goals.indexOf(option.id) + 1}
+                      </Text>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ))}
+        {wantsEvent && (
+          <EventQuestions
+            kind={eventKind}
+            setKind={(value) => {
+              setEventKind(value);
+              edited();
+            }}
+            weeksAway={weeksAway}
+            setWeeksAway={(value) => {
+              setWeeksAway(value);
+              edited();
+            }}
+            weeklyKm={weeklyKm}
+            setWeeklyKm={(value) => {
+              setWeeklyKm(value);
+              edited();
+            }}
+          />
+        )}
+
+        <DetailQuestions
+          equipment={equipment}
+          setEquipment={(value) => {
+            setEquipment(value);
+            edited();
+          }}
+          lifeStage={lifeStage}
+          setLifeStage={(value) => {
+            setLifeStage(value);
+            edited();
+          }}
+          sleepBaseline={sleepBaseline}
+          setSleepBaseline={(value) => {
+            setSleepBaseline(value);
+            edited();
+          }}
+          trainingDays={trainingDays}
+          setTrainingDays={(value) => {
+            setTrainingDays(value);
+            edited();
+          }}
+          wontDo={wontDo}
+          setWontDo={(value) => {
+            setWontDo(value);
+            edited();
+          }}
+          toggleIn={toggleIn}
+        />
+
+        <Pressable
+          accessibilityRole="button"
+          onPress={save}
+          disabled={savedJustNow}
+          style={[s.primaryButton, savedJustNow && s.disabledButton]}
+        >
+          <Text style={s.primaryButtonText}>
+            {savedJustNow ? "Saved" : "Save"}
+          </Text>
+        </Pressable>
+        {savedJustNow && (
+          <Text style={s.aboutSummary}>
+            Your next plan will be built from these answers. Today's plan stays
+            as it is.
+          </Text>
+        )}
+      </Card>
+
+      <Text style={s.disclaimer}>
+        These answers guide coaching. They are not a medical assessment, and
+        nothing here is shared outside your account.
+      </Text>
+    </>
+  );
+}
+
+/** The screens the You tab opens on their own. */
+type YouSection = "about" | "circle" | "health" | "reports" | "settings";
+
 function YouHub({
   doc,
   circleRequests,
@@ -4926,7 +5737,7 @@ function YouHub({
 }: {
   doc: MemberDoc;
   circleRequests: number;
-  onOpen: (section: "circle" | "health" | "reports" | "settings") => void;
+  onOpen: (section: YouSection) => void;
 }) {
   const initials = doc.member.name
     .split(" ")
@@ -4940,6 +5751,21 @@ function YouHub({
     .filter((snapshot) => snapshot.metric === "steps" && snapshot.available)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
   const reportCount = doc.reports?.length ?? 0;
+  /*
+   * How much of her profile is filled in.
+   *
+   * Shown as a count rather than a percentage or a progress ring: this is not
+   * a task to complete, and every one of these questions is optional. It is
+   * here so that someone who declined at sign-up can see there is something
+   * here to answer, without being nagged about it.
+   */
+  const known = profileCompleteness(doc.profile ?? { goals: [] });
+  const aboutDetail =
+    known.known >= known.total
+      ? "Age, goals and preferences — all answered"
+      : doc.profile?.detailConsent === "declined"
+        ? "Add details any time to sharpen your plan"
+        : `${known.known} of ${known.total} answered — each one sharpens your plan`;
   const activeDays = new Set(
     (doc.actions ?? [])
       .filter(
@@ -4950,12 +5776,18 @@ function YouHub({
   ).size;
 
   const rows: {
-    key: "circle" | "health" | "reports" | "settings";
+    key: YouSection;
     Icon: typeof Users;
     label: string;
     detail: string;
     badge?: number;
   }[] = [
+    {
+      key: "about",
+      Icon: UserRound,
+      label: "About you",
+      detail: aboutDetail,
+    },
     {
       key: "health",
       Icon: HeartPulse,
@@ -5417,9 +6249,7 @@ function MemberApp({
   /** Connection requests waiting on her, surfaced on the You tab. */
   const [circleRequests, setCircleRequests] = useState(0);
   /** Which section of You is open. Null is the hub. */
-  const [youSection, setYouSection] = useState<
-    null | "circle" | "health" | "reports" | "settings"
-  >(null);
+  const [youSection, setYouSection] = useState<null | YouSection>(null);
   /** Progress opens on its own; null is the plan itself. */
   const [planSection, setPlanSection] = useState<null | "progress">(null);
   const scrollRef = useRef<ScrollView>(null);
@@ -5814,6 +6644,9 @@ function MemberApp({
               <ChevronLeft size={18} color={C.green} />
               <Text style={s.backRowText}>You</Text>
             </Pressable>
+            {youSection === "about" && (
+              <AboutYou doc={doc} update={update} />
+            )}
             {youSection === "circle" && (
               <Circle token={token} onUnreadChange={setCircleRequests} />
             )}

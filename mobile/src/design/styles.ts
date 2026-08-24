@@ -1903,12 +1903,93 @@ export const s = StyleSheet.create({
   },
   selectionCountText: { color: C.greenDeep, fontSize: 11, fontWeight: "800" },
   selectionLimit: { color: C.marigoldInk, fontSize: 10, fontWeight: "700" },
-  goalOptionText: { flex: 1 },
+  goalOptionText: { flex: 1, paddingVertical: 11 },
+  /* A group of goals under one heading, so ten options read as three lists. */
+  goalGroup: { marginTop: 20 },
+  goalGroupLabel: {
+    color: C.faint,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+  },
+  /* The one line that says what a goal actually means for her plan. */
+  goalDetail: { color: C.faint, fontSize: 12, lineHeight: 16, marginTop: 2 },
+  /*
+   * Her ranking, as a numbered badge rather than the words "Priority 2".
+   *
+   * The order she picks in decides which movement patterns lead the session,
+   * so it is worth showing; it is not worth a line of prose per selected goal.
+   */
   goalPriority: {
-    color: C.green,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    marginLeft: 10,
+    backgroundColor: C.greenDeep,
+    color: "white",
     fontSize: 11,
-    fontWeight: "700",
-    marginTop: 3,
+    fontWeight: "800",
+    textAlign: "center",
+    lineHeight: 22,
+    overflow: "hidden",
+  },
+  emphasis: { color: C.ink, fontWeight: "800" },
+
+  /* ---------------------------------------------------------------- */
+  /* The optional detail questions, in onboarding and in About you     */
+  /* ---------------------------------------------------------------- */
+  /* Something the plan could not do, and the reason. */
+  planNotice: {
+    marginTop: 16,
+    padding: 15,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: C.greenTint,
+    gap: 6,
+  },
+  /* A held movement domain is a health message, not an update. */
+  planNoticeSerious: {
+    backgroundColor: C.marigoldTint,
+    borderColor: C.marigold,
+  },
+  planNoticeHead: { flexDirection: "row", alignItems: "center", gap: 7 },
+  planNoticeTitle: { color: C.ink, fontSize: 14, fontWeight: "800", flex: 1 },
+  planNoticeBody: { color: C.soft, fontSize: 13, lineHeight: 19 },
+
+  /* The event questions, set apart because they belong to the goal above. */
+  eventBlock: {
+    marginTop: 20,
+    paddingTop: 18,
+    borderTopWidth: 1,
+    borderTopColor: C.line,
+  },
+  detailBlock: { marginTop: 24 },
+  detailLabel: { color: C.ink, fontSize: 14, fontWeight: "800" },
+  detailHint: { color: C.faint, fontSize: 12, lineHeight: 17, marginTop: 3 },
+  /* Wrapping chips: the answers are short and there are a lot of them. */
+  chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
+  chip: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: C.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chipActive: { backgroundColor: C.greenTint, borderColor: C.green },
+  chipText: { color: C.soft, fontSize: 13, fontWeight: "700" },
+  chipTextActive: { color: C.greenDeep, fontWeight: "800" },
+  /* A day chip is square-ish, because they sit seven in a row. */
+  dayChip: { minWidth: 44, paddingHorizontal: 8 },
+  detailInput: { minHeight: 84, paddingTop: 14, textAlignVertical: "top" },
+  aboutSummary: {
+    color: C.faint,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 6,
   },
   customGoalRow: { flexDirection: "row", gap: 8, marginTop: 12 },
   customGoalInput: { flex: 1 },

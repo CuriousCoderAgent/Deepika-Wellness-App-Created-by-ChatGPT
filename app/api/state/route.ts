@@ -275,6 +275,7 @@ function mergeMemberUpdate(
     doseAdaptedThrough: existing.doseAdaptedThrough,
     pausedExerciseIds: existing.pausedExerciseIds,
     planGeneratedOn: existing.planGeneratedOn,
+    planNotices: existing.planNotices,
     // A coaching subscription is established elsewhere. A member's own app
     // cannot grant or revoke it by posting a document.
     coaching: existing.coaching,
@@ -282,6 +283,10 @@ function mergeMemberUpdate(
     healthSnapshots: incoming.healthSnapshots ?? existing.healthSnapshots ?? [],
     recommendations: incoming.recommendations ?? existing.recommendations ?? [],
     onboarding: incoming.onboarding ?? existing.onboarding,
+    // Member-owned: only she edits it, from onboarding or from About you.
+    // Missing from this merge is how engagement used to be lost on every
+    // sync — see the note on that field in lib/persist.ts.
+    profile: incoming.profile ?? existing.profile,
   };
 }
 

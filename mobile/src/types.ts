@@ -412,6 +412,13 @@ export interface CircleState {
 import type { ReadinessState } from "./readiness";
 import type { ConsistencySummary } from "./consistency";
 
+/** See lib/plan-generator.ts. Rebuilt on every generation. */
+export interface PlanNotice {
+  kind: "movement_held" | "event";
+  title: string;
+  body: string;
+}
+
 export interface MemberDoc {
   member: Member;
   actions: DailyAction[];
@@ -425,8 +432,23 @@ export interface MemberDoc {
   healthSnapshots: HealthSnapshot[];
   recommendations: AiRecommendation[];
   onboarding: OnboardingState;
+  /**
+   * Who she is, as far as she has chosen to say. See `src/profile.ts`.
+   *
+   * Not inside `onboarding`: she answers the core of it at sign-up and can
+   * change any of it later from About you. Absent until she has answered.
+   */
+  profile?: MemberProfile;
   /** Pre-exercise readiness answers. The server recomputes the outcome. */
   readiness?: ReadinessState;
+  /**
+   * What the app must tell her about this plan. Server-owned, read-only.
+   *
+   * A held movement domain used to be silent: the server produced the
+   * explanation and returned it from a route whose response the app throws
+   * away, so she saw an empty section and no reason for it.
+   */
+  planNotices?: PlanNotice[];
   /** Set by the server the day a plan was last built. */
   planGeneratedOn?: string;
   /** Absent means un-coached, which is the default. A coach outranks Vera. */

@@ -304,6 +304,9 @@ export function normalizeMemberDoc(
     healthSnapshots: raw.healthSnapshots ?? [],
     recommendations: raw.recommendations ?? [],
     onboarding: normalizeOnboarding(raw.onboarding),
+    // Member-owned, like engagement. Dropping it here would quietly undo an
+    // About you edit on the next sync.
+    profile: raw.profile,
     // Date-keyed, so unlike actions and pulses these need no re-basing.
     hydrationLogs: raw.hydrationLogs ?? [],
     habits: raw.habits ?? [],
@@ -320,6 +323,7 @@ export function normalizeMemberDoc(
     // applyAdaptation in app/api/plan/generate/route.ts.
     readiness: raw.readiness,
     planGeneratedOn: raw.planGeneratedOn,
+    planNotices: raw.planNotices,
     coaching: raw.coaching,
     doseSteps: raw.doseSteps,
     doseAdaptedThrough: raw.doseAdaptedThrough,

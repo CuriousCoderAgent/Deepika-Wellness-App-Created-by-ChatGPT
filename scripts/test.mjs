@@ -41,9 +41,24 @@ import {
   GOAL_OPTIONS,
   LIFE_STAGES,
   goalNeedsEnduranceModel,
+  goalIdFromLabel as mobileGoalIdFromLabel,
+  EVENT_KINDS,
   profileCompleteness,
 } from "../mobile/src/profile.ts";
 import { assessFeasibility, planWeek } from "../lib/endurance.ts";
+import {
+  GOALS,
+  avoidLoadsFor,
+  conditionsForLifeStage,
+  equipmentFor,
+  goalIdFromLabel,
+  goalIds,
+  sessionDaysFor,
+  startsConservatively,
+  tierCeiling,
+  withheldPatternsForAge,
+  goalNeedsEnduranceModel as serverGoalNeedsEndurance,
+} from "../lib/member-profile.ts";
 import {
   SKIP_OPTIONS,
   describeSkip,
@@ -2720,4 +2735,564 @@ test("every movement in the library is fully described", () => {
 test("no movement id is duplicated", () => {
   const ids = EXERCISES.map((exercise) => exercise.id);
   assert.equal(new Set(ids).size, ids.length);
+});
+
+/* ------------------------------------------------------------------ *
+ * Who she is, and what the plan does with it
+ *
+ * The rules in lib/member-profile.ts decide dose, difficulty and what is
+ * even offerable. They are the layer where being quietly wrong produces a
+ * plan that looks reasonable and is not, so each one is pinned here.
+ * ------------------------------------------------------------------ */
+
+test("the two profile vocabularies stay in step", () => {
+  // mobile/src/profile.ts owns the labels; lib/member-profile.ts owns the
+  // rules. They are separate files by design, so nothing but a test stops
+  // one from drifting out from under the other.
+  const appIds = GOAL_OPTIONS.map((option) => option.id).sort();
+  const ruleIds = GOALS.map((goal) => goal.id).sort();
+  assert.deepEqual(appIds, ruleIds);
+
+  for (const option of GOAL_OPTIONS) {
+    assert.equal(
+      goalNeedsEnduranceModel(option.id),
+      serverGoalNeedsEndurance(option.id),
+      option.id + " disagrees about which progression model it needs",
+    );
+    const rule = GOALS.find((goal) => goal.id === option.id);
+    assert.deepEqual(
+      option.legacy.slice().sort(),
+      rule.legacy.slice().sort(),
+      option.id + " knows a different set of old labels on each side",
+    );
+  }
+});
+
+test("both sides resolve an old label to the same goal", () => {
+  // The app maps her stored label back to a selected chip; the server maps
+  // it to movement patterns. If they disagree she sees one goal on screen
+  // and trains for another.
+  for (const goal of GOALS) {
+    for (const label of goal.legacy) {
+      assert.equal(mobileGoalIdFromLabel(label), goal.id, label);
+      assert.equal(goalIdFromLabel(label), goal.id, label);
+    }
+  }
+});
+
+test("every current label resolves to its own goal", () => {
+  // The app stores what it shows. If a label stops resolving, the member
+  // keeps her goal on screen and silently loses it in the generator.
+  for (const option of GOAL_OPTIONS) {
+    assert.equal(
+      goalIdFromLabel(option.label),
+      option.id,
+      option.label + " does not resolve",
+    );
+  }
+});
+
+test("goals stored before the rewording still resolve", () => {
+  // Four labels were reworded when the goal list grew. Every member in the
+  // pilot has the old strings stored, and matching on labels alone would
+  // have dropped their pattern ordering without any error.
+  assert.equal(goalIdFromLabel("Feel stronger"), "stronger");
+  assert.equal(goalIdFromLabel("Improve mobility"), "mobility");
+  assert.equal(goalIdFromLabel("Improve endurance"), "endurance");
+  assert.equal(
+    goalIdFromLabel("Support hormonal or life-stage wellbeing"),
+    "life-stage",
+  );
+});
+
+test("a goal we cannot read is dropped, not guessed", () => {
+  // The old custom-goal box let her type anything. It stays visible to her
+  // coach; it must not be resolved to whichever id happens to be nearest.
+  assert.equal(goalIdFromLabel("run a sub-3 marathon"), undefined);
+  assert.equal(goalIdFromLabel(""), undefined);
+  assert.deepEqual(goalIds(["Feel stronger", "run a sub-3 marathon"]), [
+    "stronger",
+  ]);
+});
+
+test("goal order is the member's, and duplicates collapse", () => {
+  assert.deepEqual(goalIds(["Manage stress", "Feel stronger"]), [
+    "stress",
+    "stronger",
+  ]);
+  assert.deepEqual(goalIds(["stronger", "Feel stronger"]), ["stronger"]);
+});
+
+test("nobody is handed equipment they never said they had", () => {
+  assert.deepEqual(equipmentFor(undefined), ["none", "chair", "wall"]);
+  assert.deepEqual(equipmentFor({ goals: [], equipment: [] }), [
+    "none",
+    "chair",
+    "wall",
+  ]);
+});
+
+test("bodyweight stays available whatever else she has", () => {
+  // "none" means bodyweight, not "nothing selected". Dropping it would make
+  // choosing a band remove every movement that needs no equipment at all.
+  const chosen = equipmentFor({ goals: [], equipment: ["band"] });
+  assert.ok(chosen.includes("none"));
+  assert.ok(chosen.includes("band"));
+  assert.ok(!chosen.includes("chair"));
+});
+
+test("an older member starts lower and still gets there", () => {
+  // A ceiling that never lifts is not caution, it is a member held at
+  // sit-to-stand in her second year.
+  assert.equal(tierCeiling(1, "70+"), 1);
+  assert.equal(tierCeiling(8, "70+"), 1);
+  assert.equal(tierCeiling(12, "70+"), 2);
+  assert.equal(tierCeiling(20, "70+"), 3);
+});
+
+test("an unknown age is treated as careful, not average", () => {
+  assert.equal(tierCeiling(1, undefined), 1);
+  assert.equal(tierCeiling(4, undefined), 1);
+  assert.ok(tierCeiling(8, undefined) < tierCeiling(8, "30-39"));
+});
+
+test("a younger member is not slowed down by the age rule", () => {
+  assert.equal(tierCeiling(3, "30-39"), 2);
+  assert.equal(tierCeiling(8, "30-39"), 3);
+});
+
+test("the generator does not prescribe jumping unprompted", () => {
+  // Impact is the one class where a first session can end someone's
+  // involvement. Over sixty, or age unknown, that call belongs to a person.
+  assert.deepEqual(withheldPatternsForAge("70+"), ["jump"]);
+  assert.deepEqual(withheldPatternsForAge("60-69"), ["jump"]);
+  assert.deepEqual(withheldPatternsForAge(undefined), ["jump"]);
+  assert.deepEqual(withheldPatternsForAge("30-39"), []);
+});
+
+test("pregnancy becomes a real exclusion", () => {
+  assert.deepEqual(conditionsForLifeStage("pregnant"), ["pregnancy"]);
+  assert.ok(avoidLoadsFor({ goals: [], lifeStage: "pregnant" }).includes(
+    "pelvic_floor",
+  ));
+});
+
+test("a life stage that is not a risk is not treated as one", () => {
+  // Perimenopause changes emphasis, not safety. Turning it into a blanket
+  // restriction would be its own kind of harm.
+  assert.deepEqual(conditionsForLifeStage("perimenopause"), []);
+  assert.deepEqual(avoidLoadsFor({ goals: [], lifeStage: "perimenopause" }), []);
+  assert.deepEqual(conditionsForLifeStage(undefined), []);
+});
+
+test("postpartum protects the floor without excluding her", () => {
+  assert.deepEqual(conditionsForLifeStage("postpartum"), []);
+  assert.deepEqual(avoidLoadsFor({ goals: [], lifeStage: "postpartum" }), [
+    "pelvic_floor",
+  ]);
+});
+
+test("what she will not do is read the same way as a caution", () => {
+  const loads = avoidLoadsFor({ goals: [], wontDo: "nothing on my knees" });
+  assert.ok(loads.includes("knee"));
+});
+
+test("a preference and a life stage both apply", () => {
+  const loads = avoidLoadsFor({
+    goals: [],
+    lifeStage: "postpartum",
+    wontDo: "no overhead work, my shoulder complains",
+  });
+  assert.ok(loads.includes("pelvic_floor"));
+  assert.ok(loads.includes("shoulder"));
+});
+
+test("an unanswered detail question falls to the safe default", () => {
+  assert.equal(sessionDaysFor(undefined), 3);
+  assert.equal(sessionDaysFor({ goals: [], trainingDays: [] }), 3);
+  assert.equal(
+    sessionDaysFor({ goals: [], trainingDays: ["mon", "wed", "fri", "sat"] }),
+    4,
+  );
+  assert.equal(startsConservatively(undefined), false);
+  assert.equal(startsConservatively({ goals: [], sleepBaseline: "poor" }), true);
+  assert.equal(startsConservatively({ goals: [], sleepBaseline: "good" }), false);
+});
+
+/* ------------------------------------------------------------------ *
+ * The profile reaching the plan
+ *
+ * The rules above are only worth having if the generator actually reads
+ * them. These run the real generator.
+ * ------------------------------------------------------------------ */
+
+const planFor = (profile, over = {}) =>
+  selectSession(
+    {
+      memberId: "m1",
+      week: 10,
+      goals: [],
+      availableMinutes: 30,
+      profile,
+      ...over,
+    },
+    "normal",
+  );
+
+test("her goal changes what she is shown first", () => {
+  // The complaint that started this: every member saw the same wall sit.
+  const strength = planFor({ goals: ["stronger"] });
+  const calm = planFor({ goals: ["stress"] });
+  assert.ok(strength.length > 0);
+  assert.ok(calm.length > 0);
+  assert.notEqual(strength[0].exerciseId, calm[0].exerciseId);
+});
+
+test("a goal stored as an old label still changes the plan", () => {
+  // The regression this whole id table exists to prevent.
+  const byLabel = planFor(undefined, { goals: ["Feel stronger"] });
+  const byId = planFor({ goals: ["stronger"] });
+  assert.deepEqual(
+    byLabel.map((item) => item.exerciseId),
+    byId.map((item) => item.exerciseId),
+  );
+});
+
+test("a member with no profile still gets a full session", () => {
+  // Every member who onboarded before any of this existed.
+  const session = planFor(undefined);
+  assert.ok(session.length >= 3);
+});
+
+test("a home member is never shown gym equipment", () => {
+  for (const item of planFor(undefined)) {
+    const exercise = EXERCISE_BY_ID.get(item.exerciseId);
+    for (const kit of exercise.equipment) {
+      assert.ok(
+        ["none", "chair", "wall"].includes(kit),
+        item.exerciseId + " needs " + kit,
+      );
+    }
+  }
+});
+
+test("pregnancy is honoured by the generator, not just the rule", () => {
+  for (const item of planFor({ goals: ["stronger"], lifeStage: "pregnant" })) {
+    const exercise = EXERCISE_BY_ID.get(item.exerciseId);
+    assert.ok(
+      !exercise.avoidIf.includes("pregnancy"),
+      item.exerciseId + " is offered during pregnancy",
+    );
+    assert.ok(
+      !exercise.loads.includes("pelvic_floor"),
+      item.exerciseId + " loads the pelvic floor",
+    );
+  }
+});
+
+test("age holds the difficulty down in the same week", () => {
+  const older = planFor({ goals: ["stronger"], ageBand: "70+" });
+  const younger = planFor({ goals: ["stronger"], ageBand: "30-39" });
+  const hardest = (session) =>
+    Math.max(...session.map((item) => EXERCISE_BY_ID.get(item.exerciseId).tier));
+  assert.ok(older.length > 0);
+  assert.ok(hardest(older) < hardest(younger));
+});
+
+test("what she will not do is absent from the plan itself", () => {
+  for (const item of planFor({
+    goals: ["stronger"],
+    wontDo: "nothing on my knees please",
+  })) {
+    assert.ok(
+      !EXERCISE_BY_ID.get(item.exerciseId).loads.includes("knee"),
+      item.exerciseId + " loads a knee she asked us to leave alone",
+    );
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * The starting point
+ *
+ * The sign-up screen promises that the activity question "establishes a
+ * starting point". These are the tests that make that sentence true.
+ * ------------------------------------------------------------------ */
+
+test("what she was already doing changes where she starts", () => {
+  assert.ok(
+    tierCeiling(1, "30-39", "Regular exercise") >
+      tierCeiling(1, "30-39", "Mostly seated"),
+  );
+  assert.equal(tierCeiling(3, "30-39", "Regular exercise"), 3);
+  assert.equal(tierCeiling(3, "30-39", "Mostly seated"), 2);
+});
+
+test("an unanswered activity question is credited like the seated case", () => {
+  // Not like the middle one. Silence is not a claim to be fit.
+  assert.equal(
+    tierCeiling(5, "30-39", undefined),
+    tierCeiling(5, "30-39", "Mostly seated"),
+  );
+  assert.equal(
+    tierCeiling(5, "30-39", "something we never offered"),
+    tierCeiling(5, "30-39", "Mostly seated"),
+  );
+});
+
+test("being active does not cancel being older", () => {
+  // The credit for activity is deliberately smaller than the delay for age,
+  // so an active seventy-year-old still starts below an active thirty-year-old.
+  assert.ok(
+    tierCeiling(4, "70+", "Regular exercise") <
+      tierCeiling(4, "30-39", "Regular exercise"),
+  );
+});
+
+test("nobody starts above the first tier in week one", () => {
+  // The on-ramp still holds at the very start, whoever she is.
+  for (const band of ["18-29", "30-39", "40-49", "50-59", "60-69", "70+"]) {
+    assert.equal(tierCeiling(1, band, "Mostly seated"), 1, band);
+  }
+});
+
+test("two different members do not get the same session", () => {
+  // The complaint this all began with: "wall, stand, and all those things",
+  // shown to everyone regardless of who they were.
+  const starting = selectSession(
+    {
+      memberId: "a",
+      week: 10,
+      goals: [],
+      availableMinutes: 30,
+      activityLevel: "Mostly seated",
+      profile: { goals: ["stronger"], ageBand: "70+" },
+    },
+    "normal",
+  );
+  const experienced = selectSession(
+    {
+      memberId: "b",
+      week: 10,
+      goals: [],
+      availableMinutes: 30,
+      activityLevel: "Regular exercise",
+      profile: { goals: ["stronger"], ageBand: "30-39" },
+    },
+    "normal",
+  );
+  const ids = (session) => session.map((item) => item.exerciseId).join(",");
+  assert.notEqual(ids(starting), ids(experienced));
+
+  const tiers = (session) =>
+    session.map((item) => EXERCISE_BY_ID.get(item.exerciseId).tier);
+  assert.ok(Math.max(...tiers(experienced)) > Math.max(...tiers(starting)));
+});
+
+test("a movement she is already doing is not swapped out from under her", () => {
+  // Progression happens by dose and by the explicit progressesTo link. The
+  // entry-tier rule must only decide where she *begins* a pattern.
+  const session = selectSession(
+    {
+      memberId: "a",
+      week: 12,
+      goals: [],
+      availableMinutes: 30,
+      activityLevel: "Regular exercise",
+      profile: { goals: ["stronger"], ageBand: "30-39" },
+      doseSteps: { "ex-sit-to-stand": 2 },
+    },
+    "normal",
+  );
+  assert.ok(
+    session.some((item) => item.exerciseId === "ex-sit-to-stand"),
+    "history was discarded in favour of a harder movement",
+  );
+});
+
+/* ------------------------------------------------------------------ *
+ * Training for something with a date
+ *
+ * Event goals progress by weekly volume, not by sets and reps, so they route
+ * to a different model entirely. The risk being tested here is not that the
+ * model is wrong — lib/endurance.ts has its own tests — but that a member
+ * asks for an event block and receives an ordinary week without being told.
+ * ------------------------------------------------------------------ */
+
+const eventPlanFor = (profile, over = {}) =>
+  generatePlan({
+    memberId: "m1",
+    week: 3,
+    goals: [],
+    availableMinutes: 40,
+    activityLevel: "Regular exercise",
+    todayIso: "2026-03-01",
+    profile,
+    ...over,
+  });
+
+test("an ordinary member gets no event machinery at all", () => {
+  const plan = eventPlanFor({ goals: ["stronger"], ageBand: "30-39" });
+  assert.equal(plan.enduranceWeek, undefined);
+  assert.equal(plan.eventNotice, undefined);
+});
+
+test("an event goal never silently becomes an ordinary week", () => {
+  // She chose "train for a hybrid event" and told us nothing else. The wrong
+  // outcome is a week of chair squats with nothing explaining the gap.
+  const plan = eventPlanFor({ goals: ["event-hybrid"], ageBand: "30-39" });
+  assert.equal(plan.enduranceWeek, undefined);
+  assert.ok(plan.eventNotice);
+  assert.match(plan.eventNotice.body, /About you/);
+});
+
+test("a target that does not fit the calendar is refused with a reason", () => {
+  const plan = eventPlanFor({
+    goals: ["event-endurance"],
+    ageBand: "30-39",
+    event: {
+      kind: "marathon",
+      startedOn: "2026-02-01",
+      dateIso: "2026-04-01",
+      currentWeeklyKm: 10,
+    },
+  });
+  assert.equal(plan.enduranceWeek, undefined);
+  assert.ok(plan.eventNotice);
+  // The refusal has to carry a next step, not just a no.
+  assert.ok(plan.eventNotice.body.length > 40);
+});
+
+test("a real block produces running and keeps the strength work", () => {
+  // An event block is running plus strength. Dropping the strength is how
+  // people arrive at a start line injured.
+  const plan = eventPlanFor({
+    goals: ["event-endurance"],
+    ageBand: "30-39",
+    equipment: ["none", "chair", "wall", "band", "weight"],
+    event: {
+      kind: "half",
+      startedOn: "2026-01-01",
+      dateIso: "2026-05-01",
+      currentWeeklyKm: 25,
+    },
+  });
+  assert.equal(plan.eventNotice, undefined);
+  assert.ok(plan.enduranceWeek, "no block was planned");
+  assert.ok(plan.enduranceWeek.sessions.length > 0);
+  assert.ok(plan.session.length > 0, "the station work was dropped");
+});
+
+test("the block knows which week it is on", () => {
+  const profile = {
+    goals: ["event-endurance"],
+    ageBand: "30-39",
+    event: {
+      kind: "half",
+      startedOn: "2026-01-01",
+      dateIso: "2026-05-01",
+      currentWeeklyKm: 25,
+    },
+  };
+  const first = eventPlanFor(profile, { todayIso: "2026-01-01" });
+  const later = eventPlanFor(profile, { todayIso: "2026-02-19" });
+  assert.equal(first.enduranceWeek.week, 1);
+  assert.ok(later.enduranceWeek.week > first.enduranceWeek.week);
+  assert.ok(later.enduranceWeek.totalKm > first.enduranceWeek.totalKm);
+});
+
+test("her own week outranks the training block", () => {
+  // Recovery posture comes from her check-ins. A calendar does not get to
+  // override how she has actually been.
+  const tired = [1, 2, 3, 4, 5, 6, 7].map((day) => ({
+    date: "2026-02-0" + day,
+    energy: 1,
+    sleep: 1,
+    stress: 1,
+  }));
+  const plan = eventPlanFor(
+    {
+      goals: ["event-endurance"],
+      ageBand: "30-39",
+      event: {
+        kind: "half",
+        startedOn: "2026-01-01",
+        dateIso: "2026-05-01",
+        currentWeeklyKm: 25,
+      },
+    },
+    { signals: tired },
+  );
+  if (plan.posture === "recovery") {
+    assert.equal(plan.enduranceWeek, undefined);
+    assert.ok(plan.eventNotice);
+    assert.match(plan.eventNotice.title, /paused/i);
+  }
+});
+
+test("an event in the past plans nothing", () => {
+  const plan = eventPlanFor({
+    goals: ["event-endurance"],
+    ageBand: "30-39",
+    event: {
+      kind: "half",
+      startedOn: "2026-05-01",
+      dateIso: "2026-01-01",
+      currentWeeklyKm: 25,
+    },
+  });
+  assert.equal(plan.enduranceWeek, undefined);
+  assert.ok(plan.eventNotice);
+});
+
+test("the app and the rules agree on which events exist", () => {
+  // mobile/src/profile.ts offers the chips; lib/endurance.ts plans the block.
+  // An event the app can offer and the model cannot plan is a dead end she
+  // only discovers after committing to a date.
+  const offered = EVENT_KINDS.map((option) => option.id).sort();
+  const planned = ["5k", "10k", "half", "hyrox", "marathon"].sort();
+  assert.deepEqual(offered, planned);
+  for (const kind of offered) {
+    const verdict = assessFeasibility({
+      event: kind,
+      weeksAway: 24,
+      currentWeeklyKm: 40,
+      daysPerWeek: 4,
+    });
+    assert.ok(verdict.ok, kind + " cannot be planned at all");
+  }
+});
+
+test("no easy run rivals the long run", () => {
+  // A 33km week on three days used to give a 13km long run and a 13km "easy"
+  // run: two long runs, at an injury risk the week was never meant to carry.
+  for (const event of ["5k", "10k", "half", "marathon", "hyrox"]) {
+    for (const days of [2, 3, 4, 5, 6]) {
+      for (let week = 1; week <= 16; week++) {
+        const plan = planWeek(
+          { event, weeksAway: 20, currentWeeklyKm: 30, daysPerWeek: days },
+          week,
+        );
+        const long = plan.sessions.find((item) => item.kind === "long");
+        for (const easy of plan.sessions.filter((i) => i.kind === "easy")) {
+          assert.ok(
+            easy.km < long.km,
+            `${event} on ${days} days, week ${week}: ${easy.km}km easy vs ${long.km}km long`,
+          );
+        }
+      }
+    }
+  }
+});
+
+test("the reported weekly volume is what was actually prescribed", () => {
+  // Capping the easy runs can leave volume unallocated. Reporting the figure
+  // the model wanted would overstate her week to her and to her coach.
+  for (const days of [2, 3, 4, 5]) {
+    const plan = planWeek(
+      { event: "half", weeksAway: 20, currentWeeklyKm: 30, daysPerWeek: days },
+      6,
+    );
+    const summed = plan.sessions.reduce((sum, item) => sum + (item.km ?? 0), 0);
+    assert.equal(plan.totalKm, summed, `${days} days`);
+  }
 });

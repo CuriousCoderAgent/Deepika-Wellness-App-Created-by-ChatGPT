@@ -43,6 +43,7 @@ import {
   type SessionRecord,
 } from "@/lib/adaptation";
 import type { MemberDoc } from "@/lib/persist";
+import type { PlannedSession } from "@/lib/endurance";
 import type { DailyAction } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -276,6 +277,56 @@ function toDomainAction(
 }
 
 /** A generated exercise becomes an action the existing Today screen understands. */
+/**
+ * One session of an event block, as a daily action.
+ *
+ * Deliberately not an `exercise` action: there is no library movement behind
+ * a 12km long run, so it carries no exerciseId and the dose ladder never sees
+ * it. Progression for these comes from the weekly volume in
+ * `lib/endurance.ts`, which is the whole reason that model exists.
+ *
+ * Minutes are an estimate for the day's time budget only. Nothing here
+ * prescribes a pace, and the app must never present one.
+ */
+function toRunAction(
+  memberId: string,
+  item: PlannedSession,
+  index: number,
+  rationale: string,
+  overallIndex: number,
+): DailyAction {
+  /* Six minutes a kilometre is a planning figure for how long the day will
+     take. It is not a target, is never shown as one, and is only used where
+     a session has a distance at all. */
+  const minutes = item.km ? Math.round(item.km * 6) : 25;
+  return {
+    id: `generated-${memberId}-event-${item.kind}-${index}-${todayIso()}`,
+    memberId,
+    dayOffset: 0,
+    moduleId: "ai-generated-session",
+    domain: "movement",
+    title: item.km ? `${item.kind}: ${item.km}km` : item.kind,
+    why: rationale,
+    minimum: {
+      label: "Going out at all is the win on a hard day",
+      minutes: Math.max(10, Math.round(minutes * 0.5)),
+    },
+    target: { label: item.description, minutes },
+    stretch: {
+      label: "Only if it still feels easy at the end",
+      minutes: minutes + 10,
+    },
+    measurement: { kind: "minutes", value: minutes, unit: "minutes" },
+    isPrimary: overallIndex === 0,
+    completed: null,
+    provenance: {
+      source: "system_derived",
+      enteredBy: "bharosa",
+      at: new Date().toISOString(),
+    },
+  } as unknown as DailyAction;
+}
+
 function toAction(
   memberId: string,
   item: GeneratedExercise,
@@ -397,6 +448,11 @@ export async function POST() {
       availableMinutes: doc.onboarding?.availableMinutes ?? 15,
       activityLevel: doc.onboarding?.activityLevel,
       movementCaution: doc.onboarding?.movementCaution,
+      // Absent for everyone who signed up before the profile existed. The
+      // rules in lib/member-profile.ts handle that by being careful rather
+      // than by assuming an average member, so no migration is needed.
+      profile: doc.profile,
+      todayIso: todayIso(),
       readiness,
       doseSteps: steps,
       pausedExerciseIds: paused,
@@ -424,6 +480,18 @@ export async function POST() {
       ...plan.session.map((item, index) =>
         toAction(user.sub, item, index, why),
       ),
+      // Her event block, if she has one. These are movement actions like any
+      // other so that logging, skipping and the coach console all work on
+      // them without knowing an endurance model exists.
+      ...(plan.enduranceWeek?.sessions ?? []).map((item, index) =>
+        toRunAction(
+          user.sub,
+          item,
+          index,
+          plan.enduranceWeek!.rationale,
+          plan.session.length + index,
+        ),
+      ),
       ...domains,
     ];
     const alreadyThere = new Set(keep.map((a) => a.id));
@@ -445,6 +513,8 @@ export async function POST() {
       posture: plan.posture,
       rationale: why,
       movementHeld: plan.movementHeld ?? null,
+      eventNotice: plan.eventNotice ?? null,
+      enduranceWeek: plan.enduranceWeek ?? null,
       changes: notes.slice(0, 3),
     });
   } catch (err) {

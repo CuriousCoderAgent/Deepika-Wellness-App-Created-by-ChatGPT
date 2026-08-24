@@ -133,6 +133,15 @@ const EVENTS: Record<EnduranceEvent, EventShape> = {
 const MAX_WEEKLY_INCREASE = 0.1;
 /** Three weeks up, one week down. Adaptation happens in the recovery. */
 const CUTBACK_EVERY = 4;
+/**
+ * The most an easy run may be, as a share of the long run.
+ *
+ * The long run is meant to be the single longest session of the week. Without
+ * this cap the leftover volume divided by the available days can equal it,
+ * which is a second long run under a gentler name.
+ */
+const EASY_RUN_SHARE_OF_LONG = 0.6;
+
 const CUTBACK_FACTOR = 0.75;
 /**
  * How much of the week the long run may be.
@@ -265,9 +274,23 @@ export function planWeek(profile: EventProfile, week: number): EnduranceWeek {
     isTaper,
   });
 
+  /*
+   * What was actually prescribed, which is not always what was computed.
+   *
+   * Easy runs are capped relative to the long run, so a member training on
+   * few days can be given less than the model wanted. Reporting the intended
+   * figure would overstate her week to her and to her coach, so the total is
+   * taken from the sessions themselves.
+   */
+  const prescribedKm = sessions.reduce(
+    (sum, item) => sum + (item.km ?? 0),
+    0,
+  );
+  const trimmedByDays = prescribedKm < totalKm;
+
   return {
     week,
-    totalKm,
+    totalKm: prescribedKm,
     isCutback,
     isTaper,
     sessions,
@@ -275,7 +298,9 @@ export function planWeek(profile: EventProfile, week: number): EnduranceWeek {
       ? "Less running, same sharpness. Arriving fresh matters more than any session you could add now."
       : isCutback
         ? "A lighter week on purpose. This is where the last three weeks turn into fitness."
-        : `Building steadily — about ${totalKm}km, with most of it easy.`,
+        : trimmedByDays
+          ? `About ${prescribedKm}km, with most of it easy. Adding a training day would let this week be a little bigger without any run getting longer.`
+          : `Building steadily — about ${prescribedKm}km, with most of it easy.`,
   };
 }
 
@@ -335,7 +360,18 @@ function buildSessions(
   const used = sessions.reduce((sum, session) => sum + (session.km ?? 0), 0);
   const remaining = Math.max(0, totalKm - used);
   const easyRuns = Math.max(1, days - sessions.length);
-  const perEasyRun = Math.round(remaining / easyRuns);
+  /*
+   * An easy run is never allowed to rival the long run.
+   *
+   * Dividing the leftover volume by the available days produced exactly that
+   * when there were few days: a 33km week on three days gave a 13km long run
+   * and a 13km "easy" run, which is two long runs and a much higher injury
+   * risk than the week was supposed to carry. Whatever will not fit under
+   * this cap is left undone rather than hidden inside a session that is
+   * mislabelled — `planWeek` reports the volume actually prescribed.
+   */
+  const easyCap = Math.max(3, Math.round(longKm * EASY_RUN_SHARE_OF_LONG));
+  const perEasyRun = Math.min(easyCap, Math.round(remaining / easyRuns));
 
   for (let i = 0; i < easyRuns && perEasyRun > 0; i++) {
     sessions.push({

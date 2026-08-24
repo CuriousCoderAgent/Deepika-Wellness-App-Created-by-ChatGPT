@@ -17,6 +17,8 @@
 
 import * as seed from "./seed";
 import type { ReadinessState } from "./readiness";
+import type { MemberProfile } from "./member-profile";
+import type { PlanNotice } from "./plan-generator";
 import type { CoachingState } from "./types";
 import { radarRules, type RadarRule } from "./radar";
 import type {
@@ -57,6 +59,15 @@ export interface MemberDoc {
   healthSnapshots?: HealthSnapshot[];
   recommendations?: AiRecommendation[];
   onboarding?: MobileOnboarding;
+  /**
+   * Who she is, as far as she has chosen to say. See `lib/member-profile.ts`.
+   *
+   * Member-owned, and deliberately not inside `onboarding` — she answers the
+   * core of it at sign-up but can change any of it afterwards from About you,
+   * long after onboarding is finished. Absent for every member who joined
+   * before it existed, which the rules are written to handle.
+   */
+  profile?: MemberProfile;
   /** Date-keyed, so they never need re-basing. See `lib/day-offset.ts`. */
   hydrationLogs?: HydrationLog[];
   habits?: HabitDefinition[];
@@ -76,6 +87,13 @@ export interface MemberDoc {
   /** Paused after a pain report. Only a person removes an id from here. */
   pausedExerciseIds?: string[];
   planGeneratedOn?: string;
+  /**
+   * What the app must tell her about this plan. Server-owned.
+   *
+   * Rebuilt on every generation, so a notice disappears when the reason for
+   * it does. Never accepted from the phone.
+   */
+  planNotices?: PlanNotice[];
   /**
    * Reminder settings, weekly goal and celebrated milestones.
    *
