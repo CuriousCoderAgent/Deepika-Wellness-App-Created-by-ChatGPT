@@ -32,6 +32,8 @@ import { CITIES, canonicalCity, suggestCities } from "../mobile/src/cities.ts";
 import { C, SURFACES, TEXT_COLOURS } from "../mobile/src/design/tokens.ts";
 import { AWARDS, awardMetrics } from "../mobile/src/awards.ts";
 import { compactKcal, liveMeals } from "../mobile/src/meals.ts";
+import { activeDays, isActive } from "../mobile/src/activity.ts";
+import { DOMAIN_META, NUDGE_OPTIONS } from "../mobile/src/content.ts";
 import { deterministicSafetyRecommendation } from "../lib/recommendation-safety.ts";
 import {
   latestRecommendation,
@@ -1844,6 +1846,65 @@ test("every award has a distinct id and reachable copy", () => {
       award.copy,
       /very few|most people|only \d+%|\d+% of/i,
       `${award.id} makes an unsupported population claim`,
+    );
+  }
+});
+
+test("activeDays counts distinct days, and never counts a rest", () => {
+  const doc = {
+    actions: [
+      // A busy Tuesday: three actions, one day.
+      { id: "a", dayOffset: 0, domain: "movement", completed: "target" },
+      { id: "b", dayOffset: 0, domain: "walking", completed: "minimum" },
+      { id: "c", dayOffset: 0, domain: "nutrition", completed: "target" },
+      // Yesterday she rested. Recorded, valued, not a day she showed up.
+      { id: "d", dayOffset: -1, domain: "movement", completed: "rest" },
+      // Two days ago she did something.
+      { id: "e", dayOffset: -2, domain: "walking", completed: "target" },
+      // Outside the default seven-day window.
+      { id: "f", dayOffset: -9, domain: "walking", completed: "target" },
+      // Planned but not done.
+      { id: "g", dayOffset: 0, domain: "mindset", completed: null },
+    ],
+  };
+  assert.equal(activeDays(doc), 2);
+  // A wider window reaches the older day.
+  assert.equal(activeDays(doc, -10), 3);
+});
+
+test("isActive is the single definition both counters use", () => {
+  assert.equal(isActive({ completed: "target" }), true);
+  assert.equal(isActive({ completed: "minimum" }), true);
+  assert.equal(isActive({ completed: "rest" }), false);
+  assert.equal(isActive({ completed: null }), false);
+  assert.equal(isActive({}), false);
+});
+
+test("member-facing labels never leak the internal domain names", () => {
+  for (const [key, meta] of Object.entries(DOMAIN_META)) {
+    assert.ok(meta.label.length, `${key} has no label`);
+    assert.doesNotMatch(meta.label, /domain/i);
+  }
+  // "Walking" and "Nutrition" matching their keys is correct — those are the
+  // words a person would actually use. These three are not: nobody signed up
+  // to be told their evening reflection is "mindset".
+  assert.notEqual(DOMAIN_META.movement.label.toLowerCase(), "movement");
+  assert.notEqual(DOMAIN_META.mindset.label.toLowerCase(), "mindset");
+  assert.notEqual(DOMAIN_META.recovery.label.toLowerCase(), "recovery");
+});
+
+test("nudges are a fixed set with no free text", () => {
+  // The whole safety property of nudges is that a member cannot compose one.
+  assert.ok(NUDGE_OPTIONS.length >= 3);
+  const kinds = NUDGE_OPTIONS.map((option) => option.kind);
+  assert.equal(new Set(kinds).size, kinds.length);
+  for (const option of NUDGE_OPTIONS) {
+    assert.ok(option.label.length);
+    // None of them may comment on what she did or did not do.
+    assert.doesNotMatch(
+      option.label,
+      /stream|missed|behind|failed|haven'?t|still not/i,
+      `"${option.label}" reads as a comment on her week`,
     );
   }
 });

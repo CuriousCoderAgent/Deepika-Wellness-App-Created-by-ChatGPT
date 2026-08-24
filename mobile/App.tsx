@@ -106,12 +106,6 @@ import {
  * reference performance, so none can be read as a comment on how much someone
  * has or has not done.
  */
-const NUDGE_OPTIONS = [
-  { kind: "thinking_of_you", label: "Thinking of you today" },
-  { kind: "well_done", label: "Well done" },
-  { kind: "keep_going", label: "Keep going" },
-  { kind: "proud", label: "Proud of you" },
-] as const;
 import { describeMatches, estimateMeal } from "./src/nutrition";
 import {
   READINESS_QUESTIONS,
@@ -141,6 +135,14 @@ import { openHealthSettings, syncHealth } from "./src/health";
 import { canonicalCity, suggestCities } from "./src/cities";
 import { AWARDS, awardMetrics, type AwardIcon } from "./src/awards";
 import { C } from "./src/design/tokens";
+import { activeDays } from "./src/activity";
+import {
+  BODY_SIGNALS,
+  DOMAIN_META,
+  HEALTH_LABELS,
+  NUDGE_OPTIONS,
+  type DomainIcon,
+} from "./src/content";
 import { s } from "./src/design/styles";
 import { compactKcal, liveMeals } from "./src/meals";
 import { latestRecommendation, needsHumanReview } from "./src/recommendations";
@@ -428,17 +430,6 @@ function Card({
   return <View style={[s.card, style]}>{children}</View>;
 }
 
-const BODY_SIGNALS = [
-  "Night waking",
-  "Hot flushes or night sweats",
-  "Cycle change",
-  "Headache",
-  "Bloating",
-  "Unusual soreness",
-  "Low mood",
-  "Coach input requested",
-] as const;
-
 function Pulse({
   doc,
   onChange,
@@ -604,17 +595,6 @@ function Pulse({
   );
 }
 
-const DOMAIN_META: Record<
-  ActionDomain,
-  { label: string; Icon: typeof Dumbbell }
-> = {
-  movement: { label: "Strength & mobility", Icon: Dumbbell },
-  walking: { label: "Walking", Icon: Footprints },
-  nutrition: { label: "Nutrition", Icon: Utensils },
-  recovery: { label: "Sleep & recovery", Icon: MoonStar },
-  mindset: { label: "Stress & reflection", Icon: Brain },
-};
-
 function ActionCard({
   action,
   recommendation,
@@ -638,6 +618,7 @@ function ActionCard({
   const [effort, setEffort] = useState<1 | 2 | 3 | 4 | 5>(3);
   const [pain, setPain] = useState(false);
   const domain = DOMAIN_META[action.domain];
+  const DomainIconComponent = DOMAIN_ICONS[domain.icon];
   const chooseLevel = (level: EffortLevel) =>
     action.exercise ? setPendingLevel(level) : onComplete(level);
   const saveWorkout = () => {
@@ -655,7 +636,11 @@ function ActionCard({
           onPress={() => setExpanded((value) => !value)}
         >
           <View style={s.domainIcon}>
-            <domain.Icon size={17} color={C.greenDeep} strokeWidth={2} />
+            <DomainIconComponent
+              size={17}
+              color={C.greenDeep}
+              strokeWidth={2}
+            />
           </View>
           <View style={s.actionText}>
             <Text style={s.domainLabel}>{domain.label.toUpperCase()}</Text>
@@ -840,20 +825,6 @@ function ActionCard({
       )}
     </Card>
   );
-}
-
-function activeDays(doc: MemberDoc, from = -6) {
-  return new Set(
-    doc.actions
-      .filter(
-        (action) =>
-          action.dayOffset >= from &&
-          action.dayOffset <= 0 &&
-          action.completed &&
-          action.completed !== "rest",
-      )
-      .map((action) => action.dayOffset),
-  ).size;
 }
 
 function EngagementPanel({ doc }: { doc: MemberDoc }) {
@@ -1652,7 +1623,7 @@ function DomainRow({
   onPress,
   expanded,
 }: {
-  meta: { label: string; Icon: typeof Home };
+  meta: { label: string; icon: DomainIcon };
   title: string;
   detail?: string;
   done: number;
@@ -1662,6 +1633,7 @@ function DomainRow({
   expanded?: boolean;
 }) {
   const complete = total > 0 && done >= total;
+  const MetaIconComponent = DOMAIN_ICONS[meta.icon];
   return (
     <Pressable
       accessibilityRole="button"
@@ -1674,7 +1646,7 @@ function DomainRow({
         {complete ? (
           <Check size={15} color="#fff" strokeWidth={2.8} />
         ) : (
-          <meta.Icon size={16} color={C.greenDeep} />
+          <MetaIconComponent size={16} color={C.greenDeep} />
         )}
       </View>
       <View style={s.flex}>
@@ -2154,6 +2126,18 @@ function Today({
  * that module stays free of React Native and can be tested. This is where the
  * name becomes something to render.
  */
+/**
+ * Domain icon names to components. Same convention as AWARD_ICONS — the
+ * content module names an icon, the screen resolves it.
+ */
+const DOMAIN_ICONS: Record<DomainIcon, typeof Dumbbell> = {
+  dumbbell: Dumbbell,
+  footprints: Footprints,
+  utensils: Utensils,
+  moon: MoonStar,
+  brain: Brain,
+};
+
 const AWARD_ICONS: Record<AwardIcon, typeof Sparkles> = {
   sparkles: Sparkles,
   check: Check,
@@ -3887,13 +3871,6 @@ function Reports({
     </Card>
   );
 }
-
-const HEALTH_LABELS: Record<HealthMetric, { label: string; unit: string }> = {
-  steps: { label: "Steps", unit: "steps" },
-  restingHeartRate: { label: "Resting heart rate", unit: "bpm" },
-  heartRateVariability: { label: "Heart-rate variability", unit: "ms" },
-  vo2Max: { label: "VO₂ max", unit: "ml/kg/min" },
-};
 
 function HealthConnectionPanel({
   doc,
