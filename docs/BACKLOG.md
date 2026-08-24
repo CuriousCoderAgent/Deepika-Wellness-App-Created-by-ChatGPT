@@ -2,8 +2,8 @@
 
 **Last updated:** 24 August 2026, after the external audit response
 (`docs/AUDIT-RESPONSE-2026-08-24.md`) and a device-testing round.
-**State:** 142 tests passing, mobile and server typecheck clean, `next build`
-clean. All eight audit P0s closed.
+**State:** 222 tests passing, mobile and server typecheck clean, `next build`
+clean. All eight audit P0s closed; P1 and P2 closed.
 
 This is the working backlog. It is ordered by what should happen next, not by
 how large each item is. Where something is deliberately *not* being done, it
@@ -14,9 +14,8 @@ of these were decisions.
 
 ## P1 — Small, real, and worth clearing first
 
-Each of these is hours, not days, and three of the four feed the
-personalisation work in P2. Doing them first means that work starts on clean
-inputs.
+**Done.** Each fed the personalisation work in P2, which is why they went
+first — that work needed clean inputs.
 
 ### 1.1 Food macros accept impossible values
 
@@ -62,79 +61,75 @@ how a state machine rots.
 
 ## P2 — Making the plan genuinely personal
 
-This is the main line of work and the reason the app feels generic. Ordered
-deliberately: the library is the *last* step, not the first.
+**Done, 2026-08-24.** Kept here because the diagnosis is worth not
+re-deriving, and because what is *not* done is at the bottom.
 
-### The diagnosis
+### The diagnosis, as it stood
 
-`GeneratorInput` receives exactly this:
+`GeneratorInput` received goals, availableMinutes, activityLevel,
+movementCaution, readiness, doseSteps, pausedExerciseIds, signals and
+coachAuthoredDomains. No age, no equipment, no event goal.
 
-```
-goals, availableMinutes, activityLevel, movementCaution,
-readiness, doseSteps, pausedExerciseIds, signals, coachAuthoredDomains
-```
+Two of those were worse than missing — they were collected and ignored:
 
-No age. No gender. No equipment. No sport or event goal. `Member.age` and
-`Member.gender` exist in the type and never reach the generator at all.
+- **activityLevel** was stored, passed into the generator, and never read.
+  The screen asking for it says it "establishes a starting point".
+- More seriously, `pickForPattern` sorted ascending by tier and took the
+  first match. Everything upstream that narrowed the candidate list was
+  therefore decorative: the ceiling was computed and then reached past for
+  the gentlest movement in the pattern. **This, not the size of the library,
+  is why every member saw the same wall push-up.**
 
-**That is why it feels generic — not the size of the library.** 350 exercises
-selected from 5 inputs is still generic; it picks a wall slide from a bigger
-hat. 35 well-tagged exercises chosen from 12 real inputs personalises
-visibly. The audit says the same thing in Part II Stage 2: the current
-onboarding "is insufficient to justify the present degree of holistic
-personalisation."
+The point stands and is worth repeating: 350 exercises chosen by 5 inputs is
+still generic. 55 well-tagged movements chosen by 12 real inputs is not.
 
-### 2.1 Widen what is collected  ← start here
+### What now exists
 
-From the audit's own table, every input tied to an output it changes:
+`lib/member-profile.ts` — the rules. One tier ramp shifted by age band and by
+prior activity, so an older member starts lower and still arrives; equipment
+defaulting to the home set; life stage; free-text "won't do" read through the
+same matcher as a medical caution; training days; sleep baseline.
 
-| Input | Changes |
-|---|---|
-| age | starting tier, progression pace, contraindication defaults |
-| gender / life stage | education content and relevance — never diagnosis |
-| equipment and access | which movements are even offerable |
-| movement limitations | avoid/hold filters (partly exists as free-text caution) |
-| activity baseline | starting dose |
-| available time **by weekday** | action size and which days carry a session |
-| sleep baseline | initial recovery posture |
-| nutrition pattern, preferences, allergies | food prompts and estimator context |
-| **sport or event goal** | whole training shape — see 2.4 |
-| "what I will not do" | excludes modalities outright |
-| coaching preference | AI-only, waitlist, or assigned |
+Goals are matched by **id**, not by display label. Four labels changed when
+the list grew to ten, and the old strings are carried as `legacy` so a member
+who chose "Feel stronger" in June keeps her pattern ordering. A test holds the
+app's table and the rules' table together — they are separate files on
+purpose, and nothing but that test stops them drifting.
 
-Do **not** collect weight, body image, hormone or menstrual data, or
-medications unless a shipped feature needs them and the consent basis is
-clear.
+Onboarding asks age and goal in the core flow, then **asks permission** before
+the more personal questions. Declining ends the flow there and costs nothing;
+**About you** in the You tab answers or changes any of it later, which is the
+promise that makes the gate honest.
 
-Onboarding must also **resume** — save after every answer. It currently
-cannot, which the audit flags separately.
+Event goals route to `lib/endurance.ts`, with distance, date and honest
+current volume asked alongside the goal. An event goal that cannot be planned
+says so rather than quietly producing a strength week.
 
-### 2.2 Thread them through
+### Two things found while wiring it
 
-`GeneratorInput` → `eligibleExercises()` → `selectSession()`. Mostly
-mechanical once 2.1 exists, and where the value is realised.
+- `movementHeld` — including "speak to a doctor before beginning a movement
+  plan" — was returned from a route whose response the app discards. A member
+  whose readiness answers held movement saw an empty movement section and no
+  explanation anywhere. Notices now live on the document and render on Today.
+- An endurance week on three training days put all leftover volume into a
+  single easy run: a 13km "easy" run beside a 13km long run. Easy runs are now
+  capped against the long run, and the reported weekly total is what was
+  actually prescribed rather than what the model wanted.
 
-### 2.3 Then widen the library
+### Still open from this section
 
-Only after 2.1 and 2.2, because the tagging depends on knowing which
-dimensions actually select.
-
-**The constraint that governs this:** every one of the current 35 movements
-carries `loads`, `avoidIf`, `tier`, `equipment`, `progressesTo`/`regressesTo`
-and was cleared by a qualified exercise professional. That review is what
-makes "rules decide, models phrase" defensible rather than a slogan. 350
-movements is 350 sets of contraindication tags and 350 review decisions.
-
-Expand in reviewed batches. An untagged movement must not be reachable by the
-generator.
-
-### 2.4 Broader goals, including sport
-
-A member training for Hyrox is a different product from a beginner doing chair
-squats — sled pushes and wall balls under load are a materially different risk
-profile from anything currently cleared. This needs its own tier, its own
-contraindication set, and its own review. Worth doing; not worth folding into
-the same library without that.
+- **Onboarding does not resume.** Nothing is saved until `finish()`, so
+  closing the app mid-flow loses every answer. The audit flags this
+  separately and it is now the largest remaining gap in this area.
+- **Nutrition inputs** — pattern, preferences, allergies — are still not
+  collected, so food prompts and the estimator have no personal context.
+- **Available time by weekday.** She picks which days, not how long on each.
+- **Coaching preference** (AI-only, waitlist, assigned) is not asked.
+- **Professional review of the 21 event movements.** They are tagged and
+  tested but not cleared by a qualified professional, which is the standard
+  the other 34 were held to. Until that happens the event goals should be
+  treated as internal.
+- **Photography for 47 movements** — see `EXERCISE-MEDIA-BRIEF.md`.
 
 ---
 
