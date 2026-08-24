@@ -101,7 +101,9 @@ function sessionRecords(doc: MemberDoc): SessionRecord[] {
       {
         exerciseId,
         perceivedEffort: Number(raw.perceivedEffort ?? raw.rpe ?? 3),
-        level: (raw.level ?? raw.completedLevel ?? "target") as SessionRecord["level"],
+        level: (raw.level ??
+          raw.completedLevel ??
+          "target") as SessionRecord["level"],
         pain: Boolean(raw.pain ?? raw.painFlag),
         date: completedAt.slice(0, 10) || todayIso(),
       },
@@ -132,16 +134,34 @@ function dailySignals(doc: MemberDoc): DailySignal[] {
 }
 
 /**
- * Move each exercise along its ladder, and record what changed.
+ * Fold new evidence into the dose ladder — new evidence, once only.
  *
- * Pain is the one verdict that does more than adjust a number: the movement is
- * added to a paused list and is never offered again by generation. Only a
- * person takes it off that list.
+ * A verdict is a *reading* of the last two sessions, not an event. This used
+ * to advance `steps[exerciseId]` from its stored value on every call, so
+ * re-running the generator against unchanged history walked the ladder up a
+ * rung each time: two "easy" sessions and six refreshes put a member six
+ * rungs higher, from 1×6 to 3×10, having done nothing at all in between.
+ *
+ * It was reachable in normal use, not theoretically. The client's
+ * once-a-day guard reads `planGeneratedOn`, which the mobile normaliser was
+ * dropping, so the guard never fired — and the Coach tab polls a full
+ * refresh every sixty seconds. Reading messages made her exercises harder.
+ *
+ * `doseAdaptedThrough` records the session date already folded in per
+ * exercise, so the same evidence cannot move the dose twice. Genuinely new
+ * evidence has a newer date and still applies immediately.
+ *
+ * Pain is exempt and deliberately re-applied every time: adding to a paused
+ * set is idempotent, and a movement that hurt must stay paused even if this
+ * record is somehow lost.
  */
 function applyAdaptation(doc: MemberDoc, records: SessionRecord[]) {
   const posture = weekPostureFor(dailySignals(doc)).posture;
   const steps: Record<string, number> = {
     ...((doc.doseSteps as Record<string, number> | undefined) ?? {}),
+  };
+  const adaptedThrough: Record<string, string> = {
+    ...((doc.doseAdaptedThrough as Record<string, string> | undefined) ?? {}),
   };
   const paused = new Set(doc.pausedExerciseIds ?? []);
   const notes: string[] = [];
@@ -153,9 +173,18 @@ function applyAdaptation(doc: MemberDoc, records: SessionRecord[]) {
       notes.push(verdict.reason);
       continue;
     }
+    // Already acted on this session. Re-reading it is not a new reason to move.
+    if (
+      verdict.latestSession &&
+      adaptedThrough[exerciseId] === verdict.latestSession
+    )
+      continue;
+
     const current = steps[exerciseId] ?? 0;
     const next = nextDose(current, verdict.adjustment, posture);
     steps[exerciseId] = next.step;
+    if (verdict.latestSession)
+      adaptedThrough[exerciseId] = verdict.latestSession;
     if (next.changeExercise === "progress") {
       const harder = EXERCISE_BY_ID.get(exerciseId)?.progressesTo;
       if (harder) {
@@ -165,7 +194,7 @@ function applyAdaptation(doc: MemberDoc, records: SessionRecord[]) {
     }
     if (verdict.adjustment !== "hold") notes.push(verdict.reason);
   }
-  return { steps, paused: [...paused], posture, notes };
+  return { steps, adaptedThrough, paused: [...paused], posture, notes };
 }
 
 /**
@@ -190,7 +219,8 @@ function domainSignals(doc: MemberDoc, signals: DailySignal[]): DomainSignals {
     return date >= shiftDate(today, -3);
   });
   const protein = recentFood.reduce(
-    (sum, entry) => sum + Number((entry as unknown as Record<string, unknown>).protein ?? 0),
+    (sum, entry) =>
+      sum + Number((entry as unknown as Record<string, unknown>).protein ?? 0),
     0,
   );
 
@@ -256,9 +286,15 @@ function toAction(
     domain: "movement",
     title: item.name,
     why,
-    minimum: { label: "A shorter version is a complete day", minutes: item.minutes },
+    minimum: {
+      label: "A shorter version is a complete day",
+      minutes: item.minutes,
+    },
     target: { label: item.sets, minutes: item.minutes },
-    stretch: { label: "Add one more set if it feels good", minutes: item.minutes + 2 },
+    stretch: {
+      label: "Add one more set if it feels good",
+      minutes: item.minutes + 2,
+    },
     measurement: { kind: "minutes", value: item.minutes, unit: "minutes" },
     isPrimary: index === 0,
     completed: null,
@@ -339,7 +375,10 @@ export async function POST() {
       return NextResponse.json({ error: "No record found." }, { status: 404 });
 
     const records = sessionRecords(doc);
-    const { steps, paused, notes } = applyAdaptation(doc, records);
+    const { steps, adaptedThrough, paused, notes } = applyAdaptation(
+      doc,
+      records,
+    );
 
     const readiness = doc.readiness
       ? {
@@ -378,7 +417,9 @@ export async function POST() {
       .map((template) => toDomainAction(user.sub, template));
 
     const generated = [
-      ...plan.session.map((item, index) => toAction(user.sub, item, index, why)),
+      ...plan.session.map((item, index) =>
+        toAction(user.sub, item, index, why),
+      ),
       ...domains,
     ];
     const alreadyThere = new Set(keep.map((a) => a.id));
@@ -387,6 +428,7 @@ export async function POST() {
       ...doc,
       actions: [...keep, ...generated.filter((a) => !alreadyThere.has(a.id))],
       doseSteps: steps,
+      doseAdaptedThrough: adaptedThrough,
       pausedExerciseIds: paused,
       planGeneratedOn: todayIso(),
     } as MemberDoc;

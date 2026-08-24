@@ -374,6 +374,8 @@ export interface MemberDoc {
   /** Absent means un-coached, which is the default. A coach outranks Vera. */
   coaching?: { mode: "none" | "coached"; ownedDomains?: ActionDomain[] };
   doseSteps?: Record<string, number>;
+  /** Session dates already folded into the dose. Server-owned; read-only here. */
+  doseAdaptedThrough?: Record<string, string>;
   pausedExerciseIds?: string[];
   hydrationLogs?: HydrationLog[];
   habits?: HabitDefinition[];

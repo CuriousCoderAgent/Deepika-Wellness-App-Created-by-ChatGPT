@@ -309,5 +309,20 @@ export function normalizeMemberDoc(
     habits: raw.habits ?? [],
     habitLogs: raw.habitLogs ?? [],
     engagement: raw.engagement,
+    // Server-owned, and previously dropped here.
+    //
+    // These are all read-only on the phone -- /api/state takes them from its
+    // own copy and never from the client, so losing them could not corrupt
+    // stored state. What it did break was the app's view of itself: a coached
+    // member rendered as uncoached, a readiness verdict and a pain pause went
+    // invisible, and `planGeneratedOn` came back undefined so the once-a-day
+    // guard on plan generation never fired. That last one had teeth -- see
+    // applyAdaptation in app/api/plan/generate/route.ts.
+    readiness: raw.readiness,
+    planGeneratedOn: raw.planGeneratedOn,
+    coaching: raw.coaching,
+    doseSteps: raw.doseSteps,
+    doseAdaptedThrough: raw.doseAdaptedThrough,
+    pausedExerciseIds: raw.pausedExerciseIds,
   };
 }

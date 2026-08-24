@@ -65,6 +65,14 @@ export interface MemberDoc {
   readiness?: ReadinessState;
   /** Where each exercise sits on the dose ladder. See `lib/adaptation.ts`. */
   doseSteps?: Record<string, number>;
+  /**
+   * Per exercise, the session date already folded into the dose.
+   *
+   * Makes adaptation idempotent: the generator can run any number of times
+   * against unchanged history without walking the ladder up each call. Server
+   * derived and never accepted from the phone, exactly like doseSteps.
+   */
+  doseAdaptedThrough?: Record<string, string>;
   /** Paused after a pain report. Only a person removes an id from here. */
   pausedExerciseIds?: string[];
   planGeneratedOn?: string;

@@ -1458,3 +1458,144 @@ test("no recommendations yet means nothing pending", () => {
   assert.equal(needsHumanReview(baseMemberDoc()), false);
   assert.equal(latestRecommendation(baseMemberDoc()), null);
 });
+
+/* ------------------------------------------------------------------ */
+/* Dose adaptation is idempotent                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The bug this exists to prevent: a verdict is a *reading* of the last two
+ * sessions, not an event, and the generator used to advance the ladder from
+ * its stored value every call. Two "easy" sessions plus six refreshes moved
+ * a member six rungs, 1x6 to 3x10, having trained none of them.
+ *
+ * Reachable in normal use -- the client's once-a-day guard read a field the
+ * mobile normaliser was dropping, and the Coach tab polls a full refresh
+ * every sixty seconds.
+ */
+function foldOnce(records, state, exerciseId, posture = "normal") {
+  // Mirrors applyAdaptation's per-exercise branch in
+  // app/api/plan/generate/route.ts.
+  const verdict = verdictFor(exerciseId, records);
+  if (verdict.adjustment === "stop_and_review") {
+    state.paused.add(exerciseId);
+    return state;
+  }
+  if (
+    verdict.latestSession &&
+    state.adaptedThrough[exerciseId] === verdict.latestSession
+  )
+    return state;
+  state.steps[exerciseId] = nextDose(
+    state.steps[exerciseId] ?? 0,
+    verdict.adjustment,
+    posture,
+  ).step;
+  if (verdict.latestSession)
+    state.adaptedThrough[exerciseId] = verdict.latestSession;
+  return state;
+}
+
+test("re-reading the same sessions does not move the dose again", () => {
+  const records = [
+    {
+      exerciseId: "ex-a",
+      date: "2026-08-23",
+      level: "target",
+      perceivedEffort: 2,
+      pain: false,
+    },
+    {
+      exerciseId: "ex-a",
+      date: "2026-08-22",
+      level: "target",
+      perceivedEffort: 2,
+      pain: false,
+    },
+  ];
+  const state = { steps: {}, adaptedThrough: {}, paused: new Set() };
+  for (let i = 0; i < 10; i++) foldOnce(records, state, "ex-a");
+  // Exactly one progression, not ten.
+  assert.equal(state.steps["ex-a"], 1);
+  assert.equal(state.adaptedThrough["ex-a"], "2026-08-23");
+});
+
+test("genuinely new evidence still moves the dose", () => {
+  const records = [
+    {
+      exerciseId: "ex-a",
+      date: "2026-08-23",
+      level: "target",
+      perceivedEffort: 2,
+      pain: false,
+    },
+    {
+      exerciseId: "ex-a",
+      date: "2026-08-22",
+      level: "target",
+      perceivedEffort: 2,
+      pain: false,
+    },
+  ];
+  const state = { steps: {}, adaptedThrough: {}, paused: new Set() };
+  foldOnce(records, state, "ex-a");
+  assert.equal(state.steps["ex-a"], 1);
+
+  // She trains again, and it is easy again. That is new evidence.
+  records.unshift({
+    exerciseId: "ex-a",
+    date: "2026-08-24",
+    level: "target",
+    perceivedEffort: 2,
+    pain: false,
+  });
+  foldOnce(records, state, "ex-a");
+  assert.equal(state.steps["ex-a"], 2);
+  // And re-reading that does not move it a third time.
+  foldOnce(records, state, "ex-a");
+  assert.equal(state.steps["ex-a"], 2);
+});
+
+test("pain still pauses on every pass, however often it is re-read", () => {
+  // Deliberately NOT gated by adaptedThrough: adding to a set is idempotent,
+  // and a movement that hurt must stay paused even if that record is lost.
+  const records = [
+    {
+      exerciseId: "ex-b",
+      date: "2026-08-23",
+      level: "target",
+      perceivedEffort: 2,
+      pain: true,
+    },
+    {
+      exerciseId: "ex-b",
+      date: "2026-08-22",
+      level: "target",
+      perceivedEffort: 2,
+      pain: false,
+    },
+  ];
+  const state = { steps: {}, adaptedThrough: {}, paused: new Set() };
+  foldOnce(records, state, "ex-b");
+  assert.ok(state.paused.has("ex-b"));
+  state.paused.clear(); // simulate the record being lost
+  foldOnce(records, state, "ex-b");
+  assert.ok(state.paused.has("ex-b"), "pain must re-pause, not be skipped");
+  // And pain never advances the ladder.
+  assert.equal(state.steps["ex-b"], undefined);
+});
+
+test("a verdict reports the session it rests on", () => {
+  const none = verdictFor("ex-c", []);
+  assert.equal(none.latestSession, undefined);
+  const one = verdictFor("ex-c", [
+    {
+      exerciseId: "ex-c",
+      date: "2026-08-21",
+      level: "target",
+      perceivedEffort: 3,
+      pain: false,
+    },
+  ]);
+  assert.equal(one.latestSession, "2026-08-21");
+});

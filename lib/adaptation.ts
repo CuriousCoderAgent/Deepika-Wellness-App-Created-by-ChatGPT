@@ -43,11 +43,7 @@ export interface DailySignal {
   stress?: number;
 }
 
-export type Adjustment =
-  | "progress"
-  | "hold"
-  | "regress"
-  | "stop_and_review";
+export type Adjustment = "progress" | "hold" | "regress" | "stop_and_review";
 
 export interface ExerciseVerdict {
   exerciseId: string;
@@ -56,6 +52,17 @@ export interface ExerciseVerdict {
   reason: string;
   /** How many completed sessions this is based on. */
   basis: number;
+  /**
+   * The date of the most recent session this verdict rests on, or undefined
+   * when there is no history yet.
+   *
+   * A verdict is a reading of history, not an event. Re-reading the same two
+   * sessions must not move the dose a second time, so the caller records what
+   * it has already acted on and compares it against this. Without it, every
+   * repeat call to the generator advanced the ladder again from unchanged
+   * evidence — see `doseAdaptedThrough` in the plan route.
+   */
+  latestSession?: string;
 }
 
 /** Effort at or below this, twice running, is the signal to progress. */
@@ -83,6 +90,7 @@ export function verdictFor(
 ): ExerciseVerdict {
   const history = recent(records, exerciseId);
   const basis = history.length;
+  const latestSession = history[0]?.date;
 
   if (history.some((r) => r.pain))
     return {
@@ -91,6 +99,7 @@ export function verdictFor(
       reason:
         "You told us this one hurt. It is paused until someone has looked at it with you.",
       basis,
+      latestSession,
     };
 
   if (basis < MIN_SESSIONS_TO_PROGRESS)
@@ -102,6 +111,7 @@ export function verdictFor(
           ? "New this week."
           : "Staying the same while you get a feel for it.",
       basis,
+      latestSession,
     };
 
   const [latest, previous] = history;
@@ -110,7 +120,8 @@ export function verdictFor(
   // being asked — politely — for less.
   const twiceHard =
     latest.perceivedEffort >= HARD && previous.perceivedEffort >= HARD;
-  const twiceMinimum = latest.level === "minimum" && previous.level === "minimum";
+  const twiceMinimum =
+    latest.level === "minimum" && previous.level === "minimum";
   if (twiceHard || twiceMinimum)
     return {
       exerciseId,
@@ -119,6 +130,7 @@ export function verdictFor(
         ? "This has been feeling like hard work, so it steps back a little."
         : "Going gentler on this one for now.",
       basis,
+      latestSession,
     };
 
   // Easy twice AND completing the fuller version both times. Either alone is
@@ -132,8 +144,10 @@ export function verdictFor(
     return {
       exerciseId,
       adjustment: "progress",
-      reason: "You have made this look easy twice running. Time for a bit more.",
+      reason:
+        "You have made this look easy twice running. Time for a bit more.",
       basis,
+      latestSession,
     };
 
   return {
@@ -141,6 +155,7 @@ export function verdictFor(
     adjustment: "hold",
     reason: "Holding here while it settles.",
     basis,
+    latestSession,
   };
 }
 
@@ -166,9 +181,15 @@ export function weekPostureFor(signals: DailySignal[]): WeekAdjustment {
   if (week.length < 3)
     return { posture: "normal", reason: "Not enough check-ins yet to adjust." };
 
-  const lowSleep = week.filter((d) => (d.sleep ?? 0) > 0 && d.sleep! <= 2).length;
-  const lowEnergy = week.filter((d) => (d.energy ?? 0) > 0 && d.energy! <= 2).length;
-  const highStress = week.filter((d) => (d.stress ?? 0) > 0 && d.stress! <= 2).length;
+  const lowSleep = week.filter(
+    (d) => (d.sleep ?? 0) > 0 && d.sleep! <= 2,
+  ).length;
+  const lowEnergy = week.filter(
+    (d) => (d.energy ?? 0) > 0 && d.energy! <= 2,
+  ).length;
+  const highStress = week.filter(
+    (d) => (d.stress ?? 0) > 0 && d.stress! <= 2,
+  ).length;
 
   if (lowSleep >= 4 || lowEnergy >= 4)
     return {
@@ -226,10 +247,12 @@ export function nextDose(
   adjustment: Adjustment,
   posture: WeekPosture,
 ): { step: number; changeExercise: "progress" | "regress" | null } {
-  if (adjustment === "stop_and_review")
-    return { step, changeExercise: null };
+  if (adjustment === "stop_and_review") return { step, changeExercise: null };
   if (adjustment === "regress")
-    return { step: Math.max(0, step - 1), changeExercise: step === 0 ? "regress" : null };
+    return {
+      step: Math.max(0, step - 1),
+      changeExercise: step === 0 ? "regress" : null,
+    };
   if (adjustment === "hold") return { step, changeExercise: null };
 
   // A recovery week suspends progression outright. Someone who is not sleeping

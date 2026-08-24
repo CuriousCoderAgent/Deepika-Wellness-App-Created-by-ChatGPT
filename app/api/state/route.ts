@@ -32,7 +32,9 @@ export const dynamic = "force-dynamic";
 async function session() {
   const authorization = (await headers()).get("authorization");
   const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
-  return readSessionToken(bearer ?? (await cookies()).get(sessionCookieName)?.value);
+  return readSessionToken(
+    bearer ?? (await cookies()).get(sessionCookieName)?.value,
+  );
 }
 
 /**
@@ -213,15 +215,18 @@ function mergeMemberUpdate(
       ...entry,
       memberId,
     })),
-    habitLogs: (incoming.habitLogs ?? existing.habitLogs ?? []).map((entry) => ({
-      ...entry,
-      memberId,
-    })),
+    habitLogs: (incoming.habitLogs ?? existing.habitLogs ?? []).map(
+      (entry) => ({
+        ...entry,
+        memberId,
+      }),
+    ),
     readiness: mergeReadiness(existing.readiness, incoming.readiness),
     // Derived by the generator from logged sessions, never accepted from the
     // phone: otherwise a client could award itself a heavier dose, or quietly
     // un-pause a movement that hurt.
     doseSteps: existing.doseSteps,
+    doseAdaptedThrough: existing.doseAdaptedThrough,
     pausedExerciseIds: existing.pausedExerciseIds,
     planGeneratedOn: existing.planGeneratedOn,
     // A coaching subscription is established elsewhere. A member's own app
