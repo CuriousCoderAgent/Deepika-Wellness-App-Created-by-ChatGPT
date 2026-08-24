@@ -5,12 +5,10 @@ Regenerate rather than editing by hand — it will drift.
 
 ## Status: complete, 2026-08-24
 
-**All 55 movements now have photography.** 51 are wired into
-`mobile/src/exerciseMedia.ts`; **4 are held pending a reshoot** — see
-`WITHHELD_MEDIA` in that file for exactly what is wrong with each. Four tests
-hold this: every movement either resolves or is explicitly held, a held one
-carries a written reason, no mapping points at a movement that no longer
-exists, and every referenced asset file is present.
+**All 55 movements have photography and all 55 are wired.** Nothing is held.
+Four tests hold this: every movement either resolves or is explicitly held, a
+held one carries a written reason, no mapping points at a movement that no
+longer exists, and every referenced asset file is present.
 
 Delivered in two packs, both commissioned against this brief:
 
@@ -39,8 +37,17 @@ and are held in `WITHHELD_MEDIA` with the specific defect recorded. This is
 not a form review and does not replace one; it only checked that the picture
 shows what the words under it say.
 
-A fifth, `ex-sled-pull`, is shipped with a note: the rope-to-sled connection
-is hard to read in the last two frames. It is not wrong, only unclear.
+All four were regenerated the same day, along with `ex-sled-pull`, whose
+rope-to-sled connection had been hard to read. The replacements were checked
+the same way and all five now match their labels: the calf raise shows a full
+heel rise and hold, the Nordic has the ankles hooked under a sofa base with
+the unused gym apparatus removed, the seated hinge has distinct upright,
+partial and full angles, the pulldown runs start to finish in order, and the
+sled rope stays connected and the sled visibly travels.
+
+The Nordic regeneration also surfaced a library defect, correctly: the
+movement was tagged `equipment: ["none"]` while its own first frame reads
+"Kneel, ankles held or hooked". It now requires `household_anchor`.
 
 Everything below is the original brief, kept for reshoots and for any
 movement added later.

@@ -139,6 +139,10 @@ const BY_ID: Record<string, ExerciseMediaKey> = {
   "ex-sled-push": "sledPush",
   "ex-sled-pull": "sledPull",
   "ex-sandbag-lunge": "sandbagLunge",
+  "ex-single-leg-calf-raise": "singleLegCalfRaise",
+  "ex-nordic-hamstring-eased": "nordicHamstringEased",
+  "ex-seated-hinge": "seatedHinge",
+  "ex-band-lat-pulldown": "bandLatPulldown",
 };
 
 /** For coach-authored actions, which carry a name but no library id. */
@@ -194,36 +198,27 @@ const BY_NAME: Record<string, ExerciseMediaKey> = {
   "sled push": "sledPush",
   "sled pull": "sledPull",
   "sandbag lunge": "sandbagLunge",
+  "single-leg calf raise": "singleLegCalfRaise",
+  "assisted hamstring lower": "nordicHamstringEased",
+  "seated hinge": "seatedHinge",
+  "band pulldown": "bandLatPulldown",
 };
 
 
 /**
  * Movements whose photography exists but is not shown.
  *
- * This module's own rule is that showing the wrong movement is worse than
- * showing none, because a member follows the picture rather than the words.
- * These four sequences were delivered and their frames do not match the
- * labels printed beneath them, so they are held rather than shipped; the
- * screen falls back to the written frame labels, which are the real
- * instructions.
+ * Empty, and kept rather than deleted: this module's rule is that showing the
+ * wrong movement is worse than showing none, because a member follows the
+ * picture rather than the words. When a sequence is delivered whose frames do
+ * not match the labels printed beneath them, it belongs here with the defect
+ * written down, not in BY_ID.
  *
- * The asset files stay in the repository. Each of these needs two or three
- * frames reshot rather than a new sequence, and deleting them would lose the
- * fifteen usable frames alongside the bad ones.
- *
- * Reviewed frame-by-frame against the library's own labels on 2026-08-24.
- * Emptying this list is what ships them.
+ * Four sequences sat here on 2026-08-24 — a calf raise with no heel rise, a
+ * Nordic with unanchored ankles, a seated hinge with no hinge, and a pulldown
+ * whose frames ran out of order. All four were regenerated and now match.
  */
-export const WITHHELD_MEDIA: Record<string, string> = {
-  "ex-single-leg-calf-raise":
-    "Frames 3 and 4 are labelled 'Rise all the way up' and 'Pause at the top'; the heel barely leaves the floor in either. The full range is the entire exercise.",
-  "ex-nordic-hamstring-eased":
-    "Frame 1 reads 'Kneel, ankles held or hooked' and her ankles are free in all five frames — the anchor is visible behind her and unused. Without it this is a kneeling fall-forward, not a hamstring lower. The frames also show gym apparatus for a movement tagged equipment: ['none'].",
-  "ex-seated-hinge":
-    "Five near-identical upright frames. The hinge the movement is named for is not visible in any of them.",
-  "ex-band-lat-pulldown":
-    "Frame order does not progress — finish, start, mid, finish, start — and frame 3, labelled 'Pull down past your hips', shows the arms straight out in front at chest height, which is a different movement.",
-};
+export const WITHHELD_MEDIA: Record<string, string> = {};
 
 /**
  * The sequence for an exercise, or null.

@@ -131,9 +131,9 @@ says so rather than quietly producing a strength week.
   the other 34 were held to. Until that happens the event goals should be
   treated as internal.
 - ~~Photography for 47 movements~~ — **done 2026-08-24.** All 55 movements
-  have sequences; 51 are wired and 4 are held pending a reshoot. See
-  `WITHHELD_MEDIA` in `mobile/src/exerciseMedia.ts` for what is wrong with
-  each, and `EXERCISE-MEDIA-BRIEF.md` for the review note.
+  have sequences and all 55 are wired. Four were held the same day for frames
+  that did not match their labels, regenerated, re-checked and shipped. See
+  `EXERCISE-MEDIA-BRIEF.md`.
 - ~~Nine movements unreachable by any member~~ — **done 2026-08-24.** The
   library gained sleds, ergs and medicine balls; the equipment question did
   not, so every Group B event movement could never be selected by anybody.
@@ -141,10 +141,6 @@ says so rather than quietly producing a strength week.
   members training for an event, and `ex-nordic-hamstring-eased` no longer
   claims to need no equipment while its own first frame says "ankles held or
   hooked". Four tests hold it.
-- **Reshoot four sequences.** `ex-single-leg-calf-raise` (no heel rise),
-  `ex-nordic-hamstring-eased` (ankles never anchored), `ex-seated-hinge` (no
-  hinge), `ex-band-lat-pulldown` (frame order, and frame 3 is the wrong
-  movement). Two or three frames each rather than new sequences.
 
 ---
 
