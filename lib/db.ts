@@ -971,6 +971,55 @@ export async function respondToConnection(
   return (r.rowCount ?? 0) > 0;
 }
 
+/**
+ * Block someone, from any state and from either side of the row.
+ *
+ * Distinct from `respondToConnection`, which only touches a *pending* row
+ * and only from the addressee. That is correct for answering a request and
+ * useless for the two cases that actually matter: blocking somebody already
+ * accepted, and blocking as the person who originally sent the request.
+ * Either would have updated zero rows and reported success.
+ *
+ * A block that silently does nothing is worse than no block at all, because
+ * she believes she is protected and is not. So this matches the pair in
+ * either direction whatever the current status, and inserts rather than
+ * updates: if the row was removed earlier, blocking must still create one or
+ * the block has nothing to live in.
+ *
+ * The row is written with the blocker as addressee, which is the shape
+ * `createConnectionRequest`'s `on conflict do nothing` already relies on to
+ * stop a blocked person asking again.
+ */
+export async function blockConnection(
+  blockerId: string,
+  otherId: string,
+): Promise<boolean> {
+  await ensureReady();
+  const client = await db().connect();
+  try {
+    await client.query("begin");
+    await client.query(
+      `delete from circle_connection
+       where (requester_id = $1 and addressee_id = $2)
+          or (requester_id = $2 and addressee_id = $1)`,
+      [blockerId, otherId],
+    );
+    await client.query(
+      `insert into circle_connection
+         (requester_id, addressee_id, status, responded_at)
+       values ($1, $2, 'blocked', now())`,
+      [otherId, blockerId],
+    );
+    await client.query("commit");
+    return true;
+  } catch (err) {
+    await client.query("rollback").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 /** Either side can walk away, at any time, without asking the other. */
 export async function removeConnection(
   userId: string,

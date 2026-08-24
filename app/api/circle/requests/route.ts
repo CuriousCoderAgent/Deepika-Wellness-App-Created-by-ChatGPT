@@ -15,6 +15,7 @@ import { cookies, headers } from "next/headers";
 import { readSessionToken, sessionCookieName } from "@/lib/auth";
 import { authRateLimitKey } from "@/lib/accounts";
 import {
+  blockConnection,
   consumeAuthRateLimit,
   createConnectionRequest,
   isConfigured,
@@ -42,7 +43,10 @@ async function session() {
 
 async function memberSession() {
   const user = await session();
-  if (!user) return { error: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
+  if (!user)
+    return {
+      error: NextResponse.json({ error: "Not signed in" }, { status: 401 }),
+    };
   if (user.role !== "member")
     return {
       error: NextResponse.json(
@@ -84,10 +88,7 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   if (target === user!.sub)
-    return NextResponse.json(
-      { error: "That is you." },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "That is you." }, { status: 400 });
 
   try {
     // Without this, the anti-enumeration response above is worthless: someone
@@ -136,12 +137,22 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
 
   try {
+    // Blocking takes its own path. respondToConnection only touches a
+    // *pending* row, so routing a block through it would update nothing
+    // whenever the pair were already connected — and report success. A
+    // safety control that quietly fails is worse than one that is absent,
+    // because she stops watching for the problem.
+    if (decision === "blocked") {
+      await blockConnection(user!.sub, requesterId);
+      return NextResponse.json({ ok: true, decision });
+    }
+
     // The query only matches rows where this member is the addressee, so a
     // member cannot accept a request on someone else's behalf.
     const updated = await respondToConnection(
       user!.sub,
       requesterId,
-      decision as "accepted" | "declined" | "blocked",
+      decision as "accepted" | "declined",
     );
     if (!updated)
       return NextResponse.json(

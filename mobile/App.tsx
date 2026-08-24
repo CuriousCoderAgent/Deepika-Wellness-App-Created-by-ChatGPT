@@ -4353,7 +4353,7 @@ function Circle({
 
   const answer = async (
     memberId: string,
-    decision: "accepted" | "declined",
+    decision: "accepted" | "declined" | "blocked",
   ) => {
     setBusy(true);
     try {
@@ -4367,6 +4367,33 @@ function Circle({
     } finally {
       setBusy(false);
     }
+  };
+
+  /**
+   * Decline, then offer to block.
+   *
+   * Declining alone does not stop someone requesting again, and repeated
+   * requests from a person already turned down is exactly the case a block
+   * exists for. The decline happens immediately on one tap — that is the
+   * common, unremarkable case — and blocking is offered after, so nobody has
+   * to think about it who does not need it.
+   *
+   * Nothing tells the other person either outcome.
+   */
+  const declineThen = async (memberId: string, name: string) => {
+    await answer(memberId, "declined");
+    Alert.alert(
+      "Declined",
+      `${name} has not been told. If you would rather they could not ask again, you can block them.`,
+      [
+        { text: "That's all", style: "cancel" },
+        {
+          text: "Block",
+          style: "destructive",
+          onPress: () => answer(memberId, "blocked"),
+        },
+      ],
+    );
   };
 
   /** One tap, from a fixed list. Nothing here can be composed. */
@@ -4391,16 +4418,20 @@ function Circle({
   const remove = (memberId: string, name: string) =>
     Alert.alert(
       `Remove ${name}?`,
-      "You will stop seeing each other's activity. Neither of you is told.",
+      "You will stop seeing each other's activity. Neither of you is told.\n\nRemoving leaves them able to send a new request. Blocking does not.",
       [
         { text: "Keep", style: "cancel" },
         {
           text: "Remove",
-          style: "destructive",
           onPress: async () => {
             await removeConnection(token, memberId).catch(() => undefined);
             await load();
           },
+        },
+        {
+          text: "Block",
+          style: "destructive",
+          onPress: () => answer(memberId, "blocked"),
         },
       ],
     );
@@ -4480,7 +4511,9 @@ function Circle({
                 accessibilityLabel={`Decline ${request.displayName}`}
                 style={s.requestDecline}
                 disabled={busy}
-                onPress={() => answer(request.memberId, "declined")}
+                onPress={() =>
+                  declineThen(request.memberId, request.displayName)
+                }
               >
                 <Text style={s.requestDeclineText}>Not now</Text>
               </Pressable>
