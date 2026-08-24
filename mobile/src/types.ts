@@ -1,3 +1,5 @@
+import type { MemberProfile } from "./profile";
+
 export type EffortLevel = "minimum" | "target" | "stretch";
 export type JourneyPhase = "Stabilise" | "Build" | "Consolidate";
 export type ActionDomain =
@@ -304,6 +306,13 @@ export interface OnboardingState {
    * required an answer.
    */
   movementCautionAnswered?: boolean;
+  /**
+   * What she has told the app about herself, and how much of it she chose
+   * to share. Core is asked of everyone; detail only after she agrees to be
+   * asked, and stays editable under You -> About you. See
+   * mobile/src/profile.ts.
+   */
+  profile?: MemberProfile;
   preferredCheckIn?: "morning" | "evening";
   consent: {
     wellness: boolean;

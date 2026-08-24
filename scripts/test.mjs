@@ -38,6 +38,12 @@ import { newId } from "../mobile/src/ids.ts";
 import { checkMacros, parseMacro } from "../mobile/src/meal-values.ts";
 import { findWeekWin } from "../mobile/src/week-win.ts";
 import {
+  GOAL_OPTIONS,
+  LIFE_STAGES,
+  goalIsSupported,
+  profileCompleteness,
+} from "../mobile/src/profile.ts";
+import {
   SKIP_OPTIONS,
   describeSkip,
   isDeliberateRest,
@@ -2287,4 +2293,76 @@ test("a win never scolds, and never counts", () => {
   assert.ok(win);
   assert.doesNotMatch(win.text, /missed|behind|failed|only|just \d/i);
   assert.doesNotMatch(win.text, /planned actions completed/i);
+});
+
+/* ------------------------------------------------------------------ */
+/* The member profile                                                  */
+/* ------------------------------------------------------------------ */
+
+test("event goals are marked unsupported until the library covers them", () => {
+  // Sled pushes and loaded carries are a different risk profile from chair
+  // squats and none of it has passed the review every current movement did.
+  // Quietly handing back wall slides would teach her the product is shallow.
+  assert.equal(goalIsSupported("stronger"), true);
+  assert.equal(goalIsSupported("sleep"), true);
+  assert.equal(goalIsSupported("event-hybrid"), false);
+  assert.equal(goalIsSupported("event-endurance"), false);
+  // An unknown id is not quietly supported either.
+  assert.equal(goalIsSupported("made-up"), false);
+});
+
+test("every goal has a distinct id and explains itself", () => {
+  const ids = GOAL_OPTIONS.map((option) => option.id);
+  assert.equal(new Set(ids).size, ids.length, "duplicate goal id");
+  for (const option of GOAL_OPTIONS) {
+    assert.ok(option.label.length, `${option.id} has no label`);
+    assert.ok(option.detail.length, `${option.id} does not say what it means`);
+    // No goal may be phrased as a deficiency to correct.
+    assert.doesNotMatch(
+      `${option.label} ${option.detail}`,
+      /lose weight|slim|tone up|burn|fix|fat\b/i,
+      `${option.id} frames the goal as a body problem`,
+    );
+  }
+});
+
+test("declining to share detail is recorded as an answer", () => {
+  // So the app never re-asks in a way that reads as nagging, and About you
+  // can say "add this whenever" rather than pretending it never offered.
+  const declined = { goals: ["stronger"], detailConsent: "declined" };
+  assert.equal(declined.detailConsent, "declined");
+  const { known, total } = profileCompleteness(declined);
+  assert.equal(known, 1);
+  assert.ok(total > known);
+});
+
+test("completeness counts what is known without judging what is not", () => {
+  assert.deepEqual(profileCompleteness({ goals: [] }), { known: 0, total: 7 });
+
+  const full = profileCompleteness({
+    ageBand: "40-49",
+    goals: ["stronger"],
+    equipment: ["chair"],
+    lifeStage: "perimenopause",
+    sleepBaseline: "broken",
+    trainingDays: ["mon", "wed"],
+    wontDo: "No running",
+  });
+  assert.equal(full.known, full.total);
+
+  // An empty array is not knowledge. "I picked no equipment" and "I was never
+  // asked" must not look the same.
+  assert.equal(profileCompleteness({ goals: [], equipment: [] }).known, 0);
+  assert.equal(
+    profileCompleteness({ goals: [], wontDo: "   " }).known,
+    0,
+    "whitespace is not an answer",
+  );
+});
+
+test("prefer-not-to-say is a real life-stage answer", () => {
+  // Offering the question without an exit makes it an interrogation.
+  const ids = LIFE_STAGES.map((stage) => stage.id);
+  assert.ok(ids.includes("prefer_not_to_say"));
+  assert.ok(ids.includes("none_of_these"));
 });

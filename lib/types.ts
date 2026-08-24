@@ -567,6 +567,8 @@ export interface MobileOnboarding {
   movementCaution?: string;
   /** True once she answered the caution question either way. See mobile/src/types.ts. */
   movementCautionAnswered?: boolean;
+  /** See mobile/src/profile.ts. Core plus optional detail. */
+  profile?: Record<string, unknown>;
   preferredCheckIn?: "morning" | "evening";
   consent: {
     wellness: boolean;
