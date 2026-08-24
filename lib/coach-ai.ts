@@ -53,14 +53,24 @@ export type UrgentCategory =
   | "allergic";
 
 /**
- * Emergency numbers for India, where every member currently is.
+ * How an emergency is named, without assuming where she is.
  *
- * 112 is the national emergency number. 14416 is Tele-MANAS, the Government
- * of India's 24×7 mental health helpline. Both are toll-free and national;
- * neither depends on the state she is in.
+ * The pilot is in India, so India's numbers are given — 112 is the national
+ * emergency line and 14416 is Tele-MANAS, the government's 24×7 mental
+ * health helpline; both are toll-free and national.
+ *
+ * But they are given *after* the instruction, not instead of it. The Circle
+ * already accepts cities outside India and the stores distribute globally,
+ * and the app has no verified country for anyone: the only location signal
+ * is a coarse 3km cell she may never have shared, which is not something to
+ * route emergency advice on. "Call your local emergency number" is correct
+ * everywhere and never sends someone to a number that does not answer, so it
+ * leads; the Indian numbers follow as a concrete aid for the members who are
+ * actually here.
  */
-const EMERGENCY = "112";
-const MENTAL_HEALTH_LINE = "14416 (Tele-MANAS)";
+const EMERGENCY = "your local emergency number (112 in India)";
+const MENTAL_HEALTH_LINE =
+  "a local crisis line — in India, Tele-MANAS on 14416";
 
 /**
  * Phrases, not words.
@@ -113,7 +123,7 @@ const URGENT_REPLIES: Record<UrgentCategory, string> = {
   breathing: `Please call ${EMERGENCY} now or get to the nearest emergency department. Difficulty breathing at rest needs someone with you in person, today, not a message from me.`,
   neurological: `Please call ${EMERGENCY} now. What you are describing needs to be seen urgently — with these symptoms the first hour matters, so please do not wait to see if it passes.`,
   pregnancy: `Please contact your obstetrician immediately, or go to your maternity unit now. Call ${EMERGENCY} if you cannot reach them. This is not something to wait on.`,
-  self_harm: `I am glad you told me, and I want you to talk to a person rather than to me. Tele-MANAS is free, confidential and open all day and night on ${MENTAL_HEALTH_LINE}. If you are in immediate danger, please call ${EMERGENCY}. If there is someone nearby, please tell them how you are feeling right now.`,
+  self_harm: `I am glad you told me, and I want you to talk to a person rather than to me. Please reach ${MENTAL_HEALTH_LINE} — free, confidential, and open all day and night. If you are in immediate danger, call ${EMERGENCY}. And if there is someone nearby, please tell them how you are feeling right now.`,
   allergic: `Please call ${EMERGENCY} now. If you have been prescribed an adrenaline pen, use it. This cannot wait.`,
 };
 

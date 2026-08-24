@@ -706,7 +706,20 @@ export async function readOwnedPrivateFilePaths(
  * document is still removed and the caller reports honestly that the sign-in
  * itself has to be withdrawn by whoever runs the deployment.
  */
-export async function deleteAccountData(userId: string): Promise<{
+export async function deleteAccountData(
+  userId: string,
+  options: {
+    /**
+     * Pathnames whose object could not be deleted from storage.
+     *
+     * Their registry rows are kept deliberately. A blob with no row is an
+     * orphan nobody can find again — the row is the only record that the
+     * object exists and who it belonged to, so it has to outlive a failed
+     * delete or the file is unrecoverable *and* undeletable.
+     */
+    retainFilePathnames?: string[];
+  } = {},
+): Promise<{
   removedAccount: boolean;
   removedDocument: boolean;
 }> {
@@ -718,9 +731,16 @@ export async function deleteAccountData(userId: string): Promise<{
       "delete from member_state where user_id = $1",
       [userId],
     );
-    await client.query("delete from private_file where owner_id = $1", [
-      userId,
-    ]);
+    const retain = options.retainFilePathnames ?? [];
+    if (retain.length)
+      await client.query(
+        "delete from private_file where owner_id = $1 and pathname <> all($2::text[])",
+        [userId, retain],
+      );
+    else
+      await client.query("delete from private_file where owner_id = $1", [
+        userId,
+      ]);
     // Deletion must not leave her in anyone else's circle, or on a discovery
     // list, after her record is gone.
     await client.query(

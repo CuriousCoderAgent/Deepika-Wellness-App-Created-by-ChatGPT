@@ -3847,7 +3847,8 @@ function Coach({
 
       <Text style={s.responseNote}>
         {COACH_NAME} is software, and she is not a substitute for medical care.
-        For anything urgent, call 112. This is not an emergency channel.
+        For anything urgent, call your local emergency number — 112 in India.
+        This is not an emergency channel.
         {hasHumanCoach
           ? " Where your coach has set something, that stands."
           : ""}
@@ -5014,9 +5015,23 @@ function Profile({
     reminders: { enabled: false, time: "8:00 AM" },
     celebratedMilestones: [],
   };
+  /**
+   * Share the thing that actually works: her username.
+   *
+   * This used to share `BHAROSA-{ID}` as a "code", which no route anywhere
+   * resolves — sign-up only accepts the deployment-wide SIGNUP_CODE, so
+   * whoever received it typed it in and was told the code was wrong. A broken
+   * promise at the exact moment someone is vouching for the product to a
+   * friend is worse than no invitation at all.
+   *
+   * Adding by username is the real, working mechanism, and it keeps the
+   * privacy shape intact: she still has to accept before either of them sees
+   * anything. A proper referral link that survives install is the right
+   * long-term answer; this is the honest version of what exists today.
+   */
   const invite = () =>
     Share.share({
-      message: `I’m building steadier wellness habits with Bharosa Wellness. Join my private support circle with code ${engagement.circle.inviteCode}. Nothing about my health is shared automatically.`,
+      message: `I’m building steadier wellness habits with Bharosa Wellness. Once you’ve signed up, add me — my username is ${doc.member.id}. We’d each only see how much of our plan we’ve done, and only after we both accept.`,
     });
   const reminderTime = parseReminderTime(engagement.reminders.time);
   const saveReminder = (enabled: boolean, time = reminderTime) =>
@@ -5199,8 +5214,8 @@ function Profile({
           have done, and only with people you accept.
         </Text>
         <View style={s.inviteCode}>
-          <Text style={s.inviteCodeLabel}>YOUR CODE</Text>
-          <Text style={s.inviteCodeValue}>{engagement.circle.inviteCode}</Text>
+          <Text style={s.inviteCodeLabel}>ADD ME BY USERNAME</Text>
+          <Text style={s.inviteCodeValue}>{doc.member.id}</Text>
         </View>
         <Pressable style={s.circleButton} onPress={invite}>
           <Text style={s.circleButtonText}>Invite someone you trust</Text>
@@ -5400,9 +5415,17 @@ function MemberApp({
   }, []);
 
   const refresh = useCallback(
-    async ({ silent = false }: { silent?: boolean } = {}) => {
+    async ({
+      silent = false,
+      readOnly = false,
+    }: { silent?: boolean; readOnly?: boolean } = {}) => {
       try {
-        if (token !== DEMO_TOKEN) {
+        // readOnly exists for the Coach tab's sixty-second poll. Reading
+        // messages must never build a plan or ask a model for anything: the
+        // poll was running the whole pipeline, so simply sitting on the
+        // conversation mutated plan state once a minute. The server is
+        // idempotent now, but a poll that writes is still the wrong shape.
+        if (token !== DEMO_TOKEN && !readOnly) {
           const built = await readCachedDoc();
           const alreadyToday =
             built?.doc?.planGeneratedOn === isoDate() ||
@@ -5421,7 +5444,8 @@ function MemberApp({
         if (
           next.onboarding.consent.aiPersonalisation &&
           !hasTodayRecommendation &&
-          token !== DEMO_TOKEN
+          token !== DEMO_TOKEN &&
+          !readOnly
         ) {
           try {
             const result = await generateRecommendation(token);
@@ -5543,8 +5567,13 @@ function MemberApp({
    */
   useEffect(() => {
     if (tab !== "coach" || token === DEMO_TOKEN) return;
-    refresh({ silent: true });
-    const timer = setInterval(() => refresh({ silent: true }), 60_000);
+    // readOnly: this is a poll for new messages, not a reason to rebuild her
+    // day. It used to run the full pipeline every minute.
+    refresh({ silent: true, readOnly: true });
+    const timer = setInterval(
+      () => refresh({ silent: true, readOnly: true }),
+      60_000,
+    );
     return () => clearInterval(timer);
   }, [tab, token, refresh]);
 

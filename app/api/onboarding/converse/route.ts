@@ -35,6 +35,7 @@ import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { cookies, headers } from "next/headers";
 import { readSessionToken, sessionCookieName } from "@/lib/auth";
+import { matchUrgent } from "@/lib/coach-ai";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,7 +105,9 @@ Return every field you have established so far on every turn, including ones fro
 
 You must not: give exercise, medical, or nutrition advice; suggest what she should do; describe a plan; comment on weight, appearance, diet or body shape; diagnose anything; discuss symptoms beyond noting a caution; or promise a result. If she asks what she should do, say that comes next once you know a little more, and continue.
 
-If she mentions chest pain, dizziness, fainting, surgery, pregnancy, or a heart condition, do not react or advise. Note it in movementCaution and continue — a proper health screen follows this conversation and will ask her directly.`;
+If she mentions surgery, pregnancy, a heart condition or other medical history, note it in movementCaution and continue without advising on it — a proper health screen follows this conversation and asks her directly.
+
+Acute symptoms are a different thing and are never yours to carry forward. Anything happening to her *now* — chest pain, breathlessness at rest, fainting, one-sided weakness — is caught by a check that runs before you ever see the message, so you should not normally meet one. If something acute does reach you anyway, do not note it and move on: say plainly that it needs urgent attention today, and that signing up can wait.`;
 
 async function session() {
   const authorization = (await headers()).get("authorization");
@@ -127,7 +130,8 @@ function sanitiseFields(raw: unknown) {
     ? input.goals
         .map((goal) =>
           KNOWN_GOALS.find(
-            (known) => known.toLowerCase() === String(goal).trim().toLowerCase(),
+            (known) =>
+              known.toLowerCase() === String(goal).trim().toLowerCase(),
           ),
         )
         .filter((goal): goal is string => Boolean(goal))
@@ -143,7 +147,10 @@ function sanitiseFields(raw: unknown) {
   const activityLevel =
     ACTIVITY_LEVELS.find(
       (level) =>
-        level.toLowerCase() === String(input.activityLevel ?? "").trim().toLowerCase(),
+        level.toLowerCase() ===
+        String(input.activityLevel ?? "")
+          .trim()
+          .toLowerCase(),
     ) ?? null;
 
   const caution =
@@ -155,7 +162,13 @@ function sanitiseFields(raw: unknown) {
   const preferredCheckIn =
     checkIn === "morning" || checkIn === "evening" ? checkIn : null;
 
-  return { goals, availableMinutes, activityLevel, movementCaution: caution, preferredCheckIn };
+  return {
+    goals,
+    availableMinutes,
+    activityLevel,
+    movementCaution: caution,
+    preferredCheckIn,
+  };
 }
 
 /** Complete only when the app actually has what it needs to build a plan. */
@@ -197,6 +210,25 @@ export async function POST(req: Request) {
     .slice(-20)
     .map((m) => ({ role: m.role, content: m.content.slice(0, 1000) }));
 
+  // The same gate Vera uses, before the model, for the same reason. Sign-up
+  // was the one conversational surface without it, and its instructions
+  // actively told the model to note acute symptoms and carry on — so someone
+  // typing "I get chest pain on the stairs" while creating an account got
+  // "noted!" and a next question. Urgent language is not a profile field.
+  const latestMemberMessage = [...messages]
+    .reverse()
+    .find((m) => m.role === "user")?.content;
+  const urgent = latestMemberMessage ? matchUrgent(latestMemberMessage) : null;
+  if (urgent)
+    return NextResponse.json({
+      reply: urgent.reply,
+      urgent: true,
+      // Not "complete": nothing was established, and the form is still there
+      // whenever she comes back to it.
+      complete: false,
+      fields: sanitiseFields({}),
+    });
+
   const memberTurns = messages.filter((m) => m.role === "user").length;
   if (memberTurns > MAX_TURNS)
     return NextResponse.json({
@@ -219,7 +251,12 @@ export async function POST(req: Request) {
               role: m.role as "user" | "assistant",
               content: m.content,
             }))
-          : [{ role: "user" as const, content: "(she has just opened the app)" }]),
+          : [
+              {
+                role: "user" as const,
+                content: "(she has just opened the app)",
+              },
+            ]),
       ],
       text: {
         format: {
@@ -237,7 +274,9 @@ export async function POST(req: Request) {
       fields?: unknown;
     };
     const fields = sanitiseFields(parsed.fields);
-    const reply = String(parsed.reply ?? "").trim().slice(0, 400);
+    const reply = String(parsed.reply ?? "")
+      .trim()
+      .slice(0, 400);
 
     return NextResponse.json({
       reply: reply || "Tell me a little about what you would like to change.",

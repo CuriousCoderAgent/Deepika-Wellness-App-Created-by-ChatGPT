@@ -76,6 +76,16 @@ export interface MemberDoc {
   /** Paused after a pain report. Only a person removes an id from here. */
   pausedExerciseIds?: string[];
   planGeneratedOn?: string;
+  /**
+   * Reminder settings, weekly goal and celebrated milestones.
+   *
+   * Member-owned: the coach console has no editor for any of it, so her copy
+   * is authoritative — the same rule hydrationLogs and habits already follow.
+   * It was previously mobile-only and absent from this type entirely, so the
+   * merge dropped it on every sync and a reminder she had just switched on
+   * came back off on the next server read.
+   */
+  engagement?: Record<string, unknown>;
   /** Absent means un-coached, which is the default. */
   coaching?: CoachingState;
 }

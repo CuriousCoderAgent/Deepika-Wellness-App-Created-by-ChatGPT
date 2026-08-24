@@ -221,6 +221,10 @@ function mergeMemberUpdate(
         memberId,
       }),
     ),
+    // Hers for the same reason. This was absent from the server type
+    // altogether, so the merge dropped it on every sync and a reminder she
+    // had just switched on came back off on the next read.
+    engagement: incoming.engagement ?? existing.engagement,
     readiness: mergeReadiness(existing.readiness, incoming.readiness),
     // Derived by the generator from logged sessions, never accepted from the
     // phone: otherwise a client could award itself a heavier dose, or quietly
