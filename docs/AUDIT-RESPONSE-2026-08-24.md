@@ -133,25 +133,32 @@ Accepted and landed:
 ### Second pass
 
 - **"Not today" meant four things at once.** Every skip stored as
-  , so "Rest counts" congratulated people who had simply
-  run out of time, and the plan could not tell "no time" from "unwell". Now
-  three neutral descriptions in a separate . First attempt reused
-  the existing  field, which is free text the coach console
-  renders in quotation marks as her own words — that would have shown a coach
-  . Caught by seed data failing to typecheck.
-- **Record ids could collide, which my own union-merge turned into data
-  loss.** Every id was . Unique only within a
-  millisecond, across all devices. Since the merge now keys on id, a collision
-  silently discards a record. Fixed at 21 sites across app, server and coach
-  console; zero remain.
+  `completed: "rest"`, so "Rest counts" congratulated people who had
+  simply run out of time, and the plan could not tell "no time" from
+  "unwell". Now three neutral descriptions in a separate `skipKind`.
+  The first attempt reused the existing `skipReason` field, which is
+  free text the coach console renders in quotation marks as her own words —
+  that would have shown a coach `Not today — "no_time"`. Caught by
+  seed data failing to typecheck.
+
+- **Record ids could collide, and my own union-merge turned that into data
+  loss.** Every id was `${prefix}-${Date.now()}` — unique only within
+  a millisecond, across all devices. Since the merge now keys on id, a
+  collision silently discards a record. Fixed at 21 sites across the app,
+  the server and the coach console; none remain.
+
 - **Blocking.** A social feature with no way to stop unwanted contact. The
-  status existed in the database and was narrowed away in the mobile type.
-  Wiring it naively would have produced a button that did nothing for an
-  already-accepted connection —  only matches *pending*
-  rows — so a new  handles any state and either direction.
-  Verified against the live database, not reasoned about.
-- **Module names**, **VO₂ query window**, **gendered AI prompts**, **stale
-  health readings**: see the commits.
+  status existed in the database and had been narrowed away in the mobile
+  type. Wiring it naively would have produced a button that did nothing for
+  an already-accepted connection, because `respondToConnection` only
+  matches *pending* rows — so a new `blockConnection` handles any
+  state and either direction. Verified against the live database rather than
+  reasoned about: block an accepted connection, confirm the row flips,
+  confirm a fresh request from the blocked member is refused.
+
+- **Also:** module names instead of raw slugs, the VO₂ query window matched
+  to the permission actually held, gendered AI prompts, and stale health
+  readings that rendered identically to fresh ones.
 
 ### Decomposition
 
