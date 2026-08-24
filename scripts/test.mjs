@@ -1649,3 +1649,66 @@ test("union leaves the single-device case exactly as it was", () => {
   // No incoming array at all means the client is not touching this log.
   assert.deepEqual(unionById([{ id: "a" }], undefined), [{ id: "a" }]);
 });
+
+/* ------------------------------------------------------------------ */
+/* Text contrast                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * WCAG 2.1 relative luminance and contrast ratio.
+ *
+ * These held at 2.71:1 and 2.60:1 for a long time, on the smallest text in
+ * the app, for a membership largely over forty. A number in a palette is
+ * exactly the kind of thing that regresses silently during a redesign, so it
+ * is asserted rather than trusted to review.
+ */
+function contrastRatio(a, b) {
+  const luminance = (hexColor) => {
+    const channel = (offset) => {
+      const value = parseInt(hexColor.slice(offset, offset + 2), 16) / 255;
+      return value <= 0.03928
+        ? value / 12.92
+        : ((value + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+  };
+  const [lighter, darker] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+test("every text colour clears WCAG AA on both surfaces", () => {
+  // Kept in step with the C palette in mobile/App.tsx by hand; there is no
+  // module to import from while it lives inside that file.
+  const PAPER = "#F3F1EA";
+  const CARD = "#FCFBF7";
+  const TEXT_COLOURS = {
+    ink: "#132D2E",
+    soft: "#566665",
+    faint: "#5F6B66",
+    marigoldInk: "#7F6024",
+    green: "#0B5557",
+    greenDeep: "#073F43",
+  };
+
+  for (const [name, colour] of Object.entries(TEXT_COLOURS)) {
+    for (const [surfaceName, surface] of [
+      ["paper", PAPER],
+      ["card", CARD],
+    ]) {
+      const ratio = contrastRatio(colour, surface);
+      assert.ok(
+        ratio >= 4.5,
+        `${name} on ${surfaceName} is ${ratio.toFixed(2)}:1, below the 4.5:1 minimum`,
+      );
+    }
+  }
+});
+
+test("the ratio helper agrees with known values", () => {
+  // Sanity check on the maths itself, so a broken helper cannot make the
+  // assertion above pass vacuously.
+  assert.equal(Math.round(contrastRatio("#000000", "#FFFFFF")), 21);
+  assert.equal(Math.round(contrastRatio("#FFFFFF", "#FFFFFF")), 1);
+  // The old faint, which is what this test exists to keep out.
+  assert.ok(contrastRatio("#8A9692", "#F3F1EA") < 3);
+});

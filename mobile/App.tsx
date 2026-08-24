@@ -158,17 +158,36 @@ import type {
   PulseEntry,
 } from "./src/types";
 
+/**
+ * The palette, with the text colours actually legible.
+ *
+ * Two of these failed WCAG AA badly, measured against the real surfaces:
+ * `faint` was 2.71:1 on paper and 2.96:1 on card, and `marigold` 2.60:1 and
+ * 2.84:1, against a 4.5:1 minimum for ordinary text. Both were used at 11pt
+ * and smaller, on labels, timestamps, metadata and the whole bottom tab bar —
+ * so the smallest text in the app had the worst contrast in the app, for a
+ * product whose members are largely over forty.
+ *
+ * `faint` is now darkened to pass on both surfaces. `marigold` is unchanged,
+ * because it is the brand colour and carries badges, borders and tints where
+ * contrast rules do not apply the same way — but text that used it now uses
+ * `marigoldInk`, which is the same hue taken dark enough to read.
+ */
 const C = {
   paper: "#F3F1EA",
   card: "#FCFBF7",
   ink: "#132D2E",
   soft: "#566665",
-  faint: "#8A9692",
+  /** 4.91:1 on paper, 5.36:1 on card. Was #8A9692 — 2.71:1 and 2.96:1. */
+  faint: "#5F6B66",
   line: "#DCE2DD",
   green: "#0B5557",
   greenDeep: "#073F43",
   greenTint: "#DCEAE5",
+  /** Brand and decoration — badges, rails, borders. Not for text. */
   marigold: "#B6914B",
+  /** The same gold, dark enough for text: 5.16:1 on paper, 5.63:1 on card. */
+  marigoldInk: "#7F6024",
   marigoldTint: "#F1E8D5",
   calm: "#3E7182",
 };
@@ -2217,7 +2236,10 @@ const AWARDS: {
     id: "hundred-actions",
     Icon: Trophy,
     title: "One hundred",
-    copy: "A hundred actions. Very few people who start ever reach this.",
+    // No population claim. We have no retention data to support one, and
+    // inventing a statistic to make an award feel bigger is the kind of thing
+    // that costs trust the first time someone checks.
+    copy: "A hundred actions, one at a time.",
     earned: (m) => m.actions >= 100,
     progress: (m) => `${m.actions} of 100 actions`,
   },
@@ -2248,7 +2270,7 @@ const AWARDS: {
     id: "movement-ten",
     Icon: Dumbbell,
     title: "Ten sessions",
-    copy: "Ten movement sessions completed.",
+    copy: "Ten days you did your movement session.",
     earned: (m) => m.movements >= 10,
     progress: (m) => `${m.movements} of 10 sessions`,
   },
@@ -2256,7 +2278,7 @@ const AWARDS: {
     id: "movement-thirty",
     Icon: Dumbbell,
     title: "Thirty sessions",
-    copy: "Thirty movement sessions. Your body has had time to change.",
+    copy: "Thirty days of movement. That is enough time for real change.",
     earned: (m) => m.movements >= 30,
     progress: (m) => `${m.movements} of 30 sessions`,
   },
@@ -2316,19 +2338,36 @@ const AWARDS: {
 
 function awardMetrics(doc: MemberDoc): AwardMetrics {
   const done = (doc.actions ?? []).filter((action) => action.completed);
+  // Rest is a real and valued choice, and it stays recorded — but it is not
+  // activity, and counting it as such inflated every day-based award. A day
+  // whose only entry was "not today" used to register as an active day.
+  const active = done.filter((action) => action.completed !== "rest");
+
   const domainsByDay = new Map<number, Set<string>>();
-  for (const action of done) {
+  for (const action of active) {
     if (!domainsByDay.has(action.dayOffset))
       domainsByDay.set(action.dayOffset, new Set());
     domainsByDay.get(action.dayOffset)!.add(action.domain);
   }
+
+  // A session is a day she trained, not an exercise she finished. Counting
+  // each exercise meant one ordinary morning of six movements read as six
+  // sessions, so "Thirty sessions" was reachable in a fortnight — which makes
+  // the award meaningless and, worse, tells her something untrue about what
+  // she has done.
+  const movementDays = new Set(
+    active
+      .filter((action) => action.domain === "movement")
+      .map((action) => action.dayOffset),
+  ).size;
+
   const health = doc.healthConnection?.status;
   return {
-    actions: done.filter((action) => action.completed !== "rest").length,
+    actions: active.length,
     activeDays: domainsByDay.size,
     wholeDays: [...domainsByDay.values()].filter((set) => set.size >= 5).length,
-    movements: done.filter((action) => action.domain === "movement").length,
-    walks: done.filter((action) => action.domain === "walking").length,
+    movements: movementDays,
+    walks: active.filter((action) => action.domain === "walking").length,
     meals: doc.foodEntries?.length ?? 0,
     checkIns: doc.pulses?.length ?? 0,
     rests: done.filter((action) => action.completed === "rest").length,
@@ -4023,13 +4062,26 @@ function HealthConnectionPanel({
   };
   const runSync = async (requestPermissions: boolean) => {
     setSyncing(true);
-    const result = await syncHealth(requestPermissions);
-    await update({
-      ...doc,
-      healthConnection: result.connection,
-      healthSnapshots: mergeSnapshots(result.snapshots),
-    });
-    setSyncing(false);
+    try {
+      const result = await syncHealth(requestPermissions);
+      await update({
+        ...doc,
+        healthConnection: result.connection,
+        healthSnapshots: mergeSnapshots(result.snapshots),
+      });
+    } catch (error) {
+      // A throw here used to leave the spinner turning with nothing said, so
+      // the screen looked busy indefinitely and there was no way to tell a
+      // slow sync from a broken one.
+      Alert.alert(
+        "Could not sync",
+        error instanceof Error
+          ? error.message
+          : "Your health source did not respond. Your plan is unaffected.",
+      );
+    } finally {
+      setSyncing(false);
+    }
   };
   const toggle = (enabled: boolean) =>
     enabled
@@ -6009,7 +6061,7 @@ const s = StyleSheet.create({
   },
   topBrandSub: {
     color: C.faint,
-    fontSize: 7,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1.1,
     marginTop: 1,
@@ -6108,7 +6160,7 @@ const s = StyleSheet.create({
     backgroundColor: C.marigoldTint,
   },
   upsellKicker: {
-    color: C.marigold,
+    color: C.marigoldInk,
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 0.6,
@@ -6314,7 +6366,7 @@ const s = StyleSheet.create({
   domainRowIconDone: { backgroundColor: C.green },
   domainRowLabel: {
     color: C.faint,
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.9,
   },
@@ -6597,7 +6649,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  tabBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
+  tabBadgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
 
   /* Reminder time control. */
   reminderRow: {
@@ -6673,7 +6725,7 @@ const s = StyleSheet.create({
   },
   estimateBasisLabel: {
     color: C.green,
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1,
   },
@@ -6926,7 +6978,7 @@ const s = StyleSheet.create({
   signalNote: { color: C.faint, fontSize: 10, lineHeight: 15, marginTop: 11 },
   flowLabel: {
     color: C.green,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "900",
     letterSpacing: 1,
     marginTop: 13,
@@ -6956,7 +7008,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  snapshotLabel: { color: C.faint, fontSize: 8, marginTop: 6 },
+  snapshotLabel: { color: C.faint, fontSize: 11, marginTop: 6 },
   snapshotValue: {
     color: C.ink,
     fontSize: 15,
@@ -6964,7 +7016,7 @@ const s = StyleSheet.create({
     fontWeight: "800",
     marginTop: 2,
   },
-  snapshotDetail: { color: C.soft, fontSize: 9, lineHeight: 13, marginTop: 2 },
+  snapshotDetail: { color: C.soft, fontSize: 11, lineHeight: 13, marginTop: 2 },
   insightCard: {
     flexDirection: "row",
     gap: 12,
@@ -6985,8 +7037,8 @@ const s = StyleSheet.create({
   },
   insightBody: { flex: 1 },
   insightLabel: {
-    color: C.marigold,
-    fontSize: 8,
+    color: C.marigoldInk,
+    fontSize: 11,
     fontWeight: "900",
     letterSpacing: 0.9,
   },
@@ -6994,7 +7046,7 @@ const s = StyleSheet.create({
   insightCopy: { color: C.soft, fontSize: 12, lineHeight: 18, marginTop: 5 },
   insightEvidence: {
     color: C.faint,
-    fontSize: 9,
+    fontSize: 11,
     lineHeight: 14,
     marginTop: 8,
   },
@@ -7010,8 +7062,8 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   coachConnectionKicker: {
-    color: C.marigold,
-    fontSize: 8,
+    color: C.marigoldInk,
+    fontSize: 11,
     fontWeight: "900",
     letterSpacing: 0.9,
   },
@@ -7052,7 +7104,7 @@ const s = StyleSheet.create({
   consistencyCard: { borderRadius: 22, padding: 18, marginBottom: 12 },
   consistencyLabel: {
     color: "#BDD5CF",
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1.2,
   },
@@ -7123,7 +7175,7 @@ const s = StyleSheet.create({
   },
   domainLabel: {
     color: C.green,
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.8,
     marginBottom: 3,
@@ -7144,7 +7196,7 @@ const s = StyleSheet.create({
   },
   whyLabel: {
     color: C.green,
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: "900",
     letterSpacing: 1,
   },
@@ -7176,7 +7228,7 @@ const s = StyleSheet.create({
   },
   effortActive: { backgroundColor: C.green },
   effortLabel: { color: C.ink, fontSize: 11, fontWeight: "700" },
-  effortDetail: { color: C.faint, fontSize: 9, lineHeight: 12, marginTop: 3 },
+  effortDetail: { color: C.faint, fontSize: 11, lineHeight: 12, marginTop: 3 },
   effortLabelActive: { color: "white" },
   exerciseBlock: {
     backgroundColor: C.greenTint,
@@ -7187,7 +7239,7 @@ const s = StyleSheet.create({
   exerciseSets: { color: C.greenDeep, fontSize: 12, fontWeight: "800" },
   exerciseCue: {
     color: C.green,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1,
   },
@@ -7224,7 +7276,7 @@ const s = StyleSheet.create({
   frameLabel: {
     color: C.soft,
     textAlign: "center",
-    fontSize: 8,
+    fontSize: 11,
     lineHeight: 10,
     marginTop: 6,
   },
@@ -7274,7 +7326,7 @@ const s = StyleSheet.create({
   trendLabel: { flex: 1, color: C.soft, fontSize: 11, lineHeight: 16 },
   trendEvidence: {
     color: C.faint,
-    fontSize: 9,
+    fontSize: 11,
     lineHeight: 14,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: C.line,
@@ -7299,7 +7351,7 @@ const s = StyleSheet.create({
     marginBottom: 8,
   },
   sessionLabel: {
-    color: C.marigold,
+    color: C.marigoldInk,
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 1,
@@ -7383,8 +7435,8 @@ const s = StyleSheet.create({
   calories: { color: C.green, fontSize: 12, fontWeight: "800" },
   macroText: { color: C.soft, fontSize: 11, marginTop: 5 },
   aiTag: {
-    color: C.marigold,
-    fontSize: 8,
+    color: C.marigoldInk,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.7,
     marginTop: 8,
@@ -7407,7 +7459,7 @@ const s = StyleSheet.create({
   circleCard: { borderRadius: 22, padding: 18, marginBottom: 12 },
   circleKicker: {
     color: C.green,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1.2,
   },
@@ -7426,7 +7478,7 @@ const s = StyleSheet.create({
   },
   inviteCodeLabel: {
     color: C.faint,
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1,
   },
@@ -7493,7 +7545,10 @@ const s = StyleSheet.create({
   tabIconActive: { backgroundColor: C.greenTint },
   tabLabel: {
     color: C.faint,
-    fontSize: 9,
+    // Was 9pt — the smallest text in the app, on its most permanent control.
+    // 11 matches the platform convention (iOS 10–11, Material 12) and reads
+    // without making the bar taller.
+    fontSize: 11,
     fontWeight: "600",
     letterSpacing: 0.1,
   },
@@ -7517,13 +7572,13 @@ const s = StyleSheet.create({
     color: "white",
     textAlign: "center",
     textAlignVertical: "center",
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "800",
   },
   exerciseStepLabel: {
     color: C.soft,
     textAlign: "center",
-    fontSize: 8,
+    fontSize: 11,
     lineHeight: 10,
     marginTop: 4,
   },
@@ -7538,7 +7593,7 @@ const s = StyleSheet.create({
   logTitle: { color: C.ink, fontSize: 15, fontWeight: "800" },
   logLabel: {
     color: C.faint,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.8,
     marginTop: 14,
@@ -7623,7 +7678,7 @@ const s = StyleSheet.create({
   minuteChoiceActive: { backgroundColor: C.greenDeep },
   minuteText: { color: C.ink, fontSize: 17, fontWeight: "800" },
   minuteTextActive: { color: "white" },
-  minuteUnit: { fontSize: 9, fontWeight: "600" },
+  minuteUnit: { fontSize: 11, fontWeight: "600" },
   cautionInput: {
     minHeight: 94,
     textAlignVertical: "top",
@@ -7659,8 +7714,8 @@ const s = StyleSheet.create({
   },
   articleMeta: { flexDirection: "row", justifyContent: "space-between" },
   articleCategory: {
-    color: C.marigold,
-    fontSize: 9,
+    color: C.marigoldInk,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.9,
   },
@@ -7687,8 +7742,8 @@ const s = StyleSheet.create({
     marginBottom: 20,
   },
   learningCategory: {
-    color: C.marigold,
-    fontSize: 9,
+    color: C.marigoldInk,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.9,
   },
@@ -7763,12 +7818,17 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  reportFileText: { color: C.marigold, fontSize: 8, fontWeight: "900" },
+  reportFileText: { color: C.marigoldInk, fontSize: 11, fontWeight: "900" },
   reportText: { flex: 1 },
   reportName: { color: C.ink, fontSize: 12, fontWeight: "700" },
-  reportMeta: { color: C.faint, fontSize: 9, marginTop: 3 },
-  reportStatus: { color: C.green, fontSize: 9, fontWeight: "800" },
-  reportPrivacy: { color: C.faint, fontSize: 9, lineHeight: 14, marginTop: 13 },
+  reportMeta: { color: C.faint, fontSize: 11, marginTop: 3 },
+  reportStatus: { color: C.green, fontSize: 11, fontWeight: "800" },
+  reportPrivacy: {
+    color: C.faint,
+    fontSize: 11,
+    lineHeight: 14,
+    marginTop: 13,
+  },
   dayMap: { paddingBottom: 15 },
   dayMapRow: {
     flexDirection: "row",
@@ -7788,7 +7848,7 @@ const s = StyleSheet.create({
   dayMapIconDone: { backgroundColor: C.green },
   dayMapLabel: {
     color: C.soft,
-    fontSize: 8,
+    fontSize: 11,
     lineHeight: 10,
     textAlign: "center",
     marginTop: 6,
@@ -7799,11 +7859,11 @@ const s = StyleSheet.create({
     marginTop: 16,
   },
   selectionCountText: { color: C.greenDeep, fontSize: 11, fontWeight: "800" },
-  selectionLimit: { color: C.marigold, fontSize: 10, fontWeight: "700" },
+  selectionLimit: { color: C.marigoldInk, fontSize: 10, fontWeight: "700" },
   goalOptionText: { flex: 1 },
   goalPriority: {
     color: C.green,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "700",
     marginTop: 3,
   },
@@ -7867,12 +7927,12 @@ const s = StyleSheet.create({
   phaseName: { color: C.ink, fontSize: 11, fontWeight: "800" },
   phaseNameActive: { color: "white" },
   phaseWeeks: {
-    color: C.marigold,
-    fontSize: 8,
+    color: C.marigoldInk,
+    fontSize: 11,
     fontWeight: "800",
     marginTop: 3,
   },
-  phasePromise: { color: C.faint, fontSize: 9, lineHeight: 13, marginTop: 9 },
+  phasePromise: { color: C.faint, fontSize: 11, lineHeight: 13, marginTop: 9 },
   weekTimeline: { gap: 7, paddingBottom: 12, paddingRight: 10 },
   weekButton: {
     width: 51,
@@ -7889,11 +7949,11 @@ const s = StyleSheet.create({
   weekButtonSelected: { borderColor: C.marigold, borderWidth: 2 },
   weekNumber: { color: C.ink, fontSize: 15, fontWeight: "800" },
   weekNumberActive: { color: "white" },
-  weekState: { color: C.faint, fontSize: 8, marginTop: 2 },
+  weekState: { color: C.faint, fontSize: 11, marginTop: 2 },
   weekDetail: { padding: 19 },
   weekDetailKicker: {
     color: C.green,
-    fontSize: 8,
+    fontSize: 11,
     lineHeight: 11,
     fontWeight: "900",
     letterSpacing: 0.9,
@@ -7904,10 +7964,10 @@ const s = StyleSheet.create({
     fontWeight: "700",
     marginTop: 5,
   },
-  weekDetailCount: { color: C.marigold, fontSize: 10, fontWeight: "800" },
+  weekDetailCount: { color: C.marigoldInk, fontSize: 10, fontWeight: "800" },
   weekDetailSection: {
     color: C.faint,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "900",
     letterSpacing: 0.8,
     marginTop: 19,
@@ -7967,7 +8027,7 @@ const s = StyleSheet.create({
   weekday: {
     width: "14.285%",
     color: C.faint,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "800",
     textAlign: "center",
     paddingBottom: 8,
@@ -7982,7 +8042,7 @@ const s = StyleSheet.create({
   calendarDaySelected: { backgroundColor: C.greenDeep },
   calendarDayNumber: { color: C.ink, fontSize: 12, fontWeight: "700" },
   calendarDayNumberSelected: { color: "white" },
-  calendarKcal: { color: C.faint, fontSize: 7, marginTop: 1 },
+  calendarKcal: { color: C.faint, fontSize: 11, marginTop: 1 },
   proteinDot: {
     width: 4,
     height: 4,
@@ -8004,7 +8064,7 @@ const s = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: C.marigold,
   },
-  legendText: { color: C.faint, fontSize: 8, lineHeight: 12 },
+  legendText: { color: C.faint, fontSize: 11, lineHeight: 12 },
   mealChoiceRow: { flexDirection: "row", gap: 5, marginTop: 14 },
   mealChoice: {
     flex: 1,
@@ -8015,11 +8075,11 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   mealChoiceActive: { backgroundColor: C.greenTint },
-  mealChoiceText: { color: C.faint, fontSize: 9, fontWeight: "700" },
+  mealChoiceText: { color: C.faint, fontSize: 11, fontWeight: "700" },
   mealChoiceTextActive: { color: C.greenDeep },
   foodMeal: {
-    color: C.marigold,
-    fontSize: 8,
+    color: C.marigoldInk,
+    fontSize: 11,
     fontWeight: "900",
     letterSpacing: 0.8,
     marginBottom: 3,
@@ -8044,7 +8104,7 @@ const s = StyleSheet.create({
   macroEdit: { flex: 1 },
   macroEditLabel: {
     color: C.faint,
-    fontSize: 7,
+    fontSize: 11,
     fontWeight: "800",
     marginBottom: 4,
   },
@@ -8087,7 +8147,7 @@ const s = StyleSheet.create({
   permissionGrid: { gap: 7, marginTop: 14 },
   permissionItem: { borderRadius: 13, backgroundColor: C.paper, padding: 12 },
   permissionLabel: { color: C.ink, fontSize: 11, fontWeight: "700" },
-  permissionState: { color: C.faint, fontSize: 8, fontWeight: "800" },
+  permissionState: { color: C.faint, fontSize: 11, fontWeight: "800" },
   permissionGranted: { color: C.green },
   healthValue: {
     color: C.greenDeep,
@@ -8095,7 +8155,7 @@ const s = StyleSheet.create({
     fontWeight: "800",
     marginTop: 7,
   },
-  healthSource: { color: C.faint, fontSize: 8, marginTop: 3 },
+  healthSource: { color: C.faint, fontSize: 11, marginTop: 3 },
   healthButtons: { marginTop: 4 },
   healthPrimary: { flexDirection: "row", gap: 7 },
   manageHealthButton: {
@@ -8105,7 +8165,7 @@ const s = StyleSheet.create({
     marginTop: 5,
   },
   manageHealthText: { color: C.greenDeep, fontSize: 11, fontWeight: "800" },
-  lastSync: { color: C.faint, textAlign: "center", fontSize: 9, marginTop: 4 },
+  lastSync: { color: C.faint, textAlign: "center", fontSize: 11, marginTop: 4 },
   healthPrivacy: {
     flexDirection: "row",
     alignItems: "center",
@@ -8115,5 +8175,5 @@ const s = StyleSheet.create({
     marginTop: 14,
     paddingTop: 12,
   },
-  healthPrivacyText: { flex: 1, color: C.faint, fontSize: 9, lineHeight: 14 },
+  healthPrivacyText: { flex: 1, color: C.faint, fontSize: 11, lineHeight: 14 },
 });
