@@ -150,6 +150,7 @@ import {
 import { openHealthSettings, syncHealth } from "./src/health";
 import { canonicalCity, suggestCities } from "./src/cities";
 import { AWARDS, awardMetrics, type AwardIcon } from "./src/awards";
+import { Card, ScrollTopContext, useScrollToTop } from "./src/ui";
 import {
   buildLogFeed,
   loggedToday,
@@ -484,22 +485,6 @@ function Login({
  * changes are handled centrally in the shell; this is for the screens that
  * change inside a tab, where the shell cannot see it happen.
  */
-const ScrollTopContext = createContext<() => void>(() => {});
-
-function useScrollToTop() {
-  return useContext(ScrollTopContext);
-}
-
-function Card({
-  children,
-  style,
-}: {
-  children: React.ReactNode;
-  style?: object;
-}) {
-  return <View style={[s.card, style]}>{children}</View>;
-}
-
 function Pulse({
   doc,
   onChange,
