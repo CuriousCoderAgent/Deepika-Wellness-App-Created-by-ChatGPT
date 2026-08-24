@@ -1,6 +1,18 @@
 # Bharosa exercise media library
 
-The initial production bank contains eight photorealistic five-step sequences (40 frames):
+**All thirty-five movements now have a sequence** — 175 frames. The set is one
+format and one size: **1200px wide WebP at quality 82**, roughly 40KB each and
+1.3MB for the whole bank. As 1775px PNGs the same set was 54MB, which would
+have put about 40MB of images into every install.
+
+Eight were photographed; twenty-seven were generated on 23 Aug 2026 against the
+chair-squat sequence as the visual reference, and match the house style. Those
+twenty-seven have passed a layout review — five panels, one model, no embedded
+text — but **have not been reviewed by a qualified exercise professional.** The
+movements and cues in `lib/exercise-library.ts` have been; the photographs of
+them have not. That review is still outstanding and is a release gate.
+
+The original eight, photographed:
 
 - Supported chair squat
 - Standing wall push-up

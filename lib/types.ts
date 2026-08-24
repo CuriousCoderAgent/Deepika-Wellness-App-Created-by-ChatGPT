@@ -83,8 +83,16 @@ export interface Member {
    */
   gender?: "woman" | "man" | "other";
   /**
-   * Set when she finishes the first-run flow. Absent means she has never been
-   * through it, which is what sends her to /onboarding instead of Today.
+   * Set when she finishes the first-run flow.
+   *
+   * What actually routes /onboarding vs Today is `onboarding.completed` on
+   * the mobile document, not this field — this one exists so
+   * `lib/day-offset.ts`'s `programWeek()` has a real date to count her 12
+   * weeks from. It was declared here but never written by anything, which is
+   * its own bug: every member's program week silently froze at 1 forever.
+   * Absent means either she has never onboarded, or she did before this was
+   * wired up — `programWeek()` treats both the same way, by leaving her
+   * stored week untouched rather than guessing.
    */
   onboardedAt?: string;
   /**
@@ -283,7 +291,8 @@ export interface CoachModule {
 export interface Message {
   id: string;
   memberId: string;
-  from: "coach" | "member" | "system";
+  /** "ai" is Vera. Kept distinct from "coach" so a human is never impersonated. */
+  from: "coach" | "member" | "system" | "ai";
   kind: "text" | "voice" | "plan_update";
   body: string;
   seconds?: number;

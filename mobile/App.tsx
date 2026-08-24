@@ -4,7 +4,9 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import {
   Component,
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -28,7 +30,11 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import {
   Bell,
   Brain,
@@ -39,7 +45,6 @@ import {
   ChevronRight,
   ChevronUp,
   CloudOff,
-  Droplets,
   Download,
   Dumbbell,
   Footprints,
@@ -63,6 +68,7 @@ import {
   ApiError,
   DEMO_TOKEN,
   answerConnection,
+  askCoach,
   deleteAccount,
   discoverCircle,
   estimateMealPhoto,
@@ -88,7 +94,10 @@ import {
 import { exerciseMediaFor } from "./src/exerciseMedia";
 import { subscribeToConnectivity } from "./src/net";
 import { currentCell } from "./src/location";
-import { consistencySentence, type ConsistencySummary } from "./src/consistency";
+import {
+  consistencySentence,
+  type ConsistencySummary,
+} from "./src/consistency";
 
 /**
  * The whole vocabulary of encouragement.
@@ -113,18 +122,6 @@ import {
   type ReadinessAnswer,
 } from "./src/readiness";
 import {
-  DEFAULT_HYDRATION_TARGET,
-  SUGGESTED_HABITS,
-  activeHabits,
-  habitDaysThisWeek,
-  habitDoneOn,
-  hydrationFor,
-  withHabitAdded,
-  withHabitArchived,
-  withHabitToggled,
-  withHydration,
-} from "./src/daily";
-import {
   cancelAllReminders,
   cancelDailyReminder,
   formatReminderTime,
@@ -142,6 +139,9 @@ import {
   writePendingDoc,
 } from "./src/storage";
 import { openHealthSettings, syncHealth } from "./src/health";
+import { canonicalCity, suggestCities } from "./src/cities";
+import { latestRecommendation, needsHumanReview } from "./src/recommendations";
+import { COACH_NAME, COACH_OPENERS } from "./src/coach";
 import { LEARNING_ARTICLES } from "./src/learning";
 import { isoDate, offsetFromDate } from "./src/normalize";
 import { PHASES, weekPlansFor } from "./src/plan";
@@ -154,6 +154,7 @@ import type {
   FoodEntry,
   HealthMetric,
   MemberDoc,
+  Message,
   PulseEntry,
 } from "./src/types";
 
@@ -240,6 +241,11 @@ function Login({
   };
 
   return (
+    // No "top" edge on purpose -- the hero gradient bleeds under the notch,
+    // and StatusBar's light content keeps its icons visible against it.
+    // SafeAreaView already covers the bottom inset, so the ScrollView takes
+    // no manual insets padding of its own -- adding one on top would double
+    // it.
     <SafeAreaView style={s.loginPage} edges={["left", "right", "bottom"]}>
       <StatusBar style="light" />
       <KeyboardAvoidingView
@@ -322,15 +328,23 @@ function Login({
           )}
           {mode === "signup" && (
             <>
-              <Text style={s.inputLabel}>
-                Join code <Text style={s.optional}>optional</Text>
-              </Text>
+              <Text style={s.inputLabel}>Join code</Text>
+              {/* Was autoCapitalize="characters", which force-uppercased every
+                  keystroke while the server compares case-sensitively — so any
+                  code containing a lowercase letter was impossible to type on a
+                  phone. Nothing here may alter what she typed. */}
               <TextInput
                 style={s.input}
-                autoCapitalize="characters"
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                autoComplete="off"
                 value={joinCode}
                 onChangeText={setJoinCode}
               />
+              <Text style={s.fieldHint}>
+                Exactly as it was sent to you, including capitals.
+              </Text>
             </>
           )}
           {!!error && <Text style={s.error}>{error}</Text>}
@@ -398,6 +412,26 @@ function Login({
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+/**
+ * Scrolling back to the top when the screen changes.
+ *
+ * Every screen renders into one ScrollView that is never remounted, so React
+ * Native keeps whatever offset the last screen was left at. Opening the record
+ * from a scrolled-down Plan tab landed the member at the bottom of it, with the
+ * heading somewhere above her — and the same happened for the movement session
+ * and for opening an article.
+ *
+ * Only the ScrollView can reset its own offset, so it publishes the reset here
+ * and screens that swap in place call it as they navigate. Tab and section
+ * changes are handled centrally in the shell; this is for the screens that
+ * change inside a tab, where the shell cannot see it happen.
+ */
+const ScrollTopContext = createContext<() => void>(() => {});
+
+function useScrollToTop() {
+  return useContext(ScrollTopContext);
 }
 
 function Card({
@@ -601,6 +635,7 @@ function ActionCard({
   action,
   recommendation,
   onComplete,
+  inline,
 }: {
   action: DailyAction;
   recommendation?: AiRecommendation;
@@ -609,9 +644,11 @@ function ActionCard({
     effort?: 1 | 2 | 3 | 4 | 5,
     pain?: boolean,
   ) => void;
+  /** Rendered inside the day card, so it drops its own background and border. */
+  inline?: boolean;
 }) {
   const [expanded, setExpanded] = useState(
-    Boolean(action.isPrimary || action.exercise),
+    Boolean(inline || action.isPrimary || action.exercise),
   );
   const [pendingLevel, setPendingLevel] = useState<EffortLevel | null>(null);
   const [effort, setEffort] = useState<1 | 2 | 3 | 4 | 5>(3);
@@ -625,37 +662,41 @@ function ActionCard({
     setPendingLevel(null);
   };
   return (
-    <Card style={s.actionCard}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-        style={s.actionTop}
-        onPress={() => setExpanded((value) => !value)}
-      >
-        <View style={s.domainIcon}>
-          <domain.Icon size={17} color={C.greenDeep} strokeWidth={2} />
-        </View>
-        <View style={s.actionText}>
-          <Text style={s.domainLabel}>{domain.label.toUpperCase()}</Text>
-          <Text style={s.actionTitle}>{action.title}</Text>
-          <Text style={s.actionOutcome}>{action.target.label}</Text>
-        </View>
-        <View style={[s.actionStatus, action.completed && s.actionStatusDone]}>
-          {action.completed ? (
-            <Check
-              style={{ margin: 4 }}
-              size={16}
-              strokeWidth={2.6}
-              color="white"
-            />
-          ) : null}
-        </View>
-        {expanded ? (
-          <ChevronUp size={18} color={C.faint} />
-        ) : (
-          <ChevronDown size={18} color={C.faint} />
-        )}
-      </Pressable>
+    <Card style={[s.actionCard, inline && s.actionCardInline]}>
+      {!inline && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          style={s.actionTop}
+          onPress={() => setExpanded((value) => !value)}
+        >
+          <View style={s.domainIcon}>
+            <domain.Icon size={17} color={C.greenDeep} strokeWidth={2} />
+          </View>
+          <View style={s.actionText}>
+            <Text style={s.domainLabel}>{domain.label.toUpperCase()}</Text>
+            <Text style={s.actionTitle}>{action.title}</Text>
+            <Text style={s.actionOutcome}>{action.target.label}</Text>
+          </View>
+          <View
+            style={[s.actionStatus, action.completed && s.actionStatusDone]}
+          >
+            {action.completed ? (
+              <Check
+                style={{ margin: 4 }}
+                size={16}
+                strokeWidth={2.6}
+                color="white"
+              />
+            ) : null}
+          </View>
+          {expanded ? (
+            <ChevronUp size={18} color={C.faint} />
+          ) : (
+            <ChevronDown size={18} color={C.faint} />
+          )}
+        </Pressable>
+      )}
       {expanded && (
         <>
           <View style={s.whyBlock}>
@@ -709,14 +750,28 @@ function ActionCard({
                 <Text style={s.exerciseSets}>{action.exercise.sets}</Text>
                 <Text style={s.exerciseCue}>FORM GUIDE</Text>
               </View>
-              <View style={s.exerciseSequenceFrame}>
-                <Image
-                  source={exerciseMediaFor(action.exercise.name)}
-                  style={s.exerciseSequence}
-                  resizeMode="contain"
-                  accessibilityLabel={`Five-step ${action.exercise.name} form guide`}
-                />
-              </View>
+              {/* The id is exact; the name is the fallback for a coach-authored action.
+                  A movement with no photograph renders nothing rather than a
+                  broken frame — the numbered steps below are the instructions
+                  either way. */}
+              {exerciseMediaFor(
+                action.exercise.name,
+                action.exercise.exerciseId,
+              ) ? (
+                <View style={s.exerciseSequenceFrame}>
+                  <Image
+                    source={
+                      exerciseMediaFor(
+                        action.exercise.name,
+                        action.exercise.exerciseId,
+                      )!
+                    }
+                    style={s.exerciseSequence}
+                    resizeMode="contain"
+                    accessibilityLabel={`Five-step ${action.exercise.name} form guide`}
+                  />
+                </View>
+              ) : null}
               <View style={s.exerciseSteps}>
                 {action.exercise.frames.slice(0, 5).map((frame, index) => (
                   <View key={`${frame}-${index}`} style={s.exerciseStep}>
@@ -948,12 +1003,13 @@ function DailySnapshot({
             ]}
           >
             <View style={s.snapshotIcon}>
-              <tile.Icon size={15} color={C.greenDeep} />
+              <tile.Icon size={12} color={C.greenDeep} />
             </View>
-            <Text style={s.snapshotLabel}>{tile.label}</Text>
-            <Text style={s.snapshotValue}>{tile.value}</Text>
-            <Text numberOfLines={2} style={s.snapshotDetail}>
-              {tile.detail}
+            <Text numberOfLines={1} style={s.snapshotLabel}>
+              {tile.label}
+            </Text>
+            <Text numberOfLines={1} style={s.snapshotValue}>
+              {tile.value}
             </Text>
           </Pressable>
         ))}
@@ -964,15 +1020,12 @@ function DailySnapshot({
 
 function DailyInsight({ doc }: { doc: MemberDoc }) {
   const current = doc.pulses.find((entry) => entry.dayOffset === 0);
-  const applicable = [...doc.recommendations]
-    .reverse()
-    .find((item) => ["applied", "approved"].includes(item.status));
-  const pendingReview = [...doc.recommendations]
-    .reverse()
-    .find(
-      (item) =>
-        item.kind === "coach_review" && item.status === "needs_coach_review",
-    );
+  // Only the most recent recommendation decides what shows here -- see
+  // src/recommendations.ts for why scanning the whole history was wrong.
+  const latest = latestRecommendation(doc);
+  const applicable =
+    latest && ["applied", "approved"].includes(latest.status) ? latest : null;
+  const pendingReview = needsHumanReview(doc) ? latest : null;
   const steps = [...doc.healthSnapshots]
     .filter((item) => item.metric === "steps" && item.available)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
@@ -983,10 +1036,23 @@ function DailyInsight({ doc }: { doc: MemberDoc }) {
   let evidence = "0–1 recent inputs · no causal conclusion";
   let label = "WHAT BHAROSA NOTICED";
   if (pendingReview) {
-    title = "A human review is the right next step";
-    copy = pendingReview.rationale;
+    // This used to announce "a human review is the right next step" and
+    // "coach review requested" to every member, including the overwhelming
+    // majority who have no coach and no way to get one. It described a queue
+    // in the coach console, not anything she could see or act on.
+    //
+    // What actually happened is worth telling her, so say that instead: she
+    // reported something, the app held that item rather than guessing around
+    // it, and nothing about her plan was inferred from one report.
+    const coached = doc.coaching?.mode === "coached";
+    title = coached
+      ? "Sent to your coach to look at"
+      : "Held, pending a person";
+    copy = coached
+      ? pendingReview.rationale
+      : `${pendingReview.rationale} Bharosa will not work around this on its own. Ask ${COACH_NAME} in the Coach tab what it means, or bring it to your doctor.`;
     evidence = pendingReview.evidence[0] ?? "A review flag was recorded today.";
-    label = "COACH REVIEW REQUESTED";
+    label = coached ? "WITH YOUR COACH" : "WAITING ON A PERSON";
   } else if (applicable) {
     title = "Why today’s plan looks this way";
     copy = applicable.rationale;
@@ -1037,10 +1103,7 @@ function CoachConnectionCard({
       (session) => session.status === "scheduled" && session.dayOffset >= 0,
     )
     .sort((a, b) => a.dayOffset - b.dayOffset)[0];
-  const reviewPending = doc.recommendations.some(
-    (item) =>
-      item.kind === "coach_review" && item.status === "needs_coach_review",
-  );
+  const reviewPending = needsHumanReview(doc);
   return (
     <Card style={[s.coachConnection, reviewPending && s.coachConnectionReview]}>
       <View style={s.coachConnectionTop}>
@@ -1049,20 +1112,20 @@ function CoachConnectionCard({
         </View>
         <View style={s.flex}>
           <Text style={s.coachConnectionKicker}>
-            {reviewPending ? "COACH REVIEW REQUESTED" : "HUMAN SUPPORT"}
+            {reviewPending ? "SOMETHING IS ON HOLD" : "HUMAN SUPPORT"}
           </Text>
           <Text style={s.coachConnectionTitle}>
             {reviewPending
-              ? "Your coach has context to review"
+              ? "One item is paused until a person sees it"
               : "A coach is part of the plan"}
           </Text>
         </View>
       </View>
       <Text style={s.coachConnectionCopy}>
         {reviewPending
-          ? "The flagged item is paused; Bharosa has not invented a replacement. Open Coach to add context."
+          ? `You reported something the rules will not train through, so that item is paused and nothing was substituted for it. ${COACH_NAME} can explain which item and why.`
           : (latestCoachMessage?.body ??
-            "Ask a question, share context, or request a plan review when automated guidance is not enough.")}
+            `${COACH_NAME} answers straight away in the Coach tab. A human coach is there for the things software should not decide.`)}
       </Text>
       {nextSession ? (
         <Text style={s.coachConnectionMeta}>
@@ -1083,7 +1146,7 @@ function CoachConnectionCard({
         style={({ pressed }) => [s.coachConnectionButton, pressed && s.pressed]}
       >
         <Text style={s.coachConnectionButtonText}>
-          {reviewPending ? "Open coach review" : "Message your coach"}
+          {reviewPending ? "See what is paused" : `Ask ${COACH_NAME}`}
         </Text>
         <ChevronRight size={17} color="white" />
       </Pressable>
@@ -1104,6 +1167,7 @@ function Onboarding({
   const [customGoal, setCustomGoal] = useState(saved?.customGoal ?? "");
   const [activity, setActivity] = useState(saved?.activityLevel ?? "");
   const [minutes, setMinutes] = useState(saved?.availableMinutes ?? 15);
+  const [otherMinutes, setOtherMinutes] = useState(false);
   const [caution, setCaution] = useState(saved?.movementCaution ?? "");
   const [checkIn, setCheckIn] = useState<"morning" | "evening">(
     saved?.preferredCheckIn ?? "morning",
@@ -1148,6 +1212,13 @@ function Onboarding({
       ...doc,
       member: {
         ...doc.member,
+        // The one thing lib/day-offset.ts's programWeek() counts her twelve
+        // weeks from. Never previously set anywhere, which is why every
+        // member's program week silently froze at 1 forever — see that
+        // file's rebaseMemberDoc(). Keeps an existing value rather than
+        // overwriting it, in case she is ever routed back through this flow
+        // after already finishing it once.
+        onboardedAt: doc.member.onboardedAt ?? new Date().toISOString(),
         goals: [
           ...goals,
           ...doc.member.goals.filter((item) => !goals.includes(item)),
@@ -1312,7 +1383,7 @@ function Onboarding({
           Choose a normal weekday—not your best-case day.
         </Text>
         <View style={s.minutesRow}>
-          {[5, 10, 15, 25].map((value) => (
+          {[15, 30, 45, 60].map((value) => (
             <Pressable
               key={value}
               onPress={() => setMinutes(value)}
@@ -1330,6 +1401,37 @@ function Onboarding({
             </Pressable>
           ))}
         </View>
+        {/* Somebody who has twenty minutes, or ninety, should be able to say
+            so. movementBudget() reads the number continuously, so any value
+            in range sizes a real session — the four above are shortcuts, not
+            the permitted set. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Enter a different number of minutes"
+          onPress={() => setOtherMinutes(true)}
+        >
+          <Text style={s.minutesOther}>
+            {otherMinutes || ![15, 30, 45, 60].includes(minutes)
+              ? "Some other amount"
+              : "Some other amount?"}
+          </Text>
+        </Pressable>
+        {(otherMinutes || ![15, 30, 45, 60].includes(minutes)) && (
+          <View style={s.minutesCustomRow}>
+            <TextInput
+              style={[s.input, s.flex]}
+              keyboardType="number-pad"
+              value={String(minutes)}
+              onChangeText={(text) => {
+                const value = Number(text.replace(/[^0-9]/g, ""));
+                setMinutes(Number.isFinite(value) ? Math.min(180, value) : 0);
+              }}
+              placeholder="Minutes on a normal weekday"
+              placeholderTextColor={C.faint}
+            />
+            <Text style={s.minutesCustomUnit}>min</Text>
+          </View>
+        )}
       </>
     );
   else if (step === 3)
@@ -1414,7 +1516,9 @@ function Onboarding({
                         }))
                       }
                     >
-                      <Text style={[s.optionText, active && s.optionTextActive]}>
+                      <Text
+                        style={[s.optionText, active && s.optionTextActive]}
+                      >
                         {value === "unsure"
                           ? "Not sure"
                           : value === "yes"
@@ -1536,184 +1640,263 @@ function Onboarding({
 }
 
 /**
- * Water and habits.
+ * Today, at a glance.
  *
- * Both are one tap. Neither shows a streak, a target missed, or a number in
- * red: six glasses is six glasses, and the product's whole argument is that a
- * small thing done most days beats a perfect week done once.
+ * This screen used to render every action in full, one after another. That was
+ * reasonable when a day held five actions — one per domain. Then plan
+ * generation started producing a movement session of up to six exercises
+ * *plus* the four other domains, so the same layout was asked to show ten
+ * expandable cards, each with a form-guide photograph. The screen roughly
+ * doubled and became a scroll nobody finishes.
+ *
+ * So the day is now a summary: five rows, one per domain, each showing what it
+ * is and whether it is done. The movement session — the only part with real
+ * depth — opens on its own screen. The other four are a single small action
+ * each and expand where they are, because sending someone to a new page to
+ * tick "drink a glass of water" is worse than the scrolling was.
+ *
+ * The rule this follows: one screen answers one question. Today answers "what
+ * am I doing today, and how far in am I". Anything needing more than a line
+ * gets its own space rather than being stacked here.
  */
-function DailyExtras({
+function DomainRow({
+  meta,
+  title,
+  detail,
+  done,
+  total,
+  onPress,
+  expanded,
+}: {
+  meta: { label: string; Icon: typeof Home };
+  title: string;
+  detail?: string;
+  done: number;
+  total: number;
+  onPress: () => void;
+  /** Open, with its detail directly beneath. Undefined for rows that navigate. */
+  expanded?: boolean;
+}) {
+  const complete = total > 0 && done >= total;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      accessibilityLabel={`${meta.label}: ${title}${total > 1 ? `, ${done} of ${total} done` : complete ? ", done" : ""}`}
+      style={({ pressed }) => [s.domainRow, pressed && s.domainRowPressed]}
+      onPress={onPress}
+    >
+      <View style={[s.domainRowIcon, complete && s.domainRowIconDone]}>
+        {complete ? (
+          <Check size={15} color="#fff" strokeWidth={2.8} />
+        ) : (
+          <meta.Icon size={16} color={C.greenDeep} />
+        )}
+      </View>
+      <View style={s.flex}>
+        <Text style={s.domainRowLabel}>{meta.label.toUpperCase()}</Text>
+        <Text style={[s.domainRowTitle, complete && s.domainRowTitleDone]}>
+          {title}
+        </Text>
+        {detail ? <Text style={s.domainRowDetail}>{detail}</Text> : null}
+      </View>
+      {total > 1 && (
+        <Text style={s.domainRowCount}>
+          {done}/{total}
+        </Text>
+      )}
+      {expanded ? (
+        <ChevronUp size={17} color={C.faint} />
+      ) : (
+        <ChevronRight size={17} color={C.faint} />
+      )}
+    </Pressable>
+  );
+}
+
+/**
+ * The movement session, on its own screen.
+ *
+ * Everything that used to make Today long lives here: the exercises in order,
+ * each with its form guide and effort logging. One screen, one job, and it is
+ * only opened by someone who has decided to train.
+ */
+function MovementSession({
   doc,
-  update,
+  actions,
+  onComplete,
+  onBack,
 }: {
   doc: MemberDoc;
-  update: (doc: MemberDoc) => void;
+  actions: DailyAction[];
+  onComplete: (
+    id: string,
+    level: EffortLevel | "rest",
+    effort?: 1 | 2 | 3 | 4 | 5,
+    pain?: boolean,
+  ) => void;
+  onBack: () => void;
 }) {
-  const [newHabit, setNewHabit] = useState("");
-  const [adding, setAdding] = useState(false);
-  const glasses = hydrationFor(doc);
-  const habits = activeHabits(doc);
-  const today = isoDate();
-  const habitDays = habitDaysThisWeek(doc);
-
+  const done = actions.filter((a) => a.completed).length;
+  const minutes = actions.reduce((sum, a) => sum + (a.target?.minutes ?? 0), 0);
   return (
     <>
-      <Card>
-        <View style={s.rowBetween}>
-          <View style={s.flex}>
-            <Text style={s.cardTitle}>Water today</Text>
-            <Text style={s.profileCopy}>
-              {glasses === 0
-                ? "Add a glass whenever you have one."
-                : `${glasses} glass${glasses === 1 ? "" : "es"} so far · about ${glasses * 250}ml`}
-            </Text>
-          </View>
-          <Droplets size={20} color={C.calm} />
-        </View>
-        <View style={s.waterRow}>
-          {Array.from({ length: DEFAULT_HYDRATION_TARGET }, (_, index) => {
-            const filled = index < glasses;
-            return (
-              <Pressable
-                key={index}
-                accessibilityRole="button"
-                accessibilityLabel={`${index + 1} glass${index === 0 ? "" : "es"}`}
-                accessibilityState={{ selected: filled }}
-                // Tapping the glass you are already on removes it, so a
-                // mis-tap is undone the same way it was made.
-                onPress={() =>
-                  update(
-                    withHydration(doc, glasses === index + 1 ? index : index + 1),
-                  )
-                }
-                style={[s.waterGlass, filled && s.waterGlassFilled]}
-              />
-            );
-          })}
-        </View>
-        {glasses > DEFAULT_HYDRATION_TARGET && (
-          <Text style={s.waterExtra}>
-            +{glasses - DEFAULT_HYDRATION_TARGET} more
-          </Text>
-        )}
-        <Pressable
-          accessibilityRole="button"
-          style={s.waterAdd}
-          onPress={() => update(withHydration(doc, glasses + 1))}
-        >
-          <Text style={s.waterAddText}>＋ Add a glass</Text>
-        </Pressable>
-      </Card>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Back to today"
+        style={s.backRow}
+        onPress={onBack}
+      >
+        <ChevronLeft size={18} color={C.green} />
+        <Text style={s.backRowText}>Today</Text>
+      </Pressable>
+      <Text style={s.eyebrow}>YOUR MOVEMENT TODAY</Text>
+      <Text style={s.hero}>
+        {done === actions.length && actions.length
+          ? "That is the session done."
+          : `${actions.length} movement${actions.length === 1 ? "" : "s"}, about ${minutes} minutes.`}
+      </Text>
+      <Text style={s.heroCopy}>
+        {done === actions.length && actions.length
+          ? "Nothing more is asked of you today."
+          : "Work through them in any order. A shorter version of any of these is a complete day."}
+      </Text>
+      <View style={s.sessionProgress}>
+        {actions.map((a) => (
+          <View
+            key={a.id}
+            style={[s.sessionPip, a.completed && s.sessionPipDone]}
+          />
+        ))}
+      </View>
+      {actions.map((a) => (
+        <ActionCard
+          key={a.id}
+          action={a}
+          recommendation={[...doc.recommendations]
+            .reverse()
+            .find(
+              (item) =>
+                item.actionId === a.id &&
+                ["applied", "approved"].includes(item.status),
+            )}
+          onComplete={(level, effort, pain) =>
+            onComplete(a.id, level, effort, pain)
+          }
+        />
+      ))}
+    </>
+  );
+}
 
-      <Card>
+/**
+ * The circle, on Today.
+ *
+ * Connecting to other members is one of the reasons this app exists, and it was
+ * buried three taps deep under You. It belongs on the screen someone opens
+ * every morning.
+ *
+ * Deliberately small: names, how many days each has shown up this month, and a
+ * way in. No ranking and no numbers anyone can lose at — the evidence on
+ * activity apps is consistent that comparison drives beginners out, and this is
+ * the most-seen screen in the product, so it is the last place to put a ladder.
+ *
+ * It fails quietly. A member with no connections, no network, or a server
+ * having a bad morning sees nothing here rather than an error on the screen she
+ * opens to find out what to do today.
+ */
+function CircleToday({
+  token,
+  onOpenCircle,
+}: {
+  token: string;
+  onOpenCircle: () => void;
+}) {
+  const [state, setState] = useState<CircleState | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (token === DEMO_TOKEN) return;
+    loadCircle(token)
+      .then((next) => {
+        if (!cancelled && next) setState(next);
+      })
+      .catch(() => {
+        // Today is not the place to report that the circle is unreachable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  if (!state) return null;
+  const waiting = state.requests.incoming.length;
+  const people = state.circle;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={
+        waiting
+          ? `Your circle, ${waiting} request${waiting === 1 ? "" : "s"} waiting`
+          : "Your circle"
+      }
+      onPress={onOpenCircle}
+    >
+      <Card style={s.circleTodayCard}>
         <View style={s.rowBetween}>
-          <View style={s.flex}>
-            <Text style={s.cardTitle}>Small habits</Text>
-            <Text style={s.profileCopy}>
-              {habits.length
-                ? habitDays
-                  ? `Ticked something on ${habitDays} of the last 7 days.`
-                  : "Nothing yet this week. Today is as good as any."
-                : "Add one small thing you would like to do most days."}
-            </Text>
+          <View style={s.rowInline}>
+            <Users size={16} color={C.greenDeep} />
+            <Text style={s.cardTitle}>Your circle</Text>
           </View>
-        </View>
-        {habits.map((habit) => {
-          const done = habitDoneOn(doc, habit.id, today);
-          return (
-            <View key={habit.id} style={s.habitRow}>
-              <Pressable
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: done }}
-                accessibilityLabel={habit.label}
-                style={s.habitTap}
-                onPress={() => update(withHabitToggled(doc, habit.id, today))}
-              >
-                <View style={[s.habitBox, done && s.habitBoxDone]}>
-                  {done && <Check size={13} color="#fff" strokeWidth={3} />}
-                </View>
-                <Text style={[s.habitLabel, done && s.habitLabelDone]}>
-                  {habit.label}
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Remove ${habit.label}`}
-                hitSlop={10}
-                onPress={() =>
-                  Alert.alert(
-                    "Remove this habit?",
-                    "The days you already ticked stay in your history.",
-                    [
-                      { text: "Keep it", style: "cancel" },
-                      {
-                        text: "Remove",
-                        style: "destructive",
-                        onPress: () => update(withHabitArchived(doc, habit.id)),
-                      },
-                    ],
-                  )
-                }
-              >
-                <Text style={s.habitRemove}>×</Text>
-              </Pressable>
+          {waiting ? (
+            <View style={s.tabBadge}>
+              <Text style={s.tabBadgeText}>{waiting > 9 ? "9+" : waiting}</Text>
             </View>
-          );
-        })}
-        {adding ? (
-          <View style={s.habitAddRow}>
-            <TextInput
-              style={[s.input, s.flex]}
-              value={newHabit}
-              onChangeText={setNewHabit}
-              placeholder="e.g. take my supplements"
-              placeholderTextColor={C.faint}
-              autoFocus
-              onSubmitEditing={() => {
-                update(withHabitAdded(doc, newHabit));
-                setNewHabit("");
-                setAdding(false);
-              }}
-            />
-            <Pressable
-              accessibilityRole="button"
-              style={s.habitAddButton}
-              onPress={() => {
-                update(withHabitAdded(doc, newHabit));
-                setNewHabit("");
-                setAdding(false);
-              }}
-            >
-              <Text style={s.habitAddButtonText}>Add</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <>
-            {!habits.length && (
-              <View style={s.habitSuggestions}>
-                {SUGGESTED_HABITS.slice(0, 3).map((label) => (
-                  <Pressable
-                    key={label}
-                    accessibilityRole="button"
-                    style={s.habitChip}
-                    onPress={() => update(withHabitAdded(doc, label))}
-                  >
-                    <Text style={s.habitChipText}>＋ {label}</Text>
-                  </Pressable>
-                ))}
+          ) : (
+            <ChevronRight size={17} color={C.faint} />
+          )}
+        </View>
+
+        {waiting > 0 ? (
+          <Text style={s.profileCopy}>
+            {waiting === 1
+              ? "Someone would like to connect with you."
+              : `${waiting} people would like to connect with you.`}
+          </Text>
+        ) : people.length ? (
+          <View style={s.circleTodayRow}>
+            {people.slice(0, 4).map((person) => (
+              <View key={person.memberId} style={s.circleTodayPerson}>
+                <View style={s.circleTodayAvatar}>
+                  <Text style={s.circleTodayInitial}>
+                    {person.displayName.trim().charAt(0).toUpperCase() || "?"}
+                  </Text>
+                </View>
+                <Text numberOfLines={1} style={s.circleTodayName}>
+                  {person.displayName.split(" ")[0]}
+                </Text>
+                <Text style={s.circleTodayDays}>
+                  {person.consistency?.activeDays ?? 0}d
+                </Text>
+              </View>
+            ))}
+            {people.length > 4 && (
+              <View style={s.circleTodayPerson}>
+                <View style={[s.circleTodayAvatar, s.circleTodayMore]}>
+                  <Text style={s.circleTodayInitial}>+{people.length - 4}</Text>
+                </View>
               </View>
             )}
-            <Pressable
-              accessibilityRole="button"
-              style={s.waterAdd}
-              onPress={() => setAdding(true)}
-            >
-              <Text style={s.waterAddText}>＋ Add a habit</Text>
-            </Pressable>
-          </>
+          </View>
+        ) : (
+          <Text style={s.profileCopy}>
+            Bharosa connects members going through the same thing. It is easier
+            with company.
+          </Text>
         )}
       </Card>
-    </>
+    </Pressable>
   );
 }
 
@@ -1722,12 +1905,20 @@ function Today({
   update,
   onOpenCoach,
   onOpenProfile,
+  token,
 }: {
   doc: MemberDoc;
   update: (doc: MemberDoc) => void;
   onOpenCoach: () => void;
   onOpenProfile: () => void;
+  token: string;
 }) {
+  const [openSession, setOpenSession] = useState(false);
+  const scrollToTop = useScrollToTop();
+  /** Which single-action domain is expanded in place. Only one at a time. */
+  const [expandedDomain, setExpandedDomain] = useState<ActionDomain | null>(
+    null,
+  );
   const first = doc.member.name.split(" ")[0];
   const hour = new Date().getHours();
   const greeting =
@@ -1747,6 +1938,21 @@ function Today({
   const actionsDone = actions.filter(
     (action) => action.completed && action.completed !== "rest",
   ).length;
+  const movementActions = actions.filter(
+    (action) => action.domain === "movement",
+  );
+  /** Something is genuinely waiting with her coach, rather than a standing ad. */
+  const coachNeedsAttention =
+    doc.recommendations.some(
+      (item) =>
+        item.kind === "coach_review" && item.status === "needs_coach_review",
+    ) ||
+    doc.sessions.some(
+      (session) =>
+        session.status === "scheduled" &&
+        session.dayOffset >= 0 &&
+        session.dayOffset <= 2,
+    );
   const remaining = actions.length - actionsDone;
   const primary = actions.find((action) => action.isPrimary) ?? actions[0];
   const complete = (
@@ -1822,6 +2028,22 @@ function Today({
   };
   if (!doc.onboarding?.completed)
     return <Onboarding doc={doc} update={update} />;
+
+  // The movement session has its own screen. Everything else on Today is a
+  // single small action and stays here.
+  if (openSession)
+    return (
+      <MovementSession
+        doc={doc}
+        actions={movementActions}
+        onComplete={complete}
+        onBack={() => {
+          setOpenSession(false);
+          scrollToTop();
+        }}
+      />
+    );
+
   return (
     <>
       <Text style={s.eyebrow}>
@@ -1832,7 +2054,7 @@ function Today({
       </Text>
       <Text style={s.heroCopy}>
         {remaining
-          ? `${remaining} supportive action${remaining === 1 ? "" : "s"} remain${remaining === 1 ? "s" : ""}. ${primary ? `Start with ${primary.title.toLowerCase()}.` : "Choose the smallest useful next step."}`
+          ? `${remaining} of ${actions.length} left today.`
           : "Today’s plan is complete. Recovery counts as part of the work."}
       </Text>
       {doc.member.lastPlanChange && (
@@ -1841,71 +2063,378 @@ function Today({
           <Text style={s.planCopy}>{doc.member.lastPlanChange.rationale}</Text>
         </View>
       )}
-      <Text style={s.flowLabel}>1 · TRACK WHAT IS TRUE TODAY</Text>
-      <Pulse doc={doc} onChange={update} />
+
+      {/* What her phone and health source already know, before anything asks
+          her for input. This is the answer to "how am I doing" and belongs
+          above the day rather than below it. */}
       <DailySnapshot doc={doc} onOpenProfile={onOpenProfile} />
-      <Text style={s.flowLabel}>2 · UNDERSTAND, WITHOUT GUESSWORK</Text>
-      <DailyInsight doc={doc} />
-      <Text style={s.flowLabel}>3 · TAKE THE NEXT USEFUL ACTION</Text>
-      <Card style={s.dayMap}>
+
+      <Card style={s.glanceCard}>
         <View style={s.rowBetween}>
-          <Text style={s.cardTitle}>Your whole-health plan</Text>
+          <Text style={s.cardTitle}>Your day</Text>
           <Text style={s.sectionMeta}>
             {actionsDone} of {actions.length}
           </Text>
         </View>
-        <View style={s.dayMapRow}>
-          {domainOrder.map((domain) => {
-            const meta = DOMAIN_META[domain];
-            const action = actions.find((item) => item.domain === domain);
-            const done = Boolean(
-              action?.completed && action.completed !== "rest",
-            );
+        {domainOrder.map((domain) => {
+          const meta = DOMAIN_META[domain];
+          const inDomain = actions.filter((a) => a.domain === domain);
+          if (!inDomain.length) return null;
+          const doneCount = inDomain.filter((a) => a.completed).length;
+          const isMovement = domain === "movement";
+          const only = inDomain[0]!;
+          return (
+            <View key={domain}>
+              <DomainRow
+                meta={meta}
+                title={
+                  isMovement && inDomain.length > 1
+                    ? `${inDomain.length} movements`
+                    : only.title
+                }
+                detail={
+                  isMovement && inDomain.length > 1
+                    ? `About ${inDomain.reduce((sum, a) => sum + (a.target?.minutes ?? 0), 0)} minutes`
+                    : only.target?.label
+                }
+                done={doneCount}
+                total={inDomain.length}
+                expanded={expandedDomain === domain}
+                onPress={() => {
+                  if (isMovement && inDomain.length > 1) {
+                    setOpenSession(true);
+                    scrollToTop();
+                  } else
+                    setExpandedDomain(
+                      expandedDomain === domain ? null : domain,
+                    );
+                }}
+              />
+              {expandedDomain === domain &&
+                inDomain.map((a) => (
+                  <ActionCard
+                    key={a.id}
+                    action={a}
+                    inline
+                    recommendation={[...doc.recommendations]
+                      .reverse()
+                      .find(
+                        (item) =>
+                          item.actionId === a.id &&
+                          ["applied", "approved"].includes(item.status),
+                      )}
+                    onComplete={(level, effort, pain) =>
+                      complete(a.id, level, effort, pain)
+                    }
+                  />
+                ))}
+            </View>
+          );
+        })}
+      </Card>
+
+      {/* The circle is a headline feature, not a setting buried under You. */}
+      <CircleToday token={token} onOpenCircle={onOpenProfile} />
+
+      {/* The check-in asks something of her, so it sits below what the app can
+          already tell her. */}
+      <Pulse doc={doc} onChange={update} />
+
+      <DailyInsight doc={doc} />
+      {coachNeedsAttention && (
+        <CoachConnectionCard doc={doc} onOpenCoach={onOpenCoach} />
+      )}
+    </>
+  );
+}
+
+/**
+ * Awards.
+ *
+ * Fitness apps hand out three kinds of badge: cumulative volume (Peloton's 1,
+ * 10, 25, 50, 100 classes), consistency held over time, and one-off firsts.
+ * All three are here — with one rule that is ours. Nothing rewards intensity,
+ * and nothing can ever be taken away. A badge that disappears is a streak
+ * wearing a different hat, and this product is built against streaks.
+ *
+ * Three awards was too few to be a collection. Most members saw two grey
+ * circles and nothing within reach. Seventeen means something is nearly always
+ * close, and they arrive across walking, food, check-ins, rest and the circle
+ * rather than only for training hard — so the member who cannot train this
+ * month still has somewhere to go.
+ */
+interface AwardMetrics {
+  actions: number;
+  activeDays: number;
+  wholeDays: number;
+  movements: number;
+  walks: number;
+  meals: number;
+  checkIns: number;
+  rests: number;
+  circleSize: number;
+  healthConnected: boolean;
+}
+
+const AWARDS: {
+  id: string;
+  Icon: typeof Sparkles;
+  title: string;
+  copy: string;
+  /** Earned when this returns true. Pure, so it stays easy to reason about. */
+  earned: (m: AwardMetrics) => boolean;
+  /** How far along she is, shown only while it is still unearned. */
+  progress?: (m: AwardMetrics) => string;
+}[] = [
+  {
+    id: "first-step",
+    Icon: Sparkles,
+    title: "First step",
+    copy: "Your first completed action. Everything else is built on this one.",
+    earned: (m) => m.actions >= 1,
+  },
+  {
+    id: "five-actions",
+    Icon: Check,
+    title: "Finding a rhythm",
+    copy: "Five actions — proof that small efforts accumulate.",
+    earned: (m) => m.actions >= 5,
+    progress: (m) => `${m.actions} of 5 actions`,
+  },
+  {
+    id: "twelve-actions",
+    Icon: Trophy,
+    title: "Showing up",
+    copy: "Twelve actions, across real-life days rather than perfect ones.",
+    earned: (m) => m.actions >= 12,
+    progress: (m) => `${m.actions} of 12 actions`,
+  },
+  {
+    id: "fifty-actions",
+    Icon: Trophy,
+    title: "Fifty in",
+    copy: "Fifty completed actions. This is a habit now, not an experiment.",
+    earned: (m) => m.actions >= 50,
+    progress: (m) => `${m.actions} of 50 actions`,
+  },
+  {
+    id: "hundred-actions",
+    Icon: Trophy,
+    title: "One hundred",
+    copy: "A hundred actions. Very few people who start ever reach this.",
+    earned: (m) => m.actions >= 100,
+    progress: (m) => `${m.actions} of 100 actions`,
+  },
+  {
+    id: "week-active",
+    Icon: CalendarDays,
+    title: "A full week",
+    copy: "Seven separate days with something completed on them.",
+    earned: (m) => m.activeDays >= 7,
+    progress: (m) => `${m.activeDays} of 7 days`,
+  },
+  {
+    id: "month-active",
+    Icon: CalendarDays,
+    title: "A month of days",
+    copy: "Twenty-eight days with something on them. They did not have to be in a row.",
+    earned: (m) => m.activeDays >= 28,
+    progress: (m) => `${m.activeDays} of 28 days`,
+  },
+  {
+    id: "whole-day",
+    Icon: Home,
+    title: "The whole day",
+    copy: "One day where every part of the plan got something — movement, walking, food, rest and mind.",
+    earned: (m) => m.wholeDays >= 1,
+  },
+  {
+    id: "movement-ten",
+    Icon: Dumbbell,
+    title: "Ten sessions",
+    copy: "Ten movement sessions completed.",
+    earned: (m) => m.movements >= 10,
+    progress: (m) => `${m.movements} of 10 sessions`,
+  },
+  {
+    id: "movement-thirty",
+    Icon: Dumbbell,
+    title: "Thirty sessions",
+    copy: "Thirty movement sessions. Your body has had time to change.",
+    earned: (m) => m.movements >= 30,
+    progress: (m) => `${m.movements} of 30 sessions`,
+  },
+  {
+    id: "walk-ten",
+    Icon: Footprints,
+    title: "Walking it off",
+    copy: "Ten walks completed — the ten minutes after a meal that do the most work.",
+    earned: (m) => m.walks >= 10,
+    progress: (m) => `${m.walks} of 10 walks`,
+  },
+  {
+    id: "first-meal",
+    Icon: Utensils,
+    title: "First meal logged",
+    copy: "One meal written down tells you more than a week you tried to remember.",
+    earned: (m) => m.meals >= 1,
+  },
+  {
+    id: "meals-twenty",
+    Icon: Utensils,
+    title: "Twenty meals",
+    copy: "Enough meals recorded for your own patterns to become visible.",
+    earned: (m) => m.meals >= 20,
+    progress: (m) => `${m.meals} of 20 meals`,
+  },
+  {
+    id: "checkins-ten",
+    Icon: HeartPulse,
+    title: "Paying attention",
+    copy: "Ten check-ins. Noticing how you feel is its own skill.",
+    earned: (m) => m.checkIns >= 10,
+    progress: (m) => `${m.checkIns} of 10 check-ins`,
+  },
+  {
+    id: "rest-taken",
+    Icon: MoonStar,
+    title: "Rest counts",
+    copy: "You chose rest and recorded it. That is a decision, not a gap.",
+    earned: (m) => m.rests >= 1,
+  },
+  {
+    id: "health-connected",
+    Icon: ShieldCheck,
+    title: "Connected",
+    copy: "Your health source is linked, so steps count themselves.",
+    earned: (m) => m.healthConnected,
+  },
+  {
+    id: "circle-joined",
+    Icon: Users,
+    title: "Not alone",
+    copy: "Someone is in your circle. Company makes this considerably easier.",
+    earned: (m) => m.circleSize >= 1,
+  },
+];
+
+function awardMetrics(doc: MemberDoc): AwardMetrics {
+  const done = (doc.actions ?? []).filter((action) => action.completed);
+  const domainsByDay = new Map<number, Set<string>>();
+  for (const action of done) {
+    if (!domainsByDay.has(action.dayOffset))
+      domainsByDay.set(action.dayOffset, new Set());
+    domainsByDay.get(action.dayOffset)!.add(action.domain);
+  }
+  const health = doc.healthConnection?.status;
+  return {
+    actions: done.filter((action) => action.completed !== "rest").length,
+    activeDays: domainsByDay.size,
+    wholeDays: [...domainsByDay.values()].filter((set) => set.size >= 5).length,
+    movements: done.filter((action) => action.domain === "movement").length,
+    walks: done.filter((action) => action.domain === "walking").length,
+    meals: doc.foodEntries?.length ?? 0,
+    checkIns: doc.pulses?.length ?? 0,
+    rests: done.filter((action) => action.completed === "rest").length,
+    circleSize: doc.engagement?.circle?.memberCount ?? 0,
+    healthConnected: health === "connected" || health === "partial",
+  };
+}
+
+/**
+ * One row that scrolls sideways, with the description inside the same card.
+ *
+ * The first version stacked a full-width card per award and opened the
+ * description underneath all of them, which both added scrolling — the thing
+ * this whole redesign exists to remove — and made the description read as an
+ * unrelated panel. Everything is one card now: the strip along the top, and
+ * whatever is selected directly beneath it, so the tap and its answer are
+ * never more than a few pixels apart.
+ *
+ * Earned awards sort to the front, so the collection is what she sees first
+ * and the next thing to reach for sits immediately after it.
+ */
+function Awards({ doc }: { doc: MemberDoc }) {
+  const metrics = awardMetrics(doc);
+  const ordered = [...AWARDS].sort(
+    (a, b) => Number(b.earned(metrics)) - Number(a.earned(metrics)),
+  );
+  const earnedCount = AWARDS.filter((award) => award.earned(metrics)).length;
+  // Open on the next thing within reach rather than something already won.
+  const suggested =
+    ordered.find((award) => !award.earned(metrics)) ?? ordered[0]!;
+  const [selectedId, setSelectedId] = useState<string>(suggested.id);
+  const selected = AWARDS.find((award) => award.id === selectedId) ?? suggested;
+  const isEarned = selected.earned(metrics);
+
+  return (
+    <>
+      <View style={s.sectionHead}>
+        <Text style={s.sectionHeadTitle}>Awards</Text>
+        <Text style={s.sectionMeta}>
+          {earnedCount} of {AWARDS.length} earned
+        </Text>
+      </View>
+      <Card style={s.awardsCard}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.awardStrip}
+        >
+          {ordered.map((award) => {
+            const earned = award.earned(metrics);
+            const active = award.id === selectedId;
             return (
-              <View key={domain} style={s.dayMapItem}>
-                <View style={[s.dayMapIcon, done && s.dayMapIconDone]}>
-                  <meta.Icon size={17} color={done ? "white" : C.greenDeep} />
+              <Pressable
+                key={award.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${award.title}. ${
+                  earned ? "Earned." : "Not yet earned."
+                }`}
+                style={s.awardItem}
+                onPress={() => setSelectedId(award.id)}
+              >
+                <View
+                  style={[
+                    s.awardBadge,
+                    earned && s.awardBadgeEarned,
+                    active && s.awardBadgeActive,
+                  ]}
+                >
+                  <award.Icon
+                    size={23}
+                    color={earned ? C.marigold : C.faint}
+                    strokeWidth={earned ? 2 : 1.5}
+                  />
                 </View>
-                <Text numberOfLines={2} style={s.dayMapLabel}>
-                  {meta.label}
+                <Text
+                  numberOfLines={2}
+                  style={[
+                    s.awardLabel,
+                    earned && s.awardLabelEarned,
+                    active && s.awardLabelActive,
+                  ]}
+                >
+                  {award.title}
                 </Text>
-              </View>
+              </Pressable>
             );
           })}
+        </ScrollView>
+
+        <View style={[s.awardDetail, isEarned && s.awardDetailEarned]}>
+          <Text style={s.awardDetailTitle}>{selected.title}</Text>
+          <Text style={s.awardDetailCopy}>{selected.copy}</Text>
+          <Text
+            style={[s.awardDetailState, isEarned && s.awardDetailStateEarned]}
+          >
+            {isEarned
+              ? "Earned"
+              : (selected.progress?.(metrics) ?? "Not yet earned")}
+          </Text>
         </View>
       </Card>
-      <View style={s.sectionHead}>
-        <Text style={s.sectionTitle}>Your focus today</Text>
-        <Text style={s.sectionMeta}>Most important first</Text>
-      </View>
-      {actions.length ? (
-        actions.map((a) => (
-          <ActionCard
-            key={a.id}
-            action={a}
-            recommendation={[...doc.recommendations]
-              .reverse()
-              .find(
-                (item) =>
-                  item.actionId === a.id &&
-                  ["applied", "approved"].includes(item.status),
-              )}
-            onComplete={(level, effort, pain) =>
-              complete(a.id, level, effort, pain)
-            }
-          />
-        ))
-      ) : (
-        <Card>
-          <Text style={s.empty}>
-            Nothing scheduled today. That is intentional.
-          </Text>
-        </Card>
-      )}
-      <Text style={s.flowLabel}>4 · BUILD A RHYTHM, NOT A PERFECT STREAK</Text>
-      <DailyExtras doc={doc} update={update} />
-      <EngagementPanel doc={doc} />
-      <CoachConnectionCard doc={doc} onOpenCoach={onOpenCoach} />
     </>
   );
 }
@@ -1917,9 +2446,6 @@ function Journey({ doc }: { doc: MemberDoc }) {
     plans.find((plan) => plan.week === selectedWeek) ??
     plans[doc.member.week - 1] ??
     plans[0]!;
-  const completed = doc.actions.filter(
-    (action) => action.completed && action.completed !== "rest",
-  ).length;
   const weekEndOffset = (selectedWeek - doc.member.week) * 7;
   const weekStartOffset = weekEndOffset - 6;
   const selectedActions = doc.actions.filter(
@@ -1935,23 +2461,6 @@ function Journey({ doc }: { doc: MemberDoc }) {
       : selectedWeek === doc.member.week
         ? "current"
         : "future";
-  const milestones = [
-    {
-      at: 1,
-      title: "First step",
-      copy: "You completed your first supportive action.",
-    },
-    {
-      at: 5,
-      title: "Finding a rhythm",
-      copy: "Five actions—proof that small efforts accumulate.",
-    },
-    {
-      at: 12,
-      title: "Showing up",
-      copy: "Twelve actions across real-life days.",
-    },
-  ];
   return (
     <>
       <Text style={s.eyebrow}>YOUR 12-WEEK JOURNEY</Text>
@@ -2103,38 +2612,24 @@ function Journey({ doc }: { doc: MemberDoc }) {
           </View>
         )}
       </Card>
-      <Text style={s.sectionTitle}>Milestones, not streaks</Text>
-      <View style={s.milestoneRow}>
-        {milestones.map((milestone) => {
-          const unlocked = completed >= milestone.at;
-          return (
-            <View
-              key={milestone.at}
-              style={[s.milestone, unlocked && s.milestoneUnlocked]}
-            >
-              <Text style={s.milestoneIcon}>{unlocked ? "✦" : "○"}</Text>
-              <Text
-                style={[s.milestoneTitle, unlocked && s.milestoneTitleUnlocked]}
-              >
-                {milestone.title}
-              </Text>
-              <Text style={s.milestoneCopy}>{milestone.copy}</Text>
-            </View>
-          );
-        })}
-      </View>
-      <LearningLibrary />
+      <Awards doc={doc} />
     </>
   );
 }
 
-function LearningLibrary() {
+function LearningLibrary({ weekFocus }: { weekFocus?: string[] }) {
   const [articleId, setArticleId] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const scrollToTop = useScrollToTop();
+  const openArticle = (id: string | null) => {
+    setArticleId(id);
+    scrollToTop();
+  };
   const article = LEARNING_ARTICLES.find((item) => item.id === articleId);
   if (article)
     return (
       <View style={s.learningDetail}>
-        <Pressable onPress={() => setArticleId(null)}>
+        <Pressable onPress={() => openArticle(null)}>
           <Text style={s.learningBack}>‹ All articles</Text>
         </Pressable>
         <Text style={s.learningCategory}>
@@ -2153,29 +2648,278 @@ function LearningLibrary() {
         </View>
       </View>
     );
+  const focus = (weekFocus ?? []).join(" ").toLowerCase();
+  /**
+   * Ordered by what this week is about, not alphabetically. A member reading
+   * five guides in a row is not the behaviour to design for; a member reading
+   * the one that matches the week she is in might be.
+   */
+  const relevant = [...LEARNING_ARTICLES].sort((a, b) => {
+    const score = (item: (typeof LEARNING_ARTICLES)[number]) => {
+      const category = item.category.toLowerCase();
+      if (focus.includes(category)) return 2;
+      if (
+        (category === "recovery" && /sleep|rest|recover/.test(focus)) ||
+        (category === "movement" && /strength|walk|move|mobil/.test(focus)) ||
+        (category === "nutrition" &&
+          /protein|meal|food|nutrition/.test(focus)) ||
+        (category === "mindset" && /stress|reflect|mind/.test(focus))
+      )
+        return 2;
+      return 0;
+    };
+    return score(b) - score(a);
+  });
+
   return (
     <View>
       <View style={s.sectionHead}>
-        <Text style={s.sectionTitle}>Learn in five minutes</Text>
-        <Text style={s.sectionMeta}>{LEARNING_ARTICLES.length} guides</Text>
+        <Text style={s.sectionHeadTitle}>Reading for this week</Text>
+        <Text style={s.sectionMeta}>{relevant.length} guides</Text>
       </View>
-      {LEARNING_ARTICLES.map((item) => (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={({ pressed }) => [s.learnToggle, pressed && s.pressed]}
+        onPress={() => setOpen((value) => !value)}
+      >
+        <View style={s.flex}>
+          <Text style={s.cardTitle}>
+            {open ? "Hide the reading list" : "Open the reading list"}
+          </Text>
+          <Text style={s.domainRowDetail}>
+            Chosen for where you are now — most relevant first
+          </Text>
+        </View>
+        {open ? (
+          <ChevronUp size={18} color={C.faint} />
+        ) : (
+          <ChevronDown size={18} color={C.faint} />
+        )}
+      </Pressable>
+      {open &&
+        relevant.map((item) => (
+          <Pressable
+            accessibilityRole="button"
+            key={item.id}
+            onPress={() => openArticle(item.id)}
+            style={({ pressed }) => [s.articleCard, pressed && s.pressed]}
+          >
+            <View style={s.articleMeta}>
+              <Text style={s.articleCategory}>
+                {item.category.toUpperCase()}
+              </Text>
+              <Text style={s.articleMinutes}>{item.readMinutes} min</Text>
+            </View>
+            <Text style={s.articleTitle}>{item.title}</Text>
+            <Text style={s.articleSummary}>{item.summary}</Text>
+            <Text style={s.articleOpen}>Read guide ›</Text>
+          </Pressable>
+        ))}
+    </View>
+  );
+}
+
+/**
+ * The record of what actually happened.
+ *
+ * Progress used to be four summary cards — a fortnight of dots, two averages
+ * and a symptom count. That answers "roughly how has it been", which is a
+ * smaller question than the one a member has after eight weeks: *what did I
+ * actually do?*
+ *
+ * This is the whole record, one day at a time: the movements completed and how
+ * they felt, the meals logged with their protein, the check-in, and water.
+ * Everything the app has ever stored about her, arranged by the day it
+ * happened.
+ *
+ * Fourteen days are shown, because that is a fortnight of real detail rather
+ * than an unreadable wall, and the rest loads on request. A ninety-day
+ * programme is ninety days of record; it just does not all need rendering
+ * before she has asked for it.
+ *
+ * The tone rules matter here more than anywhere. This is the screen most likely
+ * to be read as a report card, so an empty day says "nothing recorded" and
+ * stops there. No red, no "missed", no gaps counted up. A quiet Tuesday in
+ * March is not a failure to be reminded of in June.
+ */
+function History({ doc }: { doc: MemberDoc }) {
+  const [days, setDays] = useState(14);
+
+  const dayOf = (offset: number) => {
+    const date = new Date();
+    date.setDate(date.getDate() + offset);
+    return isoDate(date);
+  };
+
+  /** How far back there is anything at all, so "show more" can stop. */
+  const oldest = Math.min(
+    0,
+    ...(doc.actions ?? []).map((a) => a.dayOffset),
+    ...(doc.pulses ?? []).map((p) => p.dayOffset),
+    ...(doc.foodEntries ?? []).map((f) => f.dayOffset ?? 0),
+  );
+  const available = Math.max(14, Math.abs(oldest) + 1);
+
+  const rows = Array.from({ length: Math.min(days, available) }, (_, i) => {
+    const offset = -i;
+    const date = dayOf(offset);
+    const actions = (doc.actions ?? []).filter(
+      (a) => a.dayOffset === offset && a.completed,
+    );
+    const meals = (doc.foodEntries ?? []).filter((f) => f.loggedDate === date);
+    const pulse = (doc.pulses ?? []).find((p) => p.dayOffset === offset);
+    const logs = (doc.workoutLogs ?? []).filter((log) => {
+      const at = String(
+        (log as unknown as Record<string, unknown>).completedAt ?? "",
+      );
+      return at.slice(0, 10) === date;
+    });
+    const water = doc.hydrationLogs?.find((entry) => entry.date === date);
+    return { offset, date, actions, meals, pulse, logs, water };
+  }).filter(
+    (row) =>
+      row.offset === 0 ||
+      row.actions.length ||
+      row.meals.length ||
+      row.pulse ||
+      row.water,
+  );
+
+  const protein = (row: (typeof rows)[number]) =>
+    row.meals.reduce((sum, meal) => sum + (meal.protein ?? 0), 0);
+
+  return (
+    <>
+      <Text style={s.eyebrow}>YOUR RECORD</Text>
+      <Text style={s.hero}>Everything, day by day.</Text>
+      <Text style={s.heroCopy}>
+        What you did, what you ate and how you felt — kept so you can look back,
+        not so anything can be scored.
+      </Text>
+
+      {rows.length === 0 && (
+        <Card>
+          <Text style={s.empty}>
+            Your record starts the first day you log something.
+          </Text>
+        </Card>
+      )}
+
+      {rows.map((row) => {
+        const label =
+          row.offset === 0
+            ? "Today"
+            : row.offset === -1
+              ? "Yesterday"
+              : new Date(`${row.date}T12:00:00`).toLocaleDateString(undefined, {
+                  weekday: "short",
+                  day: "numeric",
+                  month: "short",
+                });
+        const nothing =
+          !row.actions.length && !row.meals.length && !row.pulse && !row.water;
+        return (
+          <Card key={row.date} style={s.historyDay}>
+            <View style={s.rowBetween}>
+              <Text style={s.historyDate}>{label}</Text>
+              {row.actions.length > 0 && (
+                <Text style={s.historyCount}>
+                  {row.actions.length} completed
+                </Text>
+              )}
+            </View>
+
+            {nothing ? (
+              <Text style={s.historyQuiet}>Nothing recorded.</Text>
+            ) : null}
+
+            {row.actions.map((action) => {
+              const log = row.logs.find(
+                (item) =>
+                  String(
+                    (item as unknown as Record<string, unknown>).actionId ?? "",
+                  ) === action.id,
+              );
+              const effort = log
+                ? Number(
+                    (log as unknown as Record<string, unknown>)
+                      .perceivedEffort ?? 0,
+                  )
+                : 0;
+              return (
+                <View key={action.id} style={s.historyLine}>
+                  <View style={s.historyDot} />
+                  <View style={s.flex}>
+                    <Text style={s.historyItem}>{action.title}</Text>
+                    <Text style={s.historyMeta}>
+                      {action.completed === "rest"
+                        ? "Rest — which counts"
+                        : `${action.completed}${effort ? ` · felt ${["", "very easy", "easy", "steady", "hard", "very hard"][effort]}` : ""}`}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+
+            {row.meals.length > 0 && (
+              <View style={s.historyLine}>
+                <View style={[s.historyDot, s.historyDotFood]} />
+                <View style={s.flex}>
+                  <Text style={s.historyItem}>
+                    {row.meals.length} meal{row.meals.length === 1 ? "" : "s"}
+                    {protein(row)
+                      ? ` · ${Math.round(protein(row))}g protein`
+                      : ""}
+                  </Text>
+                  <Text style={s.historyMeta} numberOfLines={2}>
+                    {row.meals.map((meal) => meal.description).join(" · ")}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {row.pulse && (
+              <View style={s.historyLine}>
+                <View style={[s.historyDot, s.historyDotPulse]} />
+                <View style={s.flex}>
+                  <Text style={s.historyItem}>Check-in</Text>
+                  <Text style={s.historyMeta}>
+                    {[
+                      row.pulse.energy ? `energy ${row.pulse.energy}/5` : "",
+                      row.pulse.sleep ? `sleep ${row.pulse.sleep}/5` : "",
+                      row.pulse.stress ? `stress ${row.pulse.stress}/5` : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {row.water && row.water.glasses > 0 && (
+              <View style={s.historyLine}>
+                <View style={[s.historyDot, s.historyDotWater]} />
+                <Text style={s.historyItem}>
+                  {row.water.glasses} glass
+                  {row.water.glasses === 1 ? "" : "es"} of water
+                </Text>
+              </View>
+            )}
+          </Card>
+        );
+      })}
+
+      {days < available && (
         <Pressable
           accessibilityRole="button"
-          key={item.id}
-          onPress={() => setArticleId(item.id)}
-          style={({ pressed }) => [s.articleCard, pressed && s.pressed]}
+          style={s.secondaryButton}
+          onPress={() => setDays((value) => value + 28)}
         >
-          <View style={s.articleMeta}>
-            <Text style={s.articleCategory}>{item.category.toUpperCase()}</Text>
-            <Text style={s.articleMinutes}>{item.readMinutes} min</Text>
-          </View>
-          <Text style={s.articleTitle}>{item.title}</Text>
-          <Text style={s.articleSummary}>{item.summary}</Text>
-          <Text style={s.articleOpen}>Read guide ›</Text>
+          <Text style={s.secondaryButtonText}>Show earlier days</Text>
         </Pressable>
-      ))}
-    </View>
+      )}
+    </>
   );
 }
 
@@ -2330,6 +3074,8 @@ function Food({
   const [description, setDescription] = useState("");
   /** What the last estimate was read from, shown so it can be judged. */
   const [lastEstimate, setLastEstimate] = useState<string | null>(null);
+  /** The month is for reviewing history, which is occasional. Folded by default. */
+  const [showCalendar, setShowCalendar] = useState(false);
   const [photoAsset, setPhotoAsset] = useState<ImagePicker.ImagePickerAsset>();
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoUri = photoAsset?.uri;
@@ -2536,92 +3282,115 @@ function Food({
         <Text style={s.heroUnit}>kcal · {totalProtein || "—"}g protein</Text>
       </Text>
       <Text style={s.heroCopy}>
-        Calories and protein are estimates for context, never a score. Tap any
-        day to see and correct its meals.
+        Calories and protein are estimates for context, never a score.
       </Text>
-      <Card style={s.calendarCard}>
-        <View style={s.calendarHeader}>
-          <Pressable
-            accessibilityLabel="Previous month"
-            style={s.calendarArrow}
-            onPress={() => changeMonth(-1)}
-          >
-            <ChevronLeft size={20} color={C.greenDeep} />
-          </Pressable>
-          <Text style={s.calendarMonth}>
-            {month.toLocaleDateString(undefined, {
-              month: "long",
-              year: "numeric",
-            })}
-          </Text>
-          <Pressable
-            accessibilityLabel="Next month"
-            style={s.calendarArrow}
-            onPress={() => changeMonth(1)}
-          >
-            <ChevronRight size={20} color={C.greenDeep} />
-          </Pressable>
-        </View>
-        <View style={s.calendarGrid}>
-          {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
-            <Text key={`${day}-${index}`} style={s.weekday}>
-              {day}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: showCalendar }}
+        accessibilityLabel={showCalendar ? "Hide the month" : "See another day"}
+        style={s.calendarToggle}
+        onPress={() => setShowCalendar((value) => !value)}
+      >
+        <CalendarDays size={15} color={C.green} />
+        <Text style={s.calendarToggleText}>
+          {selectedDate === isoDate()
+            ? "See another day"
+            : new Date(`${selectedDate}T12:00:00`).toLocaleDateString(
+                undefined,
+                { day: "numeric", month: "long" },
+              )}
+        </Text>
+        {showCalendar ? (
+          <ChevronUp size={16} color={C.faint} />
+        ) : (
+          <ChevronDown size={16} color={C.faint} />
+        )}
+      </Pressable>
+      {showCalendar && (
+        <Card style={s.calendarCard}>
+          <View style={s.calendarHeader}>
+            <Pressable
+              accessibilityLabel="Previous month"
+              style={s.calendarArrow}
+              onPress={() => changeMonth(-1)}
+            >
+              <ChevronLeft size={20} color={C.greenDeep} />
+            </Pressable>
+            <Text style={s.calendarMonth}>
+              {month.toLocaleDateString(undefined, {
+                month: "long",
+                year: "numeric",
+              })}
             </Text>
-          ))}
-          {calendar.map((cell, index) =>
-            cell ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: selectedDate === cell.date }}
-                key={cell.date}
-                onPress={() => setSelectedDate(cell.date)}
-                style={[
-                  s.calendarDay,
-                  selectedDate === cell.date && s.calendarDaySelected,
-                ]}
-              >
-                <Text
+            <Pressable
+              accessibilityLabel="Next month"
+              style={s.calendarArrow}
+              onPress={() => changeMonth(1)}
+            >
+              <ChevronRight size={20} color={C.greenDeep} />
+            </Pressable>
+          </View>
+          <View style={s.calendarGrid}>
+            {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
+              <Text key={`${day}-${index}`} style={s.weekday}>
+                {day}
+              </Text>
+            ))}
+            {calendar.map((cell, index) =>
+              cell ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: selectedDate === cell.date }}
+                  key={cell.date}
+                  onPress={() => setSelectedDate(cell.date)}
                   style={[
-                    s.calendarDayNumber,
-                    selectedDate === cell.date && s.calendarDayNumberSelected,
+                    s.calendarDay,
+                    selectedDate === cell.date && s.calendarDaySelected,
                   ]}
                 >
-                  {cell.day}
-                </Text>
-                {dailyTotals[cell.date] ? (
-                  <>
-                    <Text
-                      style={[
-                        s.calendarKcal,
-                        selectedDate === cell.date &&
-                          s.calendarDayNumberSelected,
-                      ]}
-                    >
-                      {dailyTotals[cell.date]?.calories ?? 0}k
-                    </Text>
-                    <View
-                      style={[
-                        s.proteinDot,
-                        (dailyTotals[cell.date]?.protein ?? 0) >= 20 &&
-                          s.proteinDotFull,
-                      ]}
-                    />
-                  </>
-                ) : null}
-              </Pressable>
-            ) : (
-              <View key={`blank-${index}`} style={s.calendarDay} />
-            ),
-          )}
-        </View>
-        <View style={s.calendarLegend}>
-          <View style={s.legendDot} />
-          <Text style={s.legendText}>Protein logged</Text>
-          <Text style={s.legendText}>
-            · figures are neutral estimates, not good/bad scores
-          </Text>
-        </View>
-      </Card>
+                  <Text
+                    style={[
+                      s.calendarDayNumber,
+                      selectedDate === cell.date && s.calendarDayNumberSelected,
+                    ]}
+                  >
+                    {cell.day}
+                  </Text>
+                  {dailyTotals[cell.date] ? (
+                    <>
+                      <Text
+                        style={[
+                          s.calendarKcal,
+                          selectedDate === cell.date &&
+                            s.calendarDayNumberSelected,
+                        ]}
+                      >
+                        {dailyTotals[cell.date]?.calories ?? 0}k
+                      </Text>
+                      <View
+                        style={[
+                          s.proteinDot,
+                          (dailyTotals[cell.date]?.protein ?? 0) >= 20 &&
+                            s.proteinDotFull,
+                        ]}
+                      />
+                    </>
+                  ) : null}
+                </Pressable>
+              ) : (
+                <View key={`blank-${index}`} style={s.calendarDay} />
+              ),
+            )}
+          </View>
+          <View style={s.calendarLegend}>
+            <View style={s.legendDot} />
+            <Text style={s.legendText}>Protein logged</Text>
+            <Text style={s.legendText}>
+              · figures are neutral estimates, not good/bad scores
+            </Text>
+          </View>
+        </Card>
+      )}
       <Card>
         <View style={s.rowBetween}>
           <Text style={s.cardTitle}>
@@ -2806,48 +3575,125 @@ function Food({
   );
 }
 
+/**
+ * The Coach tab.
+ *
+ * The human coach is a paid extra almost nobody has yet, which left this
+ * screen as a message box that nothing answered. Vera answers it — grounded in
+ * the member's own plan, and bounded by the rules in `lib/coach-ai.ts`.
+ *
+ * Two things are load-bearing in how this is presented:
+ *
+ * **She is never disguised as a person.** Her bubbles are labelled, her
+ * avatar is not a photograph, and the first thing the screen says is that she
+ * is part of the app. A member who thinks a nurse is reading this will tell it
+ * things she should be telling a clinic.
+ *
+ * **A human coach outranks her.** Where one exists, their messages sit in the
+ * same conversation, marked as theirs, and Vera says so when asked to make a
+ * decision that is theirs to make.
+ *
+ * The conversation lives in `doc.messages`, which the phone already owns and
+ * syncs. Vera has no route that can write to the derived plan state.
+ */
 function Coach({
   doc,
   update,
+  token,
 }: {
   doc: MemberDoc;
   update: (doc: MemberDoc) => void;
+  token: string;
 }) {
   const [draft, setDraft] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const scrollToTop = useScrollToTop();
   const messages = [...doc.messages].sort((a, b) => a.dayOffset - b.dayOffset);
+  const hasHumanCoach = doc.coaching?.mode === "coached";
   const next = [...doc.sessions]
     .filter((x) => x.status === "scheduled" && x.dayOffset >= 0)
     .sort((a, b) => a.dayOffset - b.dayOffset)[0];
-  const send = () => {
-    if (!draft.trim()) return;
-    update({
-      ...doc,
-      messages: [
-        ...doc.messages,
-        {
-          id: `message-${Date.now()}`,
-          memberId: doc.member.id,
-          from: "member",
-          kind: "text",
-          body: draft.trim(),
-          dayOffset: 0,
-          time: "just now",
-          read: false,
-        },
-      ],
-    });
+
+  const append = (
+    current: MemberDoc,
+    from: Message["from"],
+    body: string,
+  ): MemberDoc => ({
+    ...current,
+    messages: [
+      ...current.messages,
+      {
+        id: `message-${from}-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+        memberId: current.member.id,
+        from,
+        kind: "text",
+        body,
+        dayOffset: 0,
+        time: "just now",
+        read: from === "member",
+      },
+    ],
+  });
+
+  const ask = async (text: string) => {
+    const question = text.trim();
+    if (!question || thinking) return;
     setDraft("");
+    const withQuestion = append(doc, "member", question);
+    update(withQuestion);
+    if (token === DEMO_TOKEN) {
+      update(
+        append(
+          withQuestion,
+          "ai",
+          "This is the sample account, so I am not connected here. Sign in with your own account and I can answer from your plan.",
+        ),
+      );
+      return;
+    }
+    setThinking(true);
+    try {
+      // Only the conversation goes back — the server builds her context from
+      // the stored document rather than trusting anything the phone sends.
+      const history = withQuestion.messages
+        .filter((m) => m.from === "member" || m.from === "ai")
+        .slice(-12)
+        .map((m) => ({
+          role: (m.from === "member" ? "user" : "assistant") as
+            | "user"
+            | "assistant",
+          content: m.body,
+        }));
+      const result = await askCoach(token, question, history.slice(0, -1));
+      update(append(withQuestion, "ai", result.reply));
+    } catch {
+      update(
+        append(
+          withQuestion,
+          "ai",
+          "I could not reach my side of things just then. Your plan is unaffected — please try again in a moment.",
+        ),
+      );
+    } finally {
+      setThinking(false);
+    }
   };
+
   return (
     <>
-      <Text style={s.eyebrow}>YOUR COACH</Text>
-      <Text style={s.hero}>A human in your corner.</Text>
-      <Text style={s.heroCopy}>
-        Ask questions, share context, and see plan changes from your coach.
-      </Text>
-      {next && (
+      <View style={s.coachHead}>
+        <View style={s.coachAvatar}>
+          <Sparkles size={20} color={C.greenDeep} />
+        </View>
+        <View style={s.flex}>
+          <Text style={s.coachName}>{COACH_NAME}</Text>
+          <Text style={s.coachRole}>Your coach in the app · always here</Text>
+        </View>
+      </View>
+
+      {hasHumanCoach && next && (
         <View style={s.session}>
-          <Text style={s.sessionLabel}>NEXT SESSION</Text>
+          <Text style={s.sessionLabel}>NEXT SESSION WITH YOUR COACH</Text>
           <Text style={s.sessionTitle}>{next.type}</Text>
           <Text style={s.sessionMeta}>
             {next.dayOffset === 0
@@ -2857,62 +3703,162 @@ function Coach({
           </Text>
         </View>
       )}
-      <Text style={s.sectionTitle}>Conversation</Text>
-      {messages.length ? (
-        messages.slice(-12).map((m) => (
+
+      {messages.length === 0 && (
+        <Card>
+          <Text style={s.coachIntro}>
+            I can explain what your plan is doing and why, help you decide what
+            to do on a hard day, and answer the ordinary questions. I am part of
+            the app, not a doctor — and I cannot change your plan, because that
+            follows what you log.
+          </Text>
+        </Card>
+      )}
+
+      {messages.slice(-20).map((m) => {
+        const mine = m.from === "member";
+        const who =
+          m.from === "member"
+            ? "You"
+            : m.from === "ai"
+              ? COACH_NAME
+              : m.from === "coach"
+                ? "Your coach"
+                : "Bharosa";
+        return (
           <View
             key={m.id}
             style={[
               s.messageBubble,
-              m.from === "member" ? s.memberBubble : s.coachBubble,
+              mine ? s.memberBubble : s.coachBubble,
+              m.from === "coach" && s.humanCoachBubble,
             ]}
           >
             <View style={s.rowBetween}>
               <Text
                 style={[
                   s.messageFrom,
-                  m.from === "coach" && s.messageFromCoach,
+                  !mine && s.messageFromCoach,
+                  m.from === "coach" && s.messageFromHuman,
                 ]}
               >
-                {m.from === "coach" ? "Coach" : "You"}
+                {who}
               </Text>
               <Text style={s.messageTime}>{m.time}</Text>
             </View>
-            <Text
-              style={[
-                s.messageBody,
-                m.from === "member" && s.memberMessageText,
-              ]}
-            >
+            <Text style={[s.messageBody, mine && s.memberMessageText]}>
               {m.body}
             </Text>
           </View>
-        ))
-      ) : (
-        <Card>
-          <Text style={s.empty}>No messages yet.</Text>
-        </Card>
+        );
+      })}
+
+      {thinking && (
+        <View style={[s.messageBubble, s.coachBubble]}>
+          <Text style={s.messageFromCoach}>{COACH_NAME}</Text>
+          <View style={s.rowInline}>
+            <ActivityIndicator size="small" color={C.green} />
+            <Text style={s.thinkingText}>Reading your plan…</Text>
+          </View>
+        </View>
       )}
+
+      {messages.length === 0 && !thinking && (
+        <View style={s.openerWrap}>
+          {COACH_OPENERS.map((opener) => (
+            <Pressable
+              key={opener}
+              accessibilityRole="button"
+              style={({ pressed }) => [s.opener, pressed && s.pressed]}
+              onPress={() => ask(opener)}
+            >
+              <Text style={s.openerText}>{opener}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       <View style={s.composer}>
         <TextInput
           style={s.composerInput}
           value={draft}
           onChangeText={setDraft}
-          placeholder="Write to your coach…"
+          placeholder={`Ask ${COACH_NAME} anything…`}
           placeholderTextColor={C.faint}
           multiline
+          editable={!thinking}
+          onSubmitEditing={() => ask(draft)}
         />
-        <Pressable style={s.sendButton} onPress={send}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Send"
+          disabled={thinking || !draft.trim()}
+          style={[s.sendButton, (thinking || !draft.trim()) && s.sendDisabled]}
+          onPress={() => ask(draft)}
+        >
           <Text style={s.sendButtonText}>↑</Text>
         </Pressable>
       </View>
+
+      {messages.length > 6 && (
+        <Pressable
+          accessibilityRole="button"
+          style={s.secondaryButton}
+          onPress={scrollToTop}
+        >
+          <Text style={s.secondaryButtonText}>Back to the top</Text>
+        </Pressable>
+      )}
+
+      {!hasHumanCoach && (
+        <Card style={s.upsell}>
+          <View style={s.rowInline}>
+            <UserRound size={16} color={C.marigold} />
+            <Text style={s.upsellKicker}>WANT A PERSON AS WELL?</Text>
+          </View>
+          <Text style={s.upsellTitle}>Add a human coach</Text>
+          <Text style={s.upsellCopy}>
+            {COACH_NAME} explains your plan and is here at two in the morning. A
+            coach does the things software should not: reads your blood work,
+            watches you move, and overrides the plan when your body disagrees
+            with it.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            style={({ pressed }) => [s.upsellButton, pressed && s.pressed]}
+            onPress={() => {
+              // An actual message into the conversation, which a coach sees in
+              // the console. No fake checkout, and no claim that somebody is
+              // already assigned.
+              update(
+                append(
+                  doc,
+                  "member",
+                  "I would like to know more about adding a human coach.",
+                ),
+              );
+              Alert.alert(
+                "Noted",
+                "That is in your conversation now. Coaching is not on sale yet — when it is, this is where it will appear.",
+              );
+            }}
+          >
+            <Text style={s.upsellButtonText}>Tell me more</Text>
+            <ChevronRight size={16} color={C.greenDeep} />
+          </Pressable>
+        </Card>
+      )}
+
       <Text style={s.responseNote}>
-        Your coach replies between sessions. This is not an emergency channel.
+        {COACH_NAME} is software, and she is not a substitute for medical care.
+        For anything urgent, call 112. This is not an emergency channel.
+        {hasHumanCoach
+          ? " Where your coach has set something, that stands."
+          : ""}
       </Text>
     </>
   );
 }
-
 function Reports({
   doc,
   update,
@@ -3169,17 +4115,16 @@ function HealthConnectionPanel({
                     s.permissionState,
                     ["granted", "requested"].includes(
                       connection.permissions[metric],
-                    ) &&
-                      s.permissionGranted,
+                    ) && s.permissionGranted,
                   ]}
                 >
                   {connection.permissions[metric] === "granted"
                     ? "Allowed"
                     : connection.permissions[metric] === "requested"
                       ? "Requested"
-                    : connection.permissions[metric] === "denied"
-                      ? "Not allowed"
-                      : "Not asked"}
+                      : connection.permissions[metric] === "denied"
+                        ? "Not allowed"
+                        : "Not asked"}
                 </Text>
               </View>
               <Text style={s.healthValue}>
@@ -3320,6 +4265,16 @@ function Circle({
     }[]
   >([]);
   const [nearbyNote, setNearbyNote] = useState<string | null>(null);
+  /**
+   * What the phone read, in words, for her eyes only.
+   *
+   * The server holds two grid integers and nothing else, so nothing on the
+   * screen could tell her whether the app had understood where she was — she
+   * shared her area and got no acknowledgement at all. This is reverse-geocoded
+   * on the device and never sent; see mobile/src/location.ts.
+   */
+  const [areaLabel, setAreaLabel] = useState<string | null>(null);
+  const [citySuggestions, setCitySuggestions] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -3383,7 +4338,10 @@ function Circle({
                 "You can turn it on in your phone settings, or find members by city instead.",
                 [
                   { text: "Not now", style: "cancel" },
-                  { text: "Open settings", onPress: () => Linking.openSettings() },
+                  {
+                    text: "Open settings",
+                    onPress: () => Linking.openSettings(),
+                  },
                 ],
               );
               return;
@@ -3395,6 +4353,7 @@ function Circle({
               );
               return;
             }
+            if (result.label) setAreaLabel(result.label);
             await saveSettings({ cell: result.cell });
           },
         },
@@ -3409,8 +4368,12 @@ function Circle({
       setNearbyNote(
         result.message ??
           (result.members.length
-            ? null
-            : "Nobody else nearby has chosen to be found yet."),
+            ? result.basis === "city"
+              ? `Nobody in your immediate area yet, so this is everyone in ${result.city ?? "your city"}.`
+              : null
+            : state?.profile.city || state?.profile.hasLocation
+              ? "Nobody else near you has chosen to be found yet. This gets better as more members join."
+              : "Add your city or share your area first, so there is somewhere to look."),
       );
     } catch (error) {
       Alert.alert(
@@ -3440,7 +4403,10 @@ function Circle({
     }
   };
 
-  const answer = async (memberId: string, decision: "accepted" | "declined") => {
+  const answer = async (
+    memberId: string,
+    decision: "accepted" | "declined",
+  ) => {
     setBusy(true);
     try {
       await answerConnection(token, memberId, decision);
@@ -3711,19 +4677,61 @@ function Circle({
             {state.profile.hasLocation ? "Update my area" : "Share my area"}
           </Text>
         </Pressable>
+        {/* Read back what was captured. Without this, sharing a location was a
+            button that appeared to do nothing. */}
+        {state.profile.hasLocation ? (
+          <Text style={s.areaCaptured}>
+            {areaLabel
+              ? `Set from your location — around ${areaLabel}. Only the 3km square was sent; the name stays on this phone.`
+              : "Your area is set. Tap again if you have moved."}
+          </Text>
+        ) : null}
+
         <View style={s.habitAddRow}>
           <TextInput
             style={[s.input, s.flex]}
             value={cityDraft}
-            onChangeText={setCityDraft}
+            onChangeText={(text) => {
+              setCityDraft(text);
+              setCitySuggestions(true);
+            }}
             placeholder="Or just your city"
             placeholderTextColor={C.faint}
+            autoCorrect={false}
+            onFocus={() => setCitySuggestions(true)}
             onBlur={() => {
-              if (cityDraft.trim() !== (state.profile.city ?? ""))
-                saveSettings({ city: cityDraft.trim() });
+              // Store the canonical spelling. Discovery matches on lower(city),
+              // so "Bangalore" and "Bengaluru" were two cities whose members
+              // never saw each other.
+              const typed = cityDraft.trim();
+              const settled = canonicalCity(typed) ?? typed;
+              if (settled !== typed) setCityDraft(settled);
+              if (settled !== (state.profile.city ?? ""))
+                saveSettings({ city: settled });
             }}
           />
         </View>
+        {citySuggestions && (
+          <View style={s.cityList}>
+            {suggestCities(cityDraft).map((city) => (
+              <Pressable
+                key={city.name}
+                accessibilityRole="button"
+                accessibilityLabel={`${city.name}, ${city.region}`}
+                style={({ pressed }) => [s.cityRow, pressed && s.pressed]}
+                onPress={() => {
+                  setCityDraft(city.name);
+                  setCitySuggestions(false);
+                  if (city.name !== (state.profile.city ?? ""))
+                    saveSettings({ city: city.name });
+                }}
+              >
+                <Text style={s.cityName}>{city.name}</Text>
+                <Text style={s.cityRegion}>{city.region}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
         <View style={s.rowBetween}>
           <View style={s.flex}>
             <Text style={s.settingLabel}>Let other members find me</Text>
@@ -3840,6 +4848,146 @@ function Circle({
           circle without them being told.
         </Text>
       </Card>
+    </>
+  );
+}
+
+/**
+ * The You tab, as a hub.
+ *
+ * This screen used to stack four full screens on top of each other — profile
+ * and settings, the whole circle, health connection, and reports — roughly
+ * twelve hundred lines of one continuous scroll. Each is now a row that opens
+ * on its own, the same pattern as the movement session.
+ *
+ * What stays on the hub is what answers "how am I doing" without a tap: the
+ * four weeks of consistency she has built, and what her phone and health source
+ * are actually contributing. Everything that needs a decision from her is a
+ * door rather than a wall of controls.
+ */
+function YouHub({
+  doc,
+  circleRequests,
+  onOpen,
+}: {
+  doc: MemberDoc;
+  circleRequests: number;
+  onOpen: (section: "circle" | "health" | "reports" | "settings") => void;
+}) {
+  const initials = doc.member.name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2);
+  const health = doc.healthConnection;
+  const connected =
+    health?.status === "connected" || health?.status === "partial";
+  const latestSteps = [...(doc.healthSnapshots ?? [])]
+    .filter((snapshot) => snapshot.metric === "steps" && snapshot.available)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  const reportCount = doc.reports?.length ?? 0;
+  const activeDays = new Set(
+    (doc.actions ?? [])
+      .filter(
+        (action) =>
+          action.completed && action.dayOffset <= 0 && action.dayOffset >= -27,
+      )
+      .map((action) => action.dayOffset),
+  ).size;
+
+  const rows: {
+    key: "circle" | "health" | "reports" | "settings";
+    Icon: typeof Users;
+    label: string;
+    detail: string;
+    badge?: number;
+  }[] = [
+    {
+      key: "health",
+      Icon: HeartPulse,
+      label: CONNECTED_HEALTH_NAME,
+      detail: connected
+        ? latestSteps
+          ? `${Math.round(latestSteps.value).toLocaleString()} steps most recently`
+          : "Connected"
+        : "Not connected — steps and heart rate are unavailable",
+    },
+    {
+      key: "circle",
+      Icon: Users,
+      label: "Your circle",
+      detail: circleRequests
+        ? `${circleRequests} request${circleRequests === 1 ? "" : "s"} waiting`
+        : "People you have added, and how their month is going",
+      badge: circleRequests || undefined,
+    },
+    {
+      key: "reports",
+      Icon: ShieldCheck,
+      label: "Reports",
+      detail: reportCount
+        ? `${reportCount} uploaded`
+        : "Blood work and scans, stored privately",
+    },
+    {
+      key: "settings",
+      Icon: UserRound,
+      label: "Settings and your data",
+      detail: "Reminders, privacy, export, delete your account",
+    },
+  ];
+
+  return (
+    <>
+      <View style={s.profileBadge}>
+        <Text style={s.profileInitials}>{initials}</Text>
+      </View>
+      <Text style={[s.hero, s.center]}>{doc.member.name}</Text>
+      <Text style={[s.heroCopy, s.center]}>
+        Week {doc.member.week} · {doc.member.phase}
+        {activeDays ? ` · ${activeDays} active days this month` : ""}
+      </Text>
+
+      <Card style={s.glanceCard}>
+        {rows.map((row, index) => (
+          <Pressable
+            key={row.key}
+            accessibilityRole="button"
+            accessibilityLabel={
+              row.badge
+                ? `${row.label}, ${row.badge} waiting`
+                : `${row.label}. ${row.detail}`
+            }
+            style={({ pressed }) => [
+              s.domainRow,
+              index === 0 && s.domainRowFirst,
+              pressed && s.domainRowPressed,
+            ]}
+            onPress={() => onOpen(row.key)}
+          >
+            <View style={s.domainRowIcon}>
+              <row.Icon size={16} color={C.greenDeep} />
+            </View>
+            <View style={s.flex}>
+              <Text style={s.domainRowTitle}>{row.label}</Text>
+              <Text style={s.domainRowDetail}>{row.detail}</Text>
+            </View>
+            {row.badge ? (
+              <View style={s.tabBadge}>
+                <Text style={s.tabBadgeText}>
+                  {row.badge > 9 ? "9+" : row.badge}
+                </Text>
+              </View>
+            ) : null}
+            <ChevronRight size={17} color={C.faint} />
+          </Pressable>
+        ))}
+      </Card>
+
+      <Text style={s.disclaimer}>
+        Bharosa supports coaching and education. It does not diagnose conditions
+        or replace medical care.
+      </Text>
     </>
   );
 }
@@ -4051,8 +5199,8 @@ function Profile({
         </Text>
         <Text style={s.profileCopy}>
           Add other members for encouragement, below. Your meals, check-ins,
-          reports and messages are never shared — only how much of your plan
-          you have done, and only with people you accept.
+          reports and messages are never shared — only how much of your plan you
+          have done, and only with people you accept.
         </Text>
         <View style={s.inviteCode}>
           <Text style={s.inviteCodeLabel}>YOUR CODE</Text>
@@ -4188,6 +5336,7 @@ function MemberApp({
   token: string;
   onSignedOut: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [doc, setDoc] = useState<MemberDoc | null>(null);
   const [tab, setTab] = useState<Tab>("today");
   const [loading, setLoading] = useState(true);
@@ -4199,6 +5348,22 @@ function MemberApp({
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   /** Connection requests waiting on her, surfaced on the You tab. */
   const [circleRequests, setCircleRequests] = useState(0);
+  /** Which section of You is open. Null is the hub. */
+  const [youSection, setYouSection] = useState<
+    null | "circle" | "health" | "reports" | "settings"
+  >(null);
+  /** Progress opens on its own; null is the plan itself. */
+  const [planSection, setPlanSection] = useState<null | "progress">(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollToTop = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, []);
+  // Every change of screen starts at the top of it. Without this the offset
+  // from the previous screen is inherited, which reads as a page opening
+  // half-way down.
+  useEffect(() => {
+    scrollToTop();
+  }, [tab, planSection, youSection, scrollToTop]);
   /** The current document, readable from callbacks without a stale closure. */
   const latest = useRef<MemberDoc | null>(null);
   /** Coach messages already seen, so only genuinely new ones are announced. */
@@ -4449,6 +5614,11 @@ function MemberApp({
     });
   }, [remindersEnabled, reminderAt, preferredCheckIn]);
 
+  useEffect(() => {
+    if (tab !== "profile") setYouSection(null);
+    if (tab !== "plan") setPlanSection(null);
+  }, [tab]);
+
   /** Opening the conversation is reading it. */
   useEffect(() => {
     if (tab !== "coach" || !unreadFromCoach) return;
@@ -4485,33 +5655,103 @@ function MemberApp({
       <Today
         doc={doc}
         update={update}
+        token={token}
         onOpenCoach={() => setTab("coach")}
         onOpenProfile={() => setTab("profile")}
       />
     );
   else if (tab === "plan")
-    content = (
-      <>
-        <Journey doc={doc} />
-        <Progress doc={doc} />
-      </>
-    );
+    content =
+      planSection === "progress" ? (
+        <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to plan"
+            style={s.backRow}
+            onPress={() => setPlanSection(null)}
+          >
+            <ChevronLeft size={18} color={C.green} />
+            <Text style={s.backRowText}>Plan</Text>
+          </Pressable>
+          <Progress doc={doc} />
+          <History doc={doc} />
+        </>
+      ) : (
+        <>
+          <Journey doc={doc} />
+          <LearningLibrary weekFocus={doc.member.weeklyFocus} />
+          <Card style={s.glanceCard}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="See how it has been going"
+              style={({ pressed }) => [
+                s.domainRow,
+                s.domainRowFirst,
+                pressed && s.domainRowPressed,
+              ]}
+              onPress={() => setPlanSection("progress")}
+            >
+              <View style={s.domainRowIcon}>
+                <Sparkles size={16} color={C.greenDeep} />
+              </View>
+              <View style={s.flex}>
+                <Text style={s.domainRowTitle}>How it has been going</Text>
+                <Text style={s.domainRowDetail}>
+                  Your whole record — every day, what you did and how it felt
+                </Text>
+              </View>
+              <ChevronRight size={17} color={C.faint} />
+            </Pressable>
+          </Card>
+        </>
+      );
   else if (tab === "food")
     content = <Food doc={doc} update={update} token={token} />;
-  else if (tab === "coach") content = <Coach doc={doc} update={update} />;
+  else if (tab === "coach")
+    content = <Coach doc={doc} update={update} token={token} />;
   else
     content = (
       <>
-        <Profile
-          doc={doc}
-          update={update}
-          token={token}
-          onLogout={signOut}
-          onDeleted={onSignedOut}
-        />
-        <Circle token={token} onUnreadChange={setCircleRequests} />
-        <HealthConnectionPanel doc={doc} update={update} />
-        <Reports doc={doc} update={update} token={token} />
+        {/* Four full screens used to be stacked here — roughly 1,200 lines of
+            one scroll. It is now a hub: each section opens on its own, the same
+            way the movement session does. */}
+        {youSection === null ? (
+          <YouHub
+            doc={doc}
+            circleRequests={circleRequests}
+            onOpen={setYouSection}
+          />
+        ) : (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Back to you"
+              style={s.backRow}
+              onPress={() => setYouSection(null)}
+            >
+              <ChevronLeft size={18} color={C.green} />
+              <Text style={s.backRowText}>You</Text>
+            </Pressable>
+            {youSection === "circle" && (
+              <Circle token={token} onUnreadChange={setCircleRequests} />
+            )}
+            {youSection === "health" && (
+              <HealthConnectionPanel doc={doc} update={update} />
+            )}
+            {youSection === "reports" && (
+              <Reports doc={doc} update={update} token={token} />
+            )}
+            {youSection === "settings" && (
+              <Profile
+                doc={doc}
+                update={update}
+                token={token}
+                onLogout={signOut}
+                onDeleted={onSignedOut}
+              />
+            )}
+          </>
+        )}
       </>
     );
 
@@ -4572,6 +5812,7 @@ function MemberApp({
         </View>
       )}
       <ScrollView
+        ref={scrollRef}
         style={s.scroll}
         contentContainerStyle={s.content}
         refreshControl={
@@ -4585,10 +5826,12 @@ function MemberApp({
           />
         }
       >
-        {content}
-        <View style={{ height: 30 }} />
+        <ScrollTopContext.Provider value={scrollToTop}>
+          {content}
+        </ScrollTopContext.Provider>
+        <View style={{ height: 30 + insets.bottom }} />
       </ScrollView>
-      <View style={s.tabShell}>
+      <View style={[s.tabShell, { paddingBottom: Math.max(7, insets.bottom) }]}>
         <View accessibilityRole="tablist" style={s.tabBar}>
           {tabs.map((item) => {
             const active = tab === item.key;
@@ -4774,6 +6017,322 @@ const s = StyleSheet.create({
   saving: { color: C.green, fontSize: 11 },
   savingQueued: { color: C.calm, fontSize: 11 },
 
+  /* The record. Deliberately plain — this is the screen most likely to be read
+     as a report card, so there is no colour that could mean "bad". */
+  historyDay: { gap: 2 },
+  historyDate: { color: C.ink, fontSize: 15, fontWeight: "700" },
+  historyCount: { color: C.green, fontSize: 12, fontWeight: "700" },
+  historyQuiet: { color: C.faint, fontSize: 13, marginTop: 6 },
+  historyLine: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+    alignItems: "flex-start",
+  },
+  historyDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    marginTop: 6,
+    backgroundColor: C.green,
+  },
+  historyDotFood: { backgroundColor: C.marigold },
+  historyDotPulse: { backgroundColor: C.calm },
+  historyDotWater: { backgroundColor: "#8FBDB0" },
+  historyItem: { color: C.ink, fontSize: 14, lineHeight: 20 },
+  historyMeta: { color: C.faint, fontSize: 12, lineHeight: 17, marginTop: 1 },
+  minutesOther: {
+    color: C.greenDeep,
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 12,
+    textAlign: "center",
+  },
+  minutesCustomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 10,
+  },
+  minutesCustomUnit: { color: C.soft, fontSize: 14, fontWeight: "600" },
+
+  /* The circle: what was captured, and help spelling a city. */
+  areaCaptured: {
+    color: C.soft,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 8,
+  },
+  cityList: {
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: C.line,
+    overflow: "hidden",
+    marginTop: 6,
+  },
+  cityRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.line,
+    backgroundColor: C.card,
+  },
+  cityName: { color: C.ink, fontSize: 14, fontWeight: "600" },
+  cityRegion: { color: C.faint, fontSize: 12 },
+
+  /* Offering a human coach, without pretending one is assigned. */
+  upsell: {
+    marginTop: 18,
+    borderColor: "#DDC994",
+    backgroundColor: C.marigoldTint,
+  },
+  upsellKicker: {
+    color: C.marigold,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    marginLeft: 8,
+  },
+  upsellTitle: {
+    color: C.ink,
+    fontSize: 17,
+    fontWeight: "700",
+    marginTop: 9,
+  },
+  upsellCopy: { color: C.soft, fontSize: 13, lineHeight: 19, marginTop: 5 },
+  upsellButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    minHeight: 46,
+    marginTop: 13,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "#DDC994",
+    backgroundColor: C.card,
+  },
+  upsellButtonText: { color: C.greenDeep, fontSize: 14, fontWeight: "700" },
+
+  /* The Coach tab. Vera is labelled, never dressed up as a person. */
+  coachHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+    marginBottom: 16,
+  },
+  coachAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: C.greenTint,
+    borderWidth: 1,
+    borderColor: C.line,
+  },
+  coachName: { color: C.ink, fontSize: 21, fontWeight: "700" },
+  coachRole: { color: C.soft, fontSize: 13, marginTop: 1 },
+  coachIntro: { color: C.soft, fontSize: 14, lineHeight: 21 },
+  humanCoachBubble: { borderLeftWidth: 3, borderLeftColor: C.marigold },
+  messageFromHuman: { color: C.marigold },
+  thinkingText: { color: C.soft, fontSize: 13, marginLeft: 8 },
+  openerWrap: { gap: 8, marginTop: 4, marginBottom: 4 },
+  opener: {
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: C.card,
+  },
+  openerText: { color: C.greenDeep, fontSize: 14, fontWeight: "600" },
+  sendDisabled: { opacity: 0.4 },
+  learnToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 62,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: C.card,
+  },
+
+  /* Awards — one sideways row, with the description inside the same card. */
+  awardsCard: {
+    paddingHorizontal: 0,
+    paddingTop: 15,
+    paddingBottom: 0,
+    overflow: "hidden",
+  },
+  awardStrip: { flexDirection: "row", gap: 6, paddingHorizontal: 13 },
+  awardItem: { width: 74, alignItems: "center" },
+  awardBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    backgroundColor: "#F7F8F4",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  awardBadgeEarned: {
+    borderColor: "#DDC994",
+    backgroundColor: C.marigoldTint,
+  },
+  awardBadgeActive: { borderWidth: 2.5, borderColor: C.marigold },
+  awardLabel: {
+    color: C.faint,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: 7,
+  },
+  awardLabelEarned: { color: C.soft },
+  awardLabelActive: { color: C.ink, fontWeight: "700" },
+  awardDetail: {
+    marginTop: 15,
+    paddingHorizontal: 17,
+    paddingVertical: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.line,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    backgroundColor: "#F7F8F4",
+  },
+  awardDetailEarned: { backgroundColor: C.marigoldTint },
+  awardDetailTitle: {
+    color: C.ink,
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  awardDetailCopy: { color: C.soft, fontSize: 13, lineHeight: 19 },
+  awardDetailState: {
+    color: C.faint,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    marginTop: 8,
+  },
+  awardDetailStateEarned: { color: C.marigold },
+  actionCardInline: {
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    shadowOpacity: 0,
+    elevation: 0,
+    marginTop: 0,
+    marginBottom: 6,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+  },
+  rowInline: { flexDirection: "row", alignItems: "center", gap: 8 },
+  circleTodayCard: { gap: 10 },
+  circleTodayRow: { flexDirection: "row", gap: 14, marginTop: 2 },
+  circleTodayPerson: { alignItems: "center", width: 56 },
+  circleTodayAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: C.greenTint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  circleTodayMore: { backgroundColor: C.line },
+  circleTodayInitial: { color: C.greenDeep, fontSize: 15, fontWeight: "800" },
+  circleTodayName: { color: C.ink, fontSize: 11, marginTop: 5 },
+  circleTodayDays: { color: C.faint, fontSize: 10, marginTop: 1 },
+  calendarToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 46,
+    marginTop: 14,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: C.card,
+  },
+  calendarToggleText: {
+    color: C.green,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  /* Today at a glance — five rows instead of ten stacked cards. */
+  glanceCard: { paddingVertical: 6 },
+  domainRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 62,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: C.line,
+  },
+  /** First row in a glance card: the divider has nothing to divide. */
+  domainRowFirst: { borderTopWidth: 0 },
+  domainRowPressed: { opacity: 0.6 },
+  domainRowIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: C.greenTint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  domainRowIconDone: { backgroundColor: C.green },
+  domainRowLabel: {
+    color: C.faint,
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.9,
+  },
+  domainRowTitle: {
+    color: C.ink,
+    fontSize: 15,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  domainRowTitleDone: { color: C.soft },
+  domainRowDetail: { color: C.faint, fontSize: 12, marginTop: 2 },
+  domainRowCount: {
+    color: C.green,
+    fontSize: 13,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+
+  /* The movement session screen. */
+  backRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    minHeight: 44,
+    marginBottom: 4,
+  },
+  backRowText: { color: C.green, fontSize: 15, fontWeight: "700" },
+  sessionProgress: { flexDirection: "row", gap: 5, marginTop: 16 },
+  sessionPip: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: C.line,
+  },
+  sessionPipDone: { backgroundColor: C.green },
+
   /* Consistency grid — 28 days, four rows of seven. A quiet day is lighter,
      never marked. There is deliberately no red in this component. */
   grid: {
@@ -4832,7 +6391,11 @@ const s = StyleSheet.create({
     borderRadius: 13,
     backgroundColor: C.greenTint,
   },
-  readinessOutcomeTitle: { color: C.greenDeep, fontSize: 15, fontWeight: "700" },
+  readinessOutcomeTitle: {
+    color: C.greenDeep,
+    fontSize: 15,
+    fontWeight: "700",
+  },
   readinessOutcomeBody: {
     color: C.greenDeep,
     fontSize: 13,
@@ -4911,7 +6474,12 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   habitAddButtonText: { color: C.greenDeep, fontSize: 14, fontWeight: "700" },
-  habitSuggestions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
+  habitSuggestions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+  },
   habitChip: {
     paddingVertical: 9,
     paddingHorizontal: 12,
@@ -4970,7 +6538,12 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   requestDeclineText: { color: C.soft, fontSize: 13, fontWeight: "600" },
-  settingLabel: { color: C.ink, fontSize: 14, fontWeight: "700", marginTop: 14 },
+  settingLabel: {
+    color: C.ink,
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 14,
+  },
   settingCopy: { color: C.faint, fontSize: 11, lineHeight: 16, marginTop: 4 },
   errorTitle: {
     color: C.ink,
@@ -5247,6 +6820,7 @@ const s = StyleSheet.create({
     marginTop: 16,
     marginBottom: 10,
   },
+  sectionHeadTitle: { color: C.ink, fontSize: 17, fontWeight: "700" },
   sectionMeta: { color: C.faint, fontSize: 12 },
   empty: { color: C.soft, fontSize: 14, lineHeight: 20, textAlign: "center" },
   planChange: {
@@ -5344,31 +6918,31 @@ const s = StyleSheet.create({
   snapshotIntro: { color: C.faint, fontSize: 10, marginTop: 3 },
   snapshotGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 14,
+    gap: 6,
+    marginTop: 12,
   },
   snapshotTile: {
-    width: "48.5%",
-    minHeight: 112,
-    borderRadius: 15,
+    flex: 1,
+    minHeight: 74,
+    borderRadius: 13,
     backgroundColor: C.paper,
-    padding: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
   },
   snapshotTileAction: { borderWidth: 1, borderColor: C.greenTint },
   snapshotIcon: {
-    width: 29,
-    height: 29,
-    borderRadius: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 8,
     backgroundColor: C.greenTint,
     alignItems: "center",
     justifyContent: "center",
   },
-  snapshotLabel: { color: C.faint, fontSize: 9, marginTop: 9 },
+  snapshotLabel: { color: C.faint, fontSize: 8, marginTop: 6 },
   snapshotValue: {
     color: C.ink,
-    fontSize: 19,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: "800",
     marginTop: 2,
   },
@@ -5647,27 +7221,6 @@ const s = StyleSheet.create({
   listRow: { flexDirection: "row", gap: 10, marginTop: 13 },
   bullet: { color: C.green, fontSize: 15, fontWeight: "700" },
   listText: { flex: 1, color: C.ink, fontSize: 15, lineHeight: 21 },
-  milestoneRow: { gap: 9 },
-  milestone: {
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: C.line,
-    padding: 15,
-    backgroundColor: "#F7F8F4",
-  },
-  milestoneUnlocked: {
-    backgroundColor: C.marigoldTint,
-    borderColor: "#DDC994",
-  },
-  milestoneIcon: { color: C.marigold, fontSize: 18 },
-  milestoneTitle: {
-    color: C.faint,
-    fontSize: 14,
-    fontWeight: "700",
-    marginTop: 7,
-  },
-  milestoneTitleUnlocked: { color: C.ink },
-  milestoneCopy: { color: C.soft, fontSize: 12, lineHeight: 17, marginTop: 3 },
   dotRow: {
     flexDirection: "row",
     justifyContent: "space-between",

@@ -75,7 +75,7 @@ export const DAILY_ACTIONS: DailyActionTemplate[] = [
   {
     id: "nut-log-one",
     domain: "nutrition",
-    title: "Record one meal",
+    title: "Record your meals",
     why: "One meal written down tells you more about your week than trying to remember it later.",
     minimum: "Record one meal",
     target: "Record two meals",

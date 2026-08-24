@@ -37,6 +37,13 @@ export interface Member {
   activeModuleIds: string[];
   weekPlans?: WeekPlan[];
   lastPlanChange?: { at: string; rationale: string };
+  /**
+   * When she finished the first-run flow. The server derives her program
+   * week from this on every read — see lib/day-offset.ts's programWeek() —
+   * so week/phase above are a snapshot as of the last sync, not a client
+   * calculation. Nothing here recomputes them locally.
+   */
+  onboardedAt?: string;
 }
 
 export interface EffortSpec {
@@ -70,6 +77,8 @@ export interface DailyAction {
     sets: string;
     cue: string;
     frames: string[];
+    /** Links back to `lib/exercise-library.ts`; the exact media lookup. */
+    exerciseId?: string;
   };
 }
 
@@ -124,7 +133,8 @@ export interface PulseEntry {
 export interface Message {
   id: string;
   memberId: string;
-  from: "coach" | "member" | "system";
+  /** "ai" is Vera. Kept distinct from "coach" so a human is never impersonated. */
+  from: "coach" | "member" | "system" | "ai";
   kind: "text" | "voice" | "plan_update";
   body: string;
   dayOffset: number;
@@ -361,6 +371,8 @@ export interface MemberDoc {
   readiness?: ReadinessState;
   /** Set by the server the day a plan was last built. */
   planGeneratedOn?: string;
+  /** Absent means un-coached, which is the default. A coach outranks Vera. */
+  coaching?: { mode: "none" | "coached"; ownedDomains?: ActionDomain[] };
   doseSteps?: Record<string, number>;
   pausedExerciseIds?: string[];
   hydrationLogs?: HydrationLog[];

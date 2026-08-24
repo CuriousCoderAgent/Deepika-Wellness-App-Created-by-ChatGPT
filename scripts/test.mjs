@@ -15,10 +15,25 @@ import assert from "node:assert/strict";
 import {
   daysBetween,
   offsetFromDate,
+  programWeek,
   rebaseMemberDoc,
   todayIso,
 } from "../lib/day-offset.ts";
 import { estimateMeal } from "../mobile/src/nutrition.ts";
+import {
+  buildCoachContext,
+  COACH_NAME,
+  matchRefusal,
+  matchUrgent,
+  sanitiseReply,
+} from "../lib/coach-ai.ts";
+import { COACH_NAME as MOBILE_COACH_NAME } from "../mobile/src/coach.ts";
+import { CITIES, canonicalCity, suggestCities } from "../mobile/src/cities.ts";
+import { deterministicSafetyRecommendation } from "../lib/recommendation-safety.ts";
+import {
+  latestRecommendation,
+  needsHumanReview,
+} from "../mobile/src/recommendations.ts";
 
 const AUG_23 = new Date("2026-08-23T06:00:00Z");
 
@@ -86,6 +101,62 @@ test("a future anchor is not shifted backwards", () => {
   );
   assert.equal(doc.actions[0].dayOffset, 0);
   assert.equal(doc.dayOffsetAnchor, "2026-08-23");
+});
+
+/* ------------------------------------------------------------------ */
+/* Program week: nothing else ever advanced it                         */
+/* ------------------------------------------------------------------ */
+
+test("programWeek counts whole weeks from onboarding, 1-indexed", () => {
+  assert.equal(programWeek("2026-08-23", "2026-08-23"), 1);
+  assert.equal(programWeek("2026-08-23", "2026-08-29"), 1); // day 6, still week 1
+  assert.equal(programWeek("2026-08-23", "2026-08-30"), 2); // day 7, week 2
+  assert.equal(programWeek("2026-08-23", "2026-11-15"), 12);
+});
+
+test("programWeek never exceeds the twelve-week program", () => {
+  assert.equal(programWeek("2026-01-01", "2027-01-01"), 12);
+});
+
+test("programWeek returns null, not 1, when there is nothing to derive from", () => {
+  // null means "leave the stored value alone" — a seeded demo account with a
+  // curated week and no onboarding date must not be silently reset to 1.
+  assert.equal(programWeek(undefined, "2026-08-23"), null);
+  assert.equal(programWeek("not-a-date", "2026-08-23"), null);
+  // A future onboarding date is clock skew, held rather than counted as
+  // negative weeks — the same posture rebaseMemberDoc takes on a future
+  // anchor.
+  assert.equal(programWeek("2026-08-25", "2026-08-23"), null);
+});
+
+test("rebasing advances a real member's week and phase together", () => {
+  const doc = rebaseMemberDoc(
+    {
+      dayOffsetAnchor: "2026-08-20",
+      member: { week: 1, phase: "Stabilise", onboardedAt: "2026-05-01" },
+    },
+    AUG_23, // Aug 23 is 114 days after May 1 -> week 12, well past week 4
+  );
+  assert.equal(doc.member.week, 12);
+  assert.equal(doc.member.phase, "Consolidate");
+});
+
+test("a seeded account with no onboarding date keeps its curated week", () => {
+  const doc = rebaseMemberDoc(
+    { dayOffsetAnchor: "2026-08-20", member: { week: 7, phase: "Build" } },
+    AUG_23,
+  );
+  assert.equal(doc.member.week, 7);
+  assert.equal(doc.member.phase, "Build");
+});
+
+test("a document with no member field rebases the rest without erroring", () => {
+  const doc = rebaseMemberDoc(
+    { dayOffsetAnchor: "2026-08-20", actions: [{ id: "a", dayOffset: 0 }] },
+    AUG_23,
+  );
+  assert.equal(doc.actions[0].dayOffset, -3);
+  assert.equal(doc.member, undefined);
 });
 
 test("food entries are recomputed from their own date, not shifted", () => {
@@ -165,7 +236,12 @@ test("fractions and Hindi quantity words are understood", () => {
   assert.equal(estimateMeal("aadha bowl khichdi").matched[0].qty, 0.5);
 });
 
-import { activityFor, rankByConsistency, normaliseCity, normaliseDisplayName } from "../lib/circle.ts";
+import {
+  activityFor,
+  rankByConsistency,
+  normaliseCity,
+  normaliseDisplayName,
+} from "../lib/circle.ts";
 import {
   withHydration,
   withHabitToggled,
@@ -188,12 +264,25 @@ const privateDoc = {
     { id: "a5", dayOffset: -9, completed: "target" },
   ],
   foodEntries: [{ id: "f1", description: "2 rotis and dal", calories: 310 }],
-  reports: [{ id: "r1", title: "Annual blood panel", values: [{ label: "Ferritin", value: "38" }] }],
+  reports: [
+    {
+      id: "r1",
+      title: "Annual blood panel",
+      values: [{ label: "Ferritin", value: "38" }],
+    },
+  ],
   messages: [{ id: "m1", from: "coach", body: "How did the week go?" }],
-  pulses: [{ id: "p1", dayOffset: 0, energy: 2, stress: 1, symptoms: ["cramps"] }],
+  pulses: [
+    { id: "p1", dayOffset: 0, energy: 2, stress: 1, symptoms: ["cramps"] },
+  ],
   healthSnapshots: [
     { metric: "steps", value: 6421, available: true, date: "2026-08-23" },
-    { metric: "restingHeartRate", value: 68, available: true, date: "2026-08-23" },
+    {
+      metric: "restingHeartRate",
+      value: 68,
+      available: true,
+      date: "2026-08-23",
+    },
   ],
   hydrationLogs: [{ date: "2026-08-23", glasses: 5 }],
 };
@@ -202,19 +291,16 @@ const profile = { displayName: "Radhika", city: "Bengaluru" };
 
 test("the circle projection exposes only the agreed fields", () => {
   const view = activityFor("radhika", privateDoc, profile, "2026-08-23");
-  assert.deepEqual(
-    Object.keys(view).sort(),
-    [
-      "actionsCompleted",
-      "actionsTotal",
-      "activeDays",
-      "city",
-      "displayName",
-      "hydrationGlasses",
-      "memberId",
-      "steps",
-    ],
-  );
+  assert.deepEqual(Object.keys(view).sort(), [
+    "actionsCompleted",
+    "actionsTotal",
+    "activeDays",
+    "city",
+    "displayName",
+    "hydrationGlasses",
+    "memberId",
+    "steps",
+  ]);
 });
 
 test("nothing private survives serialisation of the projection", () => {
@@ -256,7 +342,12 @@ test("a rest day counts as showing up", () => {
 });
 
 test("a member with no document still produces a safe empty view", () => {
-  const view = activityFor("nobody", null, { displayName: "Meera" }, "2026-08-23");
+  const view = activityFor(
+    "nobody",
+    null,
+    { displayName: "Meera" },
+    "2026-08-23",
+  );
   assert.equal(view.actionsCompleted, 0);
   assert.equal(view.steps, undefined);
   assert.equal(view.displayName, "Meera");
@@ -264,8 +355,20 @@ test("a member with no document still produces a safe empty view", () => {
 
 test("ranking rewards consistency over intensity", () => {
   const ranked = rankByConsistency([
-    { memberId: "hard", displayName: "Hard", activeDays: 1, actionsCompleted: 5, actionsTotal: 5 },
-    { memberId: "steady", displayName: "Steady", activeDays: 5, actionsCompleted: 1, actionsTotal: 5 },
+    {
+      memberId: "hard",
+      displayName: "Hard",
+      activeDays: 1,
+      actionsCompleted: 5,
+      actionsTotal: 5,
+    },
+    {
+      memberId: "steady",
+      displayName: "Steady",
+      activeDays: 5,
+      actionsCompleted: 1,
+      actionsTotal: 5,
+    },
   ]);
   assert.equal(ranked[0].memberId, "steady");
 });
@@ -295,14 +398,21 @@ test("water goes up and down, and never below zero", () => {
 });
 
 test("water on one day does not affect another", () => {
-  let doc = withHydration({ member: { id: "r" }, hydrationLogs: [] }, 4, "2026-08-22");
+  let doc = withHydration(
+    { member: { id: "r" }, hydrationLogs: [] },
+    4,
+    "2026-08-22",
+  );
   doc = withHydration(doc, 2, "2026-08-23");
   assert.equal(hydrationFor(doc, "2026-08-22"), 4);
   assert.equal(hydrationFor(doc, "2026-08-23"), 2);
 });
 
 test("a habit toggles on and off without leaving a negative record", () => {
-  let doc = withHabitAdded({ member: { id: "r" }, habits: [], habitLogs: [] }, "Stretch");
+  let doc = withHabitAdded(
+    { member: { id: "r" }, habits: [], habitLogs: [] },
+    "Stretch",
+  );
   const habitId = doc.habits[0].id;
   doc = withHabitToggled(doc, habitId, "2026-08-23");
   assert.ok(habitDoneOn(doc, habitId, "2026-08-23"));
@@ -312,7 +422,10 @@ test("a habit toggles on and off without leaving a negative record", () => {
 });
 
 test("the same habit is not added twice", () => {
-  let doc = withHabitAdded({ member: { id: "r" }, habits: [], habitLogs: [] }, "Stretch");
+  let doc = withHabitAdded(
+    { member: { id: "r" }, habits: [], habitLogs: [] },
+    "Stretch",
+  );
   doc = withHabitAdded(doc, "  stretch ");
   assert.equal(doc.habits.length, 1);
 });
@@ -343,7 +456,7 @@ test("chest pain on exertion holds the plan for a doctor", () => {
   assert.equal(result.outcome, "consult_first");
 });
 
-test("\"not sure\" is treated exactly like yes", () => {
+test('"not sure" is treated exactly like yes', () => {
   // Someone who does not know is the person who most needs to be asked to
   // check. Being wrong in this direction costs a conversation, not an injury.
   const unsure = evaluateReadiness({ ...allNo, "heart-condition": "unsure" });
@@ -386,7 +499,12 @@ test("a stated knee problem removes every knee-loading movement", () => {
 });
 
 test("common ways of describing a bad back are all caught", () => {
-  for (const phrase of ["lower back pain", "slipped disc", "sciatica", "spine issue"]) {
+  for (const phrase of [
+    "lower back pain",
+    "slipped disc",
+    "sciatica",
+    "spine issue",
+  ]) {
     assert.deepEqual(loadsToAvoid(phrase), ["lower_back"], phrase);
   }
 });
@@ -416,7 +534,12 @@ test("even the most restricted member still gets a usable plan", () => {
   // or it will quietly show her an empty day.
   const offered = eligibleExercises({
     avoidLoads: ["knee", "lower_back", "shoulder", "balance"],
-    conditions: ["pregnancy", "high_blood_pressure", "osteoporosis", "dizziness"],
+    conditions: [
+      "pregnancy",
+      "high_blood_pressure",
+      "osteoporosis",
+      "dizziness",
+    ],
     equipment: ["none", "chair", "wall"],
     maxTier: 1,
   });
@@ -427,17 +550,24 @@ test("every progression and regression points at a real exercise", () => {
   for (const exercise of EXERCISES) {
     for (const link of [exercise.progressesTo, exercise.regressesTo]) {
       if (!link) continue;
-      assert.ok(EXERCISE_BY_ID.has(link), `${exercise.id} points at missing ${link}`);
+      assert.ok(
+        EXERCISE_BY_ID.has(link),
+        `${exercise.id} points at missing ${link}`,
+      );
     }
   }
 });
 
 test("a progression is never easier than what it progresses from", () => {
   for (const exercise of EXERCISES) {
-    const harder = exercise.progressesTo && EXERCISE_BY_ID.get(exercise.progressesTo);
-    if (harder) assert.ok(harder.tier >= exercise.tier, `${exercise.id} -> ${harder.id}`);
-    const easier = exercise.regressesTo && EXERCISE_BY_ID.get(exercise.regressesTo);
-    if (easier) assert.ok(easier.tier <= exercise.tier, `${exercise.id} -> ${easier.id}`);
+    const harder =
+      exercise.progressesTo && EXERCISE_BY_ID.get(exercise.progressesTo);
+    if (harder)
+      assert.ok(harder.tier >= exercise.tier, `${exercise.id} -> ${harder.id}`);
+    const easier =
+      exercise.regressesTo && EXERCISE_BY_ID.get(exercise.regressesTo);
+    if (easier)
+      assert.ok(easier.tier <= exercise.tier, `${exercise.id} -> ${easier.id}`);
   }
 });
 
@@ -543,7 +673,10 @@ test("a couple of poor nights makes the week lighter, not a recovery week", () =
 });
 
 test("too few check-ins does not trigger an adjustment either way", () => {
-  assert.equal(weekPostureFor([{ date: "2026-08-23", sleep: 1 }]).posture, "normal");
+  assert.equal(
+    weekPostureFor([{ date: "2026-08-23", sleep: 1 }]).posture,
+    "normal",
+  );
 });
 
 test("the dose ladder never runs off either end", () => {
@@ -561,7 +694,10 @@ test("the largest single step up is one rung of the ladder", () => {
 test("running out of ladder changes the exercise instead of piling on reps", () => {
   const result = nextDose(MAX_DOSE_STEP, "progress", "normal");
   assert.equal(result.changeExercise, "progress");
-  assert.ok(result.step < MAX_DOSE_STEP, "dose should reset for the harder move");
+  assert.ok(
+    result.step < MAX_DOSE_STEP,
+    "dose should reset for the harder move",
+  );
 });
 
 /* ---- generator ---- */
@@ -583,15 +719,24 @@ test("stated minutes actually change the session", () => {
 
 test("a session never exceeds the time she said she has", () => {
   for (const minutes of [10, 15, 20, 30, 45, 60]) {
-    const session = selectSession({ ...baseInput, availableMinutes: minutes }, "normal");
+    const session = selectSession(
+      { ...baseInput, availableMinutes: minutes },
+      "normal",
+    );
     const total = session.reduce((sum, e) => sum + e.minutes, 0);
     assert.ok(total <= movementBudget(minutes), `${minutes}min -> ${total}min`);
   }
 });
 
 test("goals change what she is shown first", () => {
-  const strength = selectSession({ ...baseInput, goals: ["Feel stronger"] }, "normal");
-  const stress = selectSession({ ...baseInput, goals: ["Manage stress"] }, "normal");
+  const strength = selectSession(
+    { ...baseInput, goals: ["Feel stronger"] },
+    "normal",
+  );
+  const stress = selectSession(
+    { ...baseInput, goals: ["Manage stress"] },
+    "normal",
+  );
   assert.notEqual(strength[0].exerciseId, stress[0].exerciseId);
 });
 
@@ -608,7 +753,10 @@ test("a stated caution removes those movements from the session", () => {
 });
 
 test("early weeks stay on supported movements", () => {
-  const session = selectSession({ ...baseInput, week: 1, availableMinutes: 45 }, "normal");
+  const session = selectSession(
+    { ...baseInput, week: 1, availableMinutes: 45 },
+    "normal",
+  );
   for (const item of session) {
     assert.equal(EXERCISE_BY_ID.get(item.exerciseId).tier, 1, item.name);
   }
@@ -616,7 +764,11 @@ test("early weeks stay on supported movements", () => {
 
 test("a paused movement is never offered again by generation", () => {
   const session = selectSession(
-    { ...baseInput, availableMinutes: 60, pausedExerciseIds: ["ex-chair-squat"] },
+    {
+      ...baseInput,
+      availableMinutes: 60,
+      pausedExerciseIds: ["ex-chair-squat"],
+    },
     "normal",
   );
   assert.ok(!session.some((e) => e.exerciseId === "ex-chair-squat"));
@@ -633,14 +785,23 @@ test("readiness holding movement produces no session and says why", () => {
 });
 
 test("a coach-authored movement day is left completely alone", () => {
-  const plan = generatePlan({ ...baseInput, coachAuthoredDomains: ["movement"] });
+  const plan = generatePlan({
+    ...baseInput,
+    coachAuthoredDomains: ["movement"],
+  });
   assert.equal(plan.session.length, 0);
   assert.deepEqual(plan.filledDomains, []);
 });
 
 test("a recovery week produces a shorter session, not a harder one", () => {
-  const normal = selectSession({ ...baseInput, availableMinutes: 45 }, "normal");
-  const recovery = selectSession({ ...baseInput, availableMinutes: 45 }, "recovery");
+  const normal = selectSession(
+    { ...baseInput, availableMinutes: 45 },
+    "normal",
+  );
+  const recovery = selectSession(
+    { ...baseInput, availableMinutes: 45 },
+    "recovery",
+  );
   assert.ok(recovery.length < normal.length);
 });
 
@@ -652,7 +813,12 @@ test("even the most restricted member is never shown an empty movement day", () 
     movementCaution: "knee and lower back and shoulder problems",
     readiness: {
       outcome: "modified",
-      conditions: ["pregnancy", "osteoporosis", "high_blood_pressure", "dizziness"],
+      conditions: [
+        "pregnancy",
+        "osteoporosis",
+        "high_blood_pressure",
+        "dizziness",
+      ],
       avoidLoads: ["balance", "pelvic_floor"],
     },
   });
@@ -670,13 +836,19 @@ test("an un-coached member has every domain generated", () => {
 test("a coach owning movement means nothing is generated for it", () => {
   // Where somebody is paying for a coach, the coach decides. The generator
   // fills what she has left, and never overwrites her.
-  const plan = generatePlan({ ...baseInput, coachAuthoredDomains: ["movement"] });
+  const plan = generatePlan({
+    ...baseInput,
+    coachAuthoredDomains: ["movement"],
+  });
   assert.equal(plan.session.length, 0);
   assert.deepEqual(plan.filledDomains, []);
 });
 
 test("a coach holding a different domain still leaves movement generated", () => {
-  const plan = generatePlan({ ...baseInput, coachAuthoredDomains: ["nutrition"] });
+  const plan = generatePlan({
+    ...baseInput,
+    coachAuthoredDomains: ["nutrition"],
+  });
   assert.ok(plan.session.length > 0);
 });
 
@@ -687,8 +859,12 @@ test("an unrecognised goal never reaches the member record", () => {
   // vocabulary the form would have written.
   const goals = ["Feel stronger", "lose 10kg fast", "Manage stress"];
   const known = [
-    "Steadier energy", "Feel stronger", "Improve mobility", "Manage stress",
-    "Sleep more consistently", "Support hormonal or life-stage wellbeing",
+    "Steadier energy",
+    "Feel stronger",
+    "Improve mobility",
+    "Manage stress",
+    "Sleep more consistently",
+    "Support hormonal or life-stage wellbeing",
     "Improve endurance",
   ];
   const kept = goals.filter((g) =>
@@ -699,12 +875,21 @@ test("an unrecognised goal never reaches the member record", () => {
 
 test("the generator tolerates nonsense minutes without producing a nonsense day", () => {
   for (const minutes of [0, -30, NaN, 9999]) {
-    const session = selectSession({ ...baseInput, availableMinutes: minutes }, "normal");
-    assert.ok(session.length >= 1 && session.length <= 6, `${minutes} -> ${session.length}`);
+    const session = selectSession(
+      { ...baseInput, availableMinutes: minutes },
+      "normal",
+    );
+    assert.ok(
+      session.length >= 1 && session.length <= 6,
+      `${minutes} -> ${session.length}`,
+    );
   }
 });
 
-import { selectDailyActions, DAILY_ACTIONS } from "../lib/daily-actions-library.ts";
+import {
+  selectDailyActions,
+  DAILY_ACTIONS,
+} from "../lib/daily-actions-library.ts";
 
 const noSignals = {
   goals: [],
@@ -717,14 +902,18 @@ const noSignals = {
 
 test("all four non-movement domains are always filled", () => {
   const chosen = selectDailyActions(noSignals);
-  assert.deepEqual(
-    chosen.map((c) => c.domain).sort(),
-    ["mindset", "nutrition", "recovery", "walking"],
-  );
+  assert.deepEqual(chosen.map((c) => c.domain).sort(), [
+    "mindset",
+    "nutrition",
+    "recovery",
+    "walking",
+  ]);
 });
 
 test("poor sleep changes what recovery offers", () => {
-  const rested = selectDailyActions(noSignals).find((c) => c.domain === "recovery");
+  const rested = selectDailyActions(noSignals).find(
+    (c) => c.domain === "recovery",
+  );
   const tired = selectDailyActions({ ...noSignals, poorSleep: true }).find(
     (c) => c.domain === "recovery",
   );
@@ -742,7 +931,9 @@ test("poor sleep also reaches the walking domain", () => {
 });
 
 test("a connected step source changes the walking action", () => {
-  const without = selectDailyActions(noSignals).find((c) => c.domain === "walking");
+  const without = selectDailyActions(noSignals).find(
+    (c) => c.domain === "walking",
+  );
   const with_ = selectDailyActions({ ...noSignals, stepsConnected: true }).find(
     (c) => c.domain === "walking",
   );
@@ -758,7 +949,9 @@ test("low protein is what surfaces the protein action", () => {
 });
 
 test("high stress changes the mindset action", () => {
-  const calm = selectDailyActions(noSignals).find((c) => c.domain === "mindset");
+  const calm = selectDailyActions(noSignals).find(
+    (c) => c.domain === "mindset",
+  );
   const stressed = selectDailyActions({ ...noSignals, highStress: true }).find(
     (c) => c.domain === "mindset",
   );
@@ -766,7 +959,9 @@ test("high stress changes the mindset action", () => {
 });
 
 test("goals alone change what she is offered", () => {
-  const generic = selectDailyActions(noSignals).find((c) => c.domain === "recovery");
+  const generic = selectDailyActions(noSignals).find(
+    (c) => c.domain === "recovery",
+  );
   const sleepGoal = selectDailyActions({
     ...noSignals,
     goals: ["Sleep more consistently"],
@@ -800,7 +995,13 @@ test("no domain action mentions a coach, a streak, or a missed day", () => {
   // These were written for a coach-led product and now run un-coached. Copy
   // that apologises for an absent coach is the bug this library replaced.
   for (const template of DAILY_ACTIONS) {
-    const text = [template.title, template.why, template.minimum, template.target, template.stretch]
+    const text = [
+      template.title,
+      template.why,
+      template.minimum,
+      template.target,
+      template.stretch,
+    ]
       .join(" ")
       .toLowerCase();
     for (const word of ["coach", "streak", "missed", "failed", "behind"]) {
@@ -816,14 +1017,23 @@ test("every domain template offers a real minimum, not a thought", () => {
   }
 });
 
-import { toCell, proximityBetween, cellsWithin, proximityLabel } from "../lib/proximity.ts";
-import { consistencyFor, consistencySentence, circleTotal } from "../lib/consistency.ts";
+import {
+  toCell,
+  proximityBetween,
+  cellsWithin,
+  proximityLabel,
+} from "../lib/proximity.ts";
+import {
+  consistencyFor,
+  consistencySentence,
+  circleTotal,
+} from "../lib/consistency.ts";
 
 test("a position is reduced to a grid cell, not stored as coordinates", () => {
   const cell = toCell(12.9716, 77.5946); // Bengaluru
   assert.ok(Number.isInteger(cell.x) && Number.isInteger(cell.y));
   // Two points a few hundred metres apart land in the same square.
-  assert.deepEqual(toCell(12.9716, 77.5946), toCell(12.9730, 77.5960));
+  assert.deepEqual(toCell(12.9716, 77.5946), toCell(12.973, 77.596));
 });
 
 test("the cell cannot be reversed to anything precise", () => {
@@ -881,7 +1091,9 @@ test("consistency reports days present, never days missed", () => {
 });
 
 test("an empty month is an invitation, not a verdict", () => {
-  const sentence = consistencySentence(consistencyFor({ activeDates: [] }, today));
+  const sentence = consistencySentence(
+    consistencyFor({ activeDates: [] }, today),
+  );
   assert.ok(!sentence.includes("0"));
   assert.match(sentence, /first day/i);
 });
@@ -905,7 +1117,9 @@ test("a movement day ranks above a logging day, and neither is negative", () => 
 
 test("the longest run is historical, so there is nothing live to lose", () => {
   const summary = consistencyFor(
-    { activeDates: [dayBefore(10), dayBefore(11), dayBefore(12), dayBefore(13)] },
+    {
+      activeDates: [dayBefore(10), dayBefore(11), dayBefore(12), dayBefore(13)],
+    },
     today,
   );
   assert.equal(summary.longestRun, 4);
@@ -914,11 +1128,333 @@ test("the longest run is historical, so there is nothing live to lose", () => {
 });
 
 test("the circle total adds and never subtracts", () => {
-  const busy = consistencyFor({ activeDates: [dayBefore(0), dayBefore(1)] }, today);
+  const busy = consistencyFor(
+    { activeDates: [dayBefore(0), dayBefore(1)] },
+    today,
+  );
   const quiet = consistencyFor({ activeDates: [] }, today);
   const total = circleTotal([busy, quiet]);
   assert.equal(total.activeDays, 2);
   assert.equal(total.people, 2);
   // A quiet member dilutes the shared figure; she never reduces it.
   assert.ok(total.activeDays >= circleTotal([busy]).activeDays);
+});
+
+/* ------------------------------------------------------------------ */
+/* Vera's boundaries                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * These matter more than they look. The urgent gate is the one part of the
+ * conversation that must work with the model switched off, the key missing and
+ * the member's own text trying to steer things — so it is code, and code gets
+ * tested. The false-positive tests are as important as the true ones: a gate
+ * that fires on "chest press" gets ignored, and an ignored gate protects
+ * nobody.
+ */
+test("an emergency is caught before any model is asked", () => {
+  for (const [text, category] of [
+    ["I have chest pain and it goes down my left arm", "cardiac"],
+    ["I can't breathe properly even sitting still", "breathing"],
+    ["I fainted this morning", "neurological"],
+    ["I am bleeding heavily, 7 months pregnant", "pregnancy"],
+    ["sometimes I want to die", "self_harm"],
+    ["my throat is closing after lunch", "allergic"],
+  ]) {
+    const match = matchUrgent(text);
+    assert.ok(match, `missed: ${text}`);
+    assert.equal(match.category, category);
+    assert.match(match.reply, /112|14416/);
+  }
+});
+
+test("ordinary training talk is not treated as an emergency", () => {
+  for (const text of [
+    "the chest press felt hard today",
+    "I was out of breath at the end of the walk, is that normal?",
+    "my head hurts a bit after the session",
+    "I felt a stretch in my shoulder",
+    "should I do the squat or skip it",
+    "I killed it today!",
+  ]) {
+    assert.equal(matchUrgent(text), null, `false positive: ${text}`);
+  }
+});
+
+test("diagnosis and dosing go to a clinician, always the same way", () => {
+  assert.ok(matchRefusal("do I have PCOS?"));
+  assert.ok(matchRefusal("should I increase my thyroxine dose"));
+  assert.equal(
+    matchRefusal("why is today's plan shorter than yesterday"),
+    null,
+  );
+});
+
+test("a reply that prescribes is replaced, not published", () => {
+  // The model was told not to. If it does anyway, the member must not see a
+  // number that contradicts what the plan generator decided.
+  assert.doesNotMatch(sanitiseReply("Try 3 sets of 12 reps."), /3 sets/);
+  assert.doesNotMatch(sanitiseReply("Add 5 kg to the squat."), /5 kg/);
+  // Nor a claim to have done something it cannot do.
+  assert.doesNotMatch(
+    sanitiseReply("I've updated your plan for tomorrow."),
+    /updated your plan/,
+  );
+  assert.doesNotMatch(
+    sanitiseReply("I'll let your coach know about this."),
+    /let your coach know/,
+  );
+  // An ordinary answer passes through untouched.
+  const plain = "Today is lighter because your sleep has been low all week.";
+  assert.equal(sanitiseReply(plain), plain);
+});
+
+test("Vera is only given facts the app actually holds", () => {
+  const context = buildCoachContext({
+    member: { name: "Asha Rao", week: 3, phase: "Stabilise" },
+    actions: [
+      {
+        dayOffset: 0,
+        domain: "movement",
+        title: "Chair squat",
+        completed: "target",
+      },
+      {
+        dayOffset: 0,
+        domain: "walking",
+        title: "Walk after a meal",
+        completed: null,
+      },
+      {
+        dayOffset: -1,
+        domain: "movement",
+        title: "Yesterday",
+        completed: "minimum",
+      },
+    ],
+    readiness: { outcome: "modified" },
+    coaching: { mode: "none" },
+  });
+  assert.match(context, /Asha/);
+  assert.match(context, /1 of 2 done/);
+  assert.match(context, /Chair squat/);
+  // Yesterday is not today's plan.
+  assert.doesNotMatch(context, /Yesterday/);
+  assert.match(context, /modified/);
+  assert.match(context, /does not have a human coach/);
+  // Nothing leaks that was never put in.
+  assert.doesNotMatch(context, /Rao/);
+});
+
+test("the phone and the server call her the same thing", () => {
+  // The name is duplicated because the Expo build does not import from lib/.
+  // Drift would show a member two coaches, so it is asserted rather than
+  // trusted to a comment.
+  assert.equal(MOBILE_COACH_NAME, COACH_NAME);
+});
+
+/* ------------------------------------------------------------------ */
+/* Cities                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * City discovery matches on lower(city), so a spelling variant is not a
+ * cosmetic problem — it silently splits the members of one city into two
+ * groups who never see each other. That is what these guard.
+ */
+test("the same city typed differently resolves to one spelling", () => {
+  assert.equal(canonicalCity("bangalore"), "Bengaluru");
+  assert.equal(canonicalCity("BLR"), "Bengaluru");
+  assert.equal(canonicalCity("  Bengaluru "), "Bengaluru");
+  assert.equal(canonicalCity("bombay"), "Mumbai");
+  assert.equal(canonicalCity("calcutta"), "Kolkata");
+  // Not on the list is not an error — her own spelling is stored.
+  assert.equal(canonicalCity("Hubli"), null);
+  assert.equal(canonicalCity(""), null);
+});
+
+test("suggestions put the closest match first", () => {
+  // "ban" must offer Bengaluru (via alias Bangalore) before Bangkok.
+  const names = suggestCities("ban").map((c) => c.name);
+  assert.ok(names.includes("Bengaluru"));
+  assert.ok(
+    names.indexOf("Bengaluru") < names.indexOf("Bangkok") ||
+      !names.includes("Bangkok"),
+  );
+  // An exact name beats everything.
+  assert.equal(suggestCities("Pune")[0].name, "Pune");
+  // Empty input still offers something, or it is not a picker.
+  assert.ok(suggestCities("").length > 0);
+  assert.equal(suggestCities("Zzzz").length, 0);
+});
+
+test("every city is listed once, and aliases never collide", () => {
+  const names = CITIES.map((c) => c.name.toLowerCase());
+  assert.equal(new Set(names).size, names.length, "duplicate city name");
+  const aliases = CITIES.flatMap((c) => c.aliases ?? []);
+  assert.equal(new Set(aliases).size, aliases.length, "duplicate alias");
+  for (const alias of aliases)
+    assert.ok(!names.includes(alias), `alias shadows a real name: ${alias}`);
+  // Aliases are matched lowercase, so they must be stored that way.
+  for (const alias of aliases) assert.equal(alias, alias.toLowerCase());
+});
+
+/* ------------------------------------------------------------------ */
+/* Recommendation safety: acute signals, not permanent profile facts   */
+/* ------------------------------------------------------------------ */
+
+function baseMemberDoc(overrides = {}) {
+  return {
+    member: {
+      id: "m1",
+      name: "Test Member",
+      age: 40,
+      city: "",
+      initials: "TM",
+      week: 3,
+      phase: "Stabilise",
+      lifeStage: "",
+      goals: [],
+      constraints: [],
+      wontDo: "",
+      medical: [],
+      medications: [],
+      engagement: {},
+      weeklyFocus: [],
+      activeModuleIds: [],
+      assessmentComplete: 0,
+    },
+    actions: [],
+    pulses: [],
+    workoutLogs: [],
+    messages: [],
+    sessions: [],
+    reports: [],
+    foodEntries: [],
+    recommendations: [],
+    ...overrides,
+  };
+}
+
+test("picking a normal onboarding goal never blocks AI recommendations", () => {
+  // This is the confirmed production bug: one of seven goal choices, aimed
+  // at this app's own stated demographic, used to permanently trigger
+  // needs_coach_review via HORMONE_OR_CLINICAL_LANGUAGE matching "hormonal".
+  const doc = baseMemberDoc({
+    member: {
+      ...baseMemberDoc().member,
+      goals: ["Feel stronger", "Support hormonal or life-stage wellbeing"],
+    },
+  });
+  assert.equal(deterministicSafetyRecommendation(doc), null);
+});
+
+test("a written caution never blocks AI recommendations on its own", () => {
+  // The caution field explicitly invites "pain, injury, pregnancy, a
+  // limitation, medical guidance" -- almost any honest answer used to match.
+  // That caution still drives the movement plan through the readiness
+  // screen; it must not also permanently jam recommendations.
+  const doc = baseMemberDoc({
+    member: {
+      ...baseMemberDoc().member,
+      constraints: ["Recovering from a knee injury, avoid deep squats"],
+    },
+  });
+  assert.equal(deterministicSafetyRecommendation(doc), null);
+});
+
+test("a recent pain flag on a logged workout still requires a person", () => {
+  const doc = baseMemberDoc({
+    workoutLogs: [{ actionId: "a1", pain: true }],
+  });
+  const result = deterministicSafetyRecommendation(doc);
+  assert.equal(result?.kind, "coach_review");
+  assert.equal(result?.status, "needs_coach_review");
+});
+
+test("a symptom reported in the last week still requires a person", () => {
+  const doc = baseMemberDoc({
+    pulses: [{ dayOffset: -2, symptoms: ["dizziness"] }],
+  });
+  const result = deterministicSafetyRecommendation(doc);
+  assert.equal(result?.kind, "coach_review");
+});
+
+test("a symptom from over a week ago no longer blocks a fresh day", () => {
+  // Time-boxed on purpose -- a quiet week should let this clear on its own,
+  // the same way a fresh log supersedes an old one everywhere else.
+  const doc = baseMemberDoc({
+    pulses: [{ dayOffset: -9, symptoms: ["headache"] }],
+  });
+  assert.equal(deterministicSafetyRecommendation(doc), null);
+});
+
+/* ------------------------------------------------------------------ */
+/* Today shows the current state, not the whole history                */
+/* ------------------------------------------------------------------ */
+
+test("an old review flag does not haunt every day after it", () => {
+  const doc = baseMemberDoc({
+    recommendations: [
+      {
+        id: "r1",
+        createdAt: "2026-08-01T09:00:00.000Z",
+        kind: "coach_review",
+        evidence: ["e"],
+        rationale: "r",
+        confidence: 1,
+        safety: "coach_review",
+        status: "needs_coach_review",
+        source: "deterministic",
+      },
+      {
+        id: "r2",
+        createdAt: "2026-08-10T09:00:00.000Z",
+        kind: "no_change",
+        evidence: ["e"],
+        rationale: "r",
+        confidence: 1,
+        safety: "low_risk",
+        status: "proposed",
+        source: "deterministic",
+      },
+    ],
+  });
+  assert.equal(needsHumanReview(doc), false);
+  assert.equal(latestRecommendation(doc)?.id, "r2");
+});
+
+test("a currently-open review flag is still shown", () => {
+  const doc = baseMemberDoc({
+    recommendations: [
+      {
+        id: "r1",
+        createdAt: "2026-08-01T09:00:00.000Z",
+        kind: "no_change",
+        evidence: ["e"],
+        rationale: "r",
+        confidence: 1,
+        safety: "low_risk",
+        status: "proposed",
+        source: "deterministic",
+      },
+      {
+        id: "r2",
+        createdAt: "2026-08-10T09:00:00.000Z",
+        kind: "coach_review",
+        evidence: ["e"],
+        rationale: "r",
+        confidence: 1,
+        safety: "coach_review",
+        status: "needs_coach_review",
+        source: "deterministic",
+      },
+    ],
+  });
+  assert.equal(needsHumanReview(doc), true);
+});
+
+test("no recommendations yet means nothing pending", () => {
+  assert.equal(needsHumanReview(baseMemberDoc()), false);
+  assert.equal(latestRecommendation(baseMemberDoc()), null);
 });

@@ -15,7 +15,17 @@
  * Anything already carrying a calendar date — food entries, health snapshots,
  * recommendations — is authoritative and is recomputed from that date rather
  * than shifted, which also repairs documents that drifted before this existed.
+ *
+ * One more thing lives here for the same reason: which week of the 12-week
+ * program a member is on. `member.week` was set once at account creation and
+ * nothing ever advanced it — there is no cron, no route, no client code that
+ * increments it — so every real member stayed on "Week 1" forever, no matter
+ * how many days actually passed. `programWeek()` derives it fresh from
+ * `onboardedAt` on every read, the same way `dayOffset` is derived from
+ * `dayOffsetAnchor`, so it can never again just stop moving.
  */
+
+import { phaseForWeek } from "./plan";
 
 const DAY_MS = 86_400_000;
 
@@ -62,6 +72,29 @@ export function offsetFromDate(date: string, today = todayIso()): number {
   return daysBetween(today, date);
 }
 
+/**
+ * Which week of the 12-week program today falls in, from when she actually
+ * started. 1-indexed, capped at 12 rather than counting past the end of a
+ * program nobody has extended.
+ *
+ * Returns null when there is nothing to derive from — no onboarding date, or
+ * one that has not happened yet (clock skew, or a document written from a
+ * device set to a future date). null means "leave the stored value alone",
+ * not "week 1": a curated demo account with no onboarding date has its week
+ * set deliberately, and this must never overwrite that.
+ */
+export function programWeek(
+  onboardedAt: string | undefined,
+  today = todayIso(),
+): number | null {
+  if (!onboardedAt) return null;
+  const start = onboardedAt.slice(0, 10);
+  if (!isValidIsoDate(start)) return null;
+  const elapsedDays = daysBetween(start, today);
+  if (elapsedDays < 0) return null;
+  return Math.min(12, Math.floor(elapsedDays / 7) + 1);
+}
+
 type Dated = { dayOffset?: number } & Record<string, unknown>;
 
 /** Collections whose `dayOffset` is relative and therefore needs shifting. */
@@ -73,7 +106,10 @@ const RELATIVE_COLLECTIONS = [
   "sessions",
 ] as const;
 
-function shiftCollection<T extends Dated>(rows: T[] | undefined, shift: number) {
+function shiftCollection<T extends Dated>(
+  rows: T[] | undefined,
+  shift: number,
+) {
   if (!Array.isArray(rows) || shift === 0) return rows;
   return rows.map((row) =>
     typeof row?.dayOffset === "number"
@@ -127,6 +163,23 @@ export function rebaseMemberDoc<T extends RebaseableDoc>(
   if (!doc || typeof doc !== "object") return doc;
   const src = doc as unknown as Record<string, unknown>;
   const today = todayIso(now);
+
+  // Advance week/phase for anyone with a real onboarding date. A no-op for
+  // seeded/demo members and anyone who onboarded before this existed — both
+  // have no onboardedAt, and programWeek() returns null for exactly that
+  // case rather than defaulting to 1, so their curated or already-set week
+  // is never overwritten.
+  const member = src.member as
+    | (Record<string, unknown> & { week?: number })
+    | undefined;
+  const week = member
+    ? programWeek(member.onboardedAt as string | undefined, today)
+    : null;
+  const memberPatch =
+    week !== null && week !== member?.week
+      ? { ...member, week, phase: phaseForWeek(week) }
+      : null;
+
   const anchor = isValidIsoDate(doc.dayOffsetAnchor)
     ? doc.dayOffsetAnchor
     : today;
@@ -137,7 +190,11 @@ export function rebaseMemberDoc<T extends RebaseableDoc>(
   // and re-anchor instead.
   const safeShift = shift > 0 ? shift : 0;
 
-  const next: Record<string, unknown> = { ...src, dayOffsetAnchor: today };
+  const next: Record<string, unknown> = {
+    ...src,
+    dayOffsetAnchor: today,
+    ...(memberPatch ? { member: memberPatch } : {}),
+  };
   for (const key of RELATIVE_COLLECTIONS) {
     const shifted = shiftCollection(src[key] as Dated[] | undefined, safeShift);
     if (shifted) next[key] = shifted;

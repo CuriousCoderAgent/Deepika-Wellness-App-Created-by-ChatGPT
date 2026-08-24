@@ -84,15 +84,24 @@ export async function GET() {
 
     // Area first when she has shared one, because "nearby" is what she asked
     // for; the city is the fallback for anyone who has not.
-    const found = myCell
+    //
+    // The city is also the fallback when the area search finds nobody. Sharing
+    // a location used to *narrow* discovery permanently: the cell branch was
+    // taken whenever a cell existed, so a member in a thinly populated 15km
+    // square stopped being shown the people in her own city. Being more
+    // precise about where she is should not mean being shown fewer people.
+    let found = myCell
       ? await discoverNearby(user.sub, cellsWithin(myCell))
-      : profile.city
-        ? await discoverByCity(user.sub, profile.city)
-        : [];
+      : [];
+    let basis: "area" | "city" | "none" = myCell ? "area" : "none";
+    if (!found.length && profile.city) {
+      found = await discoverByCity(user.sub, profile.city);
+      basis = "city";
+    }
 
     return NextResponse.json({
       city: profile.city,
-      basis: myCell ? "area" : "city",
+      basis,
       members: found.map((row) => {
         const theirCell =
           row.cellX !== null && row.cellY !== null
