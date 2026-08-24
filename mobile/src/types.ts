@@ -37,6 +37,13 @@ export interface Member {
   activeModuleIds: string[];
   weekPlans?: WeekPlan[];
   lastPlanChange?: { at: string; rationale: string };
+  /**
+   * When she finished the first-run flow. The server derives her program
+   * week from this on every read — see lib/day-offset.ts's programWeek() —
+   * so week/phase above are a snapshot as of the last sync, not a client
+   * calculation. Nothing here recomputes them locally.
+   */
+  onboardedAt?: string;
 }
 
 export interface EffortSpec {

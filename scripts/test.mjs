@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import {
   daysBetween,
   offsetFromDate,
+  programWeek,
   rebaseMemberDoc,
   todayIso,
 } from "../lib/day-offset.ts";
@@ -100,6 +101,62 @@ test("a future anchor is not shifted backwards", () => {
   );
   assert.equal(doc.actions[0].dayOffset, 0);
   assert.equal(doc.dayOffsetAnchor, "2026-08-23");
+});
+
+/* ------------------------------------------------------------------ */
+/* Program week: nothing else ever advanced it                         */
+/* ------------------------------------------------------------------ */
+
+test("programWeek counts whole weeks from onboarding, 1-indexed", () => {
+  assert.equal(programWeek("2026-08-23", "2026-08-23"), 1);
+  assert.equal(programWeek("2026-08-23", "2026-08-29"), 1); // day 6, still week 1
+  assert.equal(programWeek("2026-08-23", "2026-08-30"), 2); // day 7, week 2
+  assert.equal(programWeek("2026-08-23", "2026-11-15"), 12);
+});
+
+test("programWeek never exceeds the twelve-week program", () => {
+  assert.equal(programWeek("2026-01-01", "2027-01-01"), 12);
+});
+
+test("programWeek returns null, not 1, when there is nothing to derive from", () => {
+  // null means "leave the stored value alone" — a seeded demo account with a
+  // curated week and no onboarding date must not be silently reset to 1.
+  assert.equal(programWeek(undefined, "2026-08-23"), null);
+  assert.equal(programWeek("not-a-date", "2026-08-23"), null);
+  // A future onboarding date is clock skew, held rather than counted as
+  // negative weeks — the same posture rebaseMemberDoc takes on a future
+  // anchor.
+  assert.equal(programWeek("2026-08-25", "2026-08-23"), null);
+});
+
+test("rebasing advances a real member's week and phase together", () => {
+  const doc = rebaseMemberDoc(
+    {
+      dayOffsetAnchor: "2026-08-20",
+      member: { week: 1, phase: "Stabilise", onboardedAt: "2026-05-01" },
+    },
+    AUG_23, // Aug 23 is 114 days after May 1 -> week 12, well past week 4
+  );
+  assert.equal(doc.member.week, 12);
+  assert.equal(doc.member.phase, "Consolidate");
+});
+
+test("a seeded account with no onboarding date keeps its curated week", () => {
+  const doc = rebaseMemberDoc(
+    { dayOffsetAnchor: "2026-08-20", member: { week: 7, phase: "Build" } },
+    AUG_23,
+  );
+  assert.equal(doc.member.week, 7);
+  assert.equal(doc.member.phase, "Build");
+});
+
+test("a document with no member field rebases the rest without erroring", () => {
+  const doc = rebaseMemberDoc(
+    { dayOffsetAnchor: "2026-08-20", actions: [{ id: "a", dayOffset: 0 }] },
+    AUG_23,
+  );
+  assert.equal(doc.actions[0].dayOffset, -3);
+  assert.equal(doc.member, undefined);
 });
 
 test("food entries are recomputed from their own date, not shifted", () => {

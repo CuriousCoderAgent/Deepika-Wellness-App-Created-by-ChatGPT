@@ -1208,6 +1208,13 @@ function Onboarding({
       ...doc,
       member: {
         ...doc.member,
+        // The one thing lib/day-offset.ts's programWeek() counts her twelve
+        // weeks from. Never previously set anywhere, which is why every
+        // member's program week silently froze at 1 forever — see that
+        // file's rebaseMemberDoc(). Keeps an existing value rather than
+        // overwriting it, in case she is ever routed back through this flow
+        // after already finishing it once.
+        onboardedAt: doc.member.onboardedAt ?? new Date().toISOString(),
         goals: [
           ...goals,
           ...doc.member.goals.filter((item) => !goals.includes(item)),
