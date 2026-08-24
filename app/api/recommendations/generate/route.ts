@@ -18,11 +18,19 @@ import type {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * What a recommendation may be.
+ *
+ * Deliberately three. The app renders a recommendation's rationale and
+ * evidence and nothing else, so a kind naming a concrete change — reorder
+ * these actions, reduce this target, move that reminder — described work no
+ * code anywhere performs. Generating them meant storing a proposal that
+ * would never be applied and could never be undone.
+ *
+ * They return if a preview/apply/undo workflow is ever built, alongside it.
+ */
 const ALLOWED_KINDS = new Set<AiRecommendation["kind"]>([
-  "reorder_actions",
-  "change_action_level",
-  "adjust_reminder",
-  "reduce_target",
+  "observation",
   "coach_review",
   "no_change",
 ]);
@@ -50,14 +58,15 @@ function deterministicRecommendation(
     return {
       id: `recommendation-${randomUUID()}`,
       createdAt: now,
-      kind: "change_action_level",
+      // An observation, not an instruction. Nothing here changes her plan;
+      // the generator already sized today, and this explains why the smallest
+      // version is a reasonable choice.
+      kind: "observation",
       actionId: action.id,
       evidence: ["Recent energy or sleep check-ins are below your usual range"],
       rationale:
-        "Use the coach-approved minimum today so the routine stays achievable while recovery catches up.",
+        "The minimum version is a good choice today — it keeps the routine going while your sleep and energy catch up.",
       confidence: 0.86,
-      previousValue: "target",
-      proposedValue: "minimum",
       safety: "low_risk",
       status: "proposed",
       source: "deterministic",
@@ -157,14 +166,7 @@ const recommendationSchema = {
   properties: {
     kind: {
       type: "string",
-      enum: [
-        "reorder_actions",
-        "change_action_level",
-        "adjust_reminder",
-        "reduce_target",
-        "coach_review",
-        "no_change",
-      ],
+      enum: ["observation", "coach_review", "no_change"],
     },
     actionId: { type: ["string", "null"] },
     evidence: {
@@ -236,26 +238,11 @@ function guardRecommendation(
   const action = candidate.actionId
     ? actions.find((item) => item.id === candidate.actionId)
     : undefined;
-  if (
-    ["change_action_level", "reduce_target"].includes(candidate.kind) &&
-    !action
-  )
+  // An observation may name an action, and must name one that exists — a
+  // rationale about "your chair squat" attached to a day without one reads as
+  // the app talking about somebody else.
+  if (candidate.kind === "observation" && candidate.actionId && !action)
     return null;
-  if (
-    candidate.kind === "change_action_level" &&
-    !["minimum", "target", "stretch"].includes(String(candidate.proposedValue))
-  )
-    return null;
-  if (candidate.kind === "reduce_target") {
-    const value = Number(candidate.proposedValue);
-    if (
-      !action?.coachLimits ||
-      !Number.isFinite(value) ||
-      value < action.coachLimits.minimumValue ||
-      value > action.coachLimits.maximumValue
-    )
-      return null;
-  }
   const safety =
     candidate.kind === "coach_review" ? "coach_review" : "low_risk";
   return {

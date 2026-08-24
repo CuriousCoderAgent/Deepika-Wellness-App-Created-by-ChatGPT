@@ -35,6 +35,8 @@ import { AWARDS, awardMetrics } from "../mobile/src/awards.ts";
 import { compactKcal, liveMeals } from "../mobile/src/meals.ts";
 import { activeDays, isActive } from "../mobile/src/activity.ts";
 import { newId } from "../mobile/src/ids.ts";
+import { checkMacros, parseMacro } from "../mobile/src/meal-values.ts";
+import { findWeekWin } from "../mobile/src/week-win.ts";
 import {
   SKIP_OPTIONS,
   describeSkip,
@@ -2104,4 +2106,185 @@ test("a review flag nothing can resolve does not stay on screen forever", () => 
   );
   // A malformed date is not a reason to show it.
   assert.equal(needsHumanReview(flagged("not-a-date"), now), false);
+});
+
+/* ------------------------------------------------------------------ */
+/* Meal figures                                                        */
+/* ------------------------------------------------------------------ */
+
+test("impossible macro values are refused, not stored", () => {
+  // Was `Number(input) || 0` with no bounds, so -500 and 999999 both saved —
+  // and the plan generator reads these back for its lowProtein signal, so a
+  // slipped decimal changed what she was offered the next day.
+  assert.ok("problem" in parseMacro("calories", "-500"));
+  assert.ok("problem" in parseMacro("protein", "-1"));
+  assert.ok("problem" in parseMacro("calories", "999999"));
+  assert.ok("problem" in parseMacro("calories", "abc"));
+});
+
+test("a large real meal passes without comment", () => {
+  // The bounds catch a slipped decimal, not a big dinner. Nothing here is
+  // allowed to have an opinion about what she ate.
+  for (const [field, value] of [
+    ["calories", "1400"],
+    ["protein", "85"],
+    ["carbs", "220"],
+    ["fat", "60"],
+  ]) {
+    const result = parseMacro(field, value);
+    assert.ok("value" in result, `${field} ${value} was questioned`);
+  }
+});
+
+test("an empty field is zero, which is a real answer", () => {
+  // "This meal had no protein worth recording" is legitimate and must not be
+  // treated as a mistake.
+  const result = parseMacro("protein", "");
+  assert.deepEqual(result, { value: 0 });
+  assert.deepEqual(parseMacro("fat", "   "), { value: 0 });
+});
+
+test("stored figures do not claim more precision than an estimate has", () => {
+  assert.deepEqual(parseMacro("protein", "22.456"), { value: 22.5 });
+  assert.deepEqual(parseMacro("calories", "410"), { value: 410 });
+});
+
+test("every problem is reported at once, not one per attempt", () => {
+  const checked = checkMacros({
+    calories: "-1",
+    protein: "999",
+    carbs: "20",
+    fat: "abc",
+  });
+  assert.ok("problems" in checked);
+  assert.equal(checked.problems.length, 3);
+  // And each names its own field, so she knows which box to look at.
+  assert.deepEqual(checked.problems.map((p) => p.field).sort(), [
+    "calories",
+    "fat",
+    "protein",
+  ]);
+});
+
+test("a valid correction comes back as numbers ready to store", () => {
+  const checked = checkMacros({
+    calories: "410",
+    protein: "24",
+    carbs: "",
+    fat: "9.5",
+  });
+  assert.ok("values" in checked);
+  assert.deepEqual(checked.values, {
+    calories: 410,
+    protein: 24,
+    carbs: 0,
+    fat: 9.5,
+  });
+});
+
+test("no validation message reads as a judgement about the meal", () => {
+  const checked = checkMacros({
+    calories: "999999",
+    protein: "-1",
+    carbs: "0",
+    fat: "0",
+  });
+  assert.ok("problems" in checked);
+  for (const problem of checked.problems) {
+    assert.doesNotMatch(
+      problem.message,
+      /too much|too many|unhealthy|excessive|should not|bad/i,
+      `"${problem.message}" comments on the meal rather than the number`,
+    );
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* A week's notable win                                                */
+/* ------------------------------------------------------------------ */
+
+const act = (dayOffset, domain, title, completed = "target", id) => ({
+  id: id ?? `${domain}-${dayOffset}-${title}`,
+  dayOffset,
+  domain,
+  title,
+  completed,
+});
+
+test("no invented win when the week held nothing notable", () => {
+  // The whole point. This showed "7 planned actions completed" under a
+  // heading promising an achievement — arithmetic dressed as a win.
+  const week = [act(-8, "movement", "Chair squat"), act(-9, "walking", "Walk")];
+  assert.equal(findWeekWin(week, week), null);
+});
+
+test("an empty week has no win rather than a consoling one", () => {
+  assert.equal(findWeekWin([], []), null);
+});
+
+test("coming back after a gap outranks everything else", () => {
+  // The hardest thing the product asks, and the thing the person who did it
+  // is most likely to dismiss.
+  const older = [act(-20, "movement", "Chair squat")];
+  const week = [
+    act(-9, "movement", "Chair squat"),
+    act(-9, "walking", "Walk"),
+    act(-9, "nutrition", "Protein"),
+    act(-9, "recovery", "Legs up"),
+    act(-9, "mindset", "Reflect"),
+  ];
+  const win = findWeekWin(week, [...older, ...week]);
+  assert.equal(win?.kind, "comeback");
+  assert.match(win.text, /came back/i);
+});
+
+test("a complete day is recognised, and needs all five domains", () => {
+  const week = [
+    act(-9, "movement", "Chair squat"),
+    act(-9, "walking", "Walk"),
+    act(-9, "nutrition", "Protein"),
+    act(-9, "recovery", "Legs up"),
+    act(-9, "mindset", "Reflect"),
+  ];
+  // No prior history, so no comeback — this is the next rule down.
+  assert.equal(findWeekWin(week, week)?.kind, "whole_day");
+
+  // Four domains is not a complete day.
+  const fourDomains = week.slice(0, 4);
+  assert.notEqual(findWeekWin(fourDomains, fourDomains)?.kind, "whole_day");
+});
+
+test("a hard session finished at full effort is named, with what it was", () => {
+  const week = [act(-9, "movement", "Wall push-up", "target", "a1")];
+  const logs = [{ actionId: "a1", perceivedEffort: 5, level: "target" }];
+  const win = findWeekWin(week, week, logs);
+  assert.equal(win?.kind, "hard_session");
+  // Names the movement and how it felt — things a count cannot show.
+  assert.match(win.text, /Wall push-up/);
+  assert.match(win.text, /very hard/);
+});
+
+test("an easy session is not reported as a hard one", () => {
+  const week = [act(-9, "movement", "Wall push-up", "target", "a1")];
+  const logs = [{ actionId: "a1", perceivedEffort: 2, level: "target" }];
+  assert.notEqual(findWeekWin(week, week, logs)?.kind, "hard_session");
+});
+
+test("rest is never a week's win", () => {
+  // Rest is valued and has its own award. Calling it the win of the week
+  // would make the word meaningless.
+  const week = [
+    act(-9, "movement", "Chair squat", "rest"),
+    act(-10, "walking", "Walk", "rest"),
+  ];
+  assert.equal(findWeekWin(week, week), null);
+});
+
+test("a win never scolds, and never counts", () => {
+  const older = [act(-20, "movement", "Chair squat")];
+  const week = [act(-9, "movement", "Chair squat")];
+  const win = findWeekWin(week, [...older, ...week]);
+  assert.ok(win);
+  assert.doesNotMatch(win.text, /missed|behind|failed|only|just \d/i);
+  assert.doesNotMatch(win.text, /planned actions completed/i);
 });

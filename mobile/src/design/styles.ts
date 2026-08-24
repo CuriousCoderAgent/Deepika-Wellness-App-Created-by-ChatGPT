@@ -1697,6 +1697,31 @@ export const s = StyleSheet.create({
   minuteText: { color: C.ink, fontSize: 17, fontWeight: "800" },
   minuteTextActive: { color: "white" },
   minuteUnit: { fontSize: 11, fontWeight: "600" },
+  /** An explicit "nothing to add", so a blank field cannot stand in for one. */
+  nothingToAdd: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    marginTop: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: C.card,
+  },
+  nothingToAddOn: { borderColor: C.green, backgroundColor: C.greenTint },
+  nothingToAddText: { flex: 1, color: C.ink, fontSize: 14, lineHeight: 19 },
+  checkBox: {
+    width: 21,
+    height: 21,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: C.faint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkBoxOn: { borderColor: C.green, backgroundColor: C.green },
   cautionInput: {
     minHeight: 94,
     textAlignVertical: "top",
@@ -2016,6 +2041,8 @@ export const s = StyleSheet.create({
     padding: 13,
     marginTop: 17,
   },
+  /** Shown when the week held nothing notable, which is most weeks. */
+  weekQuiet: { color: C.soft, fontSize: 13, lineHeight: 19, marginTop: 14 },
   weekWinTitle: { color: C.ink, fontSize: 12, fontWeight: "800" },
   weekWinCopy: { color: C.soft, fontSize: 11, lineHeight: 16, marginTop: 3 },
   planReason: {

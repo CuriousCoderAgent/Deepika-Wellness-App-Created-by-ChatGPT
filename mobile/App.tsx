@@ -136,6 +136,7 @@ import { canonicalCity, suggestCities } from "./src/cities";
 import { AWARDS, awardMetrics, type AwardIcon } from "./src/awards";
 import { C } from "./src/design/tokens";
 import { activeDays } from "./src/activity";
+import { findWeekWin } from "./src/week-win";
 import { newId } from "./src/ids";
 import {
   SKIP_OPTIONS,
@@ -153,6 +154,7 @@ import {
 } from "./src/content";
 import { s } from "./src/design/styles";
 import { compactKcal, liveMeals } from "./src/meals";
+import { checkMacros } from "./src/meal-values";
 import { latestRecommendation, needsHumanReview } from "./src/recommendations";
 import { COACH_NAME, COACH_OPENERS } from "./src/coach";
 import { LEARNING_ARTICLES } from "./src/learning";
@@ -1196,6 +1198,15 @@ function Onboarding({
   const [activity, setActivity] = useState(saved?.activityLevel ?? "");
   const [minutes, setMinutes] = useState(saved?.availableMinutes ?? 15);
   const [otherMinutes, setOtherMinutes] = useState(false);
+  /**
+   * Whether she has explicitly said there is nothing to work around.
+   *
+   * A blank caution used to pass straight through, which made "nothing to
+   * declare" indistinguishable from "did not engage with the question" —
+   * and the plan generator reads an absent caution as *no restrictions*.
+   * Requiring an answer either way is what makes the empty case meaningful.
+   */
+  const [nothingToAdd, setNothingToAdd] = useState(false);
   const [caution, setCaution] = useState(saved?.movementCaution ?? "");
   const [checkIn, setCheckIn] = useState<"morning" | "evening">(
     saved?.preferredCheckIn ?? "morning",
@@ -1273,6 +1284,9 @@ function Onboarding({
         activityLevel: activity,
         availableMinutes: minutes,
         movementCaution: caution.trim(),
+        // Records that she answered, so an empty caution means "nothing to
+        // declare" rather than "never asked".
+        movementCautionAnswered: true,
         preferredCheckIn: checkIn,
         consent: {
           wellness: wellnessConsent,
@@ -1286,11 +1300,13 @@ function Onboarding({
       ? goals.length >= 1
       : step === 1
         ? Boolean(activity)
-        : step === 5
-          ? readinessIsComplete(readinessAnswers)
-          : step === 6
-            ? wellnessConsent
-            : true;
+        : step === 3
+          ? Boolean(caution.trim()) || nothingToAdd
+          : step === 5
+            ? readinessIsComplete(readinessAnswers)
+            : step === 6
+              ? wellnessConsent
+              : true;
 
   let question: React.ReactNode;
   if (step === 0)
@@ -1469,17 +1485,45 @@ function Onboarding({
           Anything your coach should respect?
         </Text>
         <Text style={s.onboardingCopy}>
-          Add pain, injury, pregnancy, a limitation, medical guidance—or write
-          “none”.
+          Pain, an injury, pregnancy, a limitation, anything a doctor has told
+          you. This shapes which movements you are offered, so it is worth a
+          moment.
         </Text>
         <TextInput
           value={caution}
-          onChangeText={setCaution}
+          onChangeText={(text) => {
+            setCaution(text);
+            // Typing something is itself an answer.
+            if (text.trim()) setNothingToAdd(false);
+          }}
           style={[s.input, s.cautionInput]}
           multiline
           placeholder="e.g. Knee-sensitive; low impact preferred"
           placeholderTextColor={C.faint}
         />
+        {/* An explicit "nothing", rather than letting a blank field mean it.
+            A button beats asking someone to type the word "none". */}
+        <Pressable
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: nothingToAdd }}
+          style={({ pressed }) => [
+            s.nothingToAdd,
+            nothingToAdd && s.nothingToAddOn,
+            pressed && s.pressed,
+          ]}
+          onPress={() => {
+            const next = !nothingToAdd;
+            setNothingToAdd(next);
+            if (next) setCaution("");
+          }}
+        >
+          <View style={[s.checkBox, nothingToAdd && s.checkBoxOn]}>
+            {nothingToAdd ? <Check size={13} color={C.card} /> : null}
+          </View>
+          <Text style={s.nothingToAddText}>
+            Nothing to add — no injuries or limitations
+          </Text>
+        </Pressable>
       </>
     );
   else if (step === 4)
@@ -2338,6 +2382,7 @@ function Journey({ doc }: { doc: MemberDoc }) {
     (action) =>
       action.dayOffset >= weekStartOffset && action.dayOffset <= weekEndOffset,
   );
+  const weekWin = findWeekWin(selectedActions, doc.actions, doc.workoutLogs);
   const selectedCompleted = selectedActions.filter(
     (action) => action.completed && action.completed !== "rest",
   ).length;
@@ -2476,19 +2521,25 @@ function Journey({ doc }: { doc: MemberDoc }) {
             </View>
           ))}
         </View>
-        {state === "past" && (
-          <View style={s.weekWin}>
-            <Sparkles size={17} color={C.marigold} />
-            <View style={s.flex}>
-              <Text style={s.weekWinTitle}>Notable win</Text>
-              <Text style={s.weekWinCopy}>
-                {selectedCompleted
-                  ? `${selectedCompleted} planned actions completed. Your minimum efforts count here.`
-                  : "The week is part of your record even when life interrupted the plan."}
-              </Text>
+        {state === "past" &&
+          (weekWin ? (
+            <View style={s.weekWin}>
+              <Sparkles size={17} color={C.marigold} />
+              <View style={s.flex}>
+                <Text style={s.weekWinTitle}>Worth remembering</Text>
+                <Text style={s.weekWinCopy}>{weekWin.text}</Text>
+              </View>
             </View>
-          </View>
-        )}
+          ) : (
+            // No invented win. A week with nothing notable in it is a normal
+            // week, and calling a completion count an achievement is the kind
+            // of hollow praise that discounts everything else the app says.
+            <Text style={s.weekQuiet}>
+              {selectedCompleted
+                ? `${selectedCompleted} of ${selectedActions.length} planned actions done.`
+                : "This week is part of your record even where life interrupted the plan."}
+            </Text>
+          ))}
         {selected.rationale && (
           <View style={s.planReason}>
             <Text style={s.whyLabel}>WHY THE PLAN CHANGED</Text>
@@ -3174,6 +3225,21 @@ function Food({
     );
   const saveCorrection = () => {
     if (!editingId) return;
+
+    // Checked before storing. These figures are read back by the plan
+    // generator for its lowProtein and lowFoodLogging signals, so a slipped
+    // decimal does not just look wrong on this screen — it changes what she
+    // is offered tomorrow. See src/meal-values.ts for why this asks rather
+    // than silently clamping.
+    const checked = checkMacros(editValues);
+    if ("problems" in checked) {
+      Alert.alert(
+        "Check these numbers",
+        checked.problems.map((problem) => problem.message).join("\n\n"),
+      );
+      return;
+    }
+
     update({
       ...doc,
       foodEntries: doc.foodEntries.map((entry) =>
@@ -3181,10 +3247,7 @@ function Food({
           ? {
               ...entry,
               description: editValues.description.trim() || entry.description,
-              calories: Number(editValues.calories) || 0,
-              protein: Number(editValues.protein) || 0,
-              carbs: Number(editValues.carbs) || 0,
-              fat: Number(editValues.fat) || 0,
+              ...checked.values,
               confidence: "member",
               memberCorrected: true,
             }

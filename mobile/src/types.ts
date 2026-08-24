@@ -240,12 +240,32 @@ export interface HealthConnection {
 }
 
 export type RecommendationKind =
+  /**
+   * Something worth knowing about why today looks the way it does.
+   *
+   * This is what every recommendation actually *is*. The app renders a
+   * recommendation's `rationale` and first `evidence` line and nothing
+   * else — `kind` and `proposedValue` are never acted on anywhere. So the
+   * kinds below that named a concrete change were describing work no code
+   * could perform.
+   */
+  | "observation"
+  /** Held for a person. Drives the banner on Today. Real. */
+  | "coach_review"
+  /** Nothing to change today. Real. */
+  | "no_change"
+  /**
+   * Historical only. These were generated before it was clear nothing
+   * applied them, so stored documents contain them and must keep parsing.
+   * Nothing produces one now and the model can no longer propose one.
+   *
+   * If a real preview/apply/undo workflow is ever built, these return with
+   * it rather than being resurrected as labels.
+   */
   | "reorder_actions"
   | "change_action_level"
   | "adjust_reminder"
-  | "reduce_target"
-  | "coach_review"
-  | "no_change";
+  | "reduce_target";
 
 export interface AiRecommendation {
   id: string;
@@ -275,6 +295,15 @@ export interface OnboardingState {
   activityLevel?: string;
   availableMinutes?: number;
   movementCaution?: string;
+  /**
+   * True once she has answered the caution question either way.
+   *
+   * Without it an empty movementCaution is ambiguous — nothing to declare, or
+   * never asked? The generator reads an absent caution as no restrictions, so
+   * the difference matters. Absent on anyone who onboarded before the question
+   * required an answer.
+   */
+  movementCautionAnswered?: boolean;
   preferredCheckIn?: "morning" | "evening";
   consent: {
     wellness: boolean;

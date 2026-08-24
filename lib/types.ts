@@ -515,13 +515,32 @@ export interface HealthConnection {
 export interface AiRecommendation {
   id: string;
   createdAt: string;
-  kind:
+  kind: /**
+   * Something worth knowing about why today looks the way it does.
+   *
+   * This is what every recommendation actually *is*. The app renders a
+   * recommendation's `rationale` and first `evidence` line and nothing
+   * else — `kind` and `proposedValue` are never acted on anywhere. So the
+   * kinds below that named a concrete change were describing work no code
+   * could perform.
+   */
+  | "observation"
+    /** Held for a person. Drives the banner on Today. Real. */
+    | "coach_review"
+    /** Nothing to change today. Real. */
+    | "no_change"
+    /**
+     * Historical only. These were generated before it was clear nothing
+     * applied them, so stored documents contain them and must keep parsing.
+     * Nothing produces one now and the model can no longer propose one.
+     *
+     * If a real preview/apply/undo workflow is ever built, these return with
+     * it rather than being resurrected as labels.
+     */
     | "reorder_actions"
     | "change_action_level"
     | "adjust_reminder"
-    | "reduce_target"
-    | "coach_review"
-    | "no_change";
+    | "reduce_target";
   actionId?: string;
   evidence: string[];
   rationale: string;
@@ -546,6 +565,8 @@ export interface MobileOnboarding {
   activityLevel?: string;
   availableMinutes?: number;
   movementCaution?: string;
+  /** True once she answered the caution question either way. See mobile/src/types.ts. */
+  movementCautionAnswered?: boolean;
   preferredCheckIn?: "morning" | "evening";
   consent: {
     wellness: boolean;
