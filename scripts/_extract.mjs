@@ -83,6 +83,28 @@ for (const name of names) {
 }
 const body = taken.join("\n\n");
 
+/*
+ * Nothing may vanish.
+ *
+ * The slice runs from one declaration to the next, so a declaration the
+ * boundary scan cannot see gets swallowed by whatever precedes it and is
+ * lost from both files. That happened once, silently, to a component whose
+ * closing comment marker shared a line with its function keyword. Every
+ * top-level name in the original has to end up in exactly one of the two.
+ */
+const declared = (text) =>
+  new Set(
+    [
+      ...text.matchAll(
+        /^(?:export )?(?:function|const|type|interface|class) ([A-Za-z_$][\w$]*)/gm,
+      ),
+    ].map((m) => m[1]),
+  );
+const beforeNames = declared(raw.replace(/\r\n/g, "\n"));
+const afterNames = new Set([...declared(app), ...declared(body)]);
+const lost = [...beforeNames].filter((n) => !afterNames.has(n));
+if (lost.length) throw new Error("extraction would lose: " + lost.join(", "));
+
 /* ---- build the header from what the body actually references ------- */
 const moved = new Set(names);
 const used = new Set();
