@@ -1,9 +1,16 @@
 /**
  * Resolving an exercise to its five-frame sequence.
  *
- * All thirty-five movements in the exercise library now have photography.
- * The set is one style, one size and one format: 1200px wide WebP, which took
- * the bundled media from 54MB of PNG to 1.3MB with no visible loss.
+ * All fifty-five movements in the exercise library have photography. The set
+ * is one size and one format throughout: 1200px wide WebP, which keeps the
+ * whole library under 2.5MB where the source PNGs were more than 90MB.
+ *
+ * It is deliberately *not* one style. The original thirty-five were shot with
+ * a model in her fifties, which suits the home movements most members are
+ * offered; the twenty event and gym movements were shot with a younger model,
+ * because a sled push demonstrated by someone who plainly would not be given
+ * one teaches the wrong thing. Within any one sequence the model, wardrobe
+ * and setting never change, which is the consistency that actually matters.
  *
  * Two lookups, in order of trustworthiness. An exercise id is exact and is what
  * every generated action carries. A name is the fallback for actions a coach
@@ -50,6 +57,31 @@ export const EXERCISE_MEDIA = {
   boxBreathing: require("../assets/exercise-box-breathing-sequence-v1.webp"),
   legsUpTheWall: require("../assets/exercise-legs-up-the-wall-sequence-v1.webp"),
   bodyScan: require("../assets/exercise-body-scan-sequence-v1.webp"),
+
+  /* The twenty added with the event and gym movements. Same five-panel
+     format and the same 1200px WebP encode as everything above; a different
+     model, because the previous set skews older than several of these
+     movements suit. */
+  inclineMarch: require("../assets/exercise-incline-march-sequence-v1.webp"),
+  bodyweightLunge: require("../assets/exercise-bodyweight-lunge-sequence-v1.webp"),
+  stepBackBurpee: require("../assets/exercise-step-back-burpee-sequence-v1.webp"),
+  nordicHamstringEased: require("../assets/exercise-nordic-hamstring-eased-sequence-v1.webp"),
+  sideLyingAbduction: require("../assets/exercise-side-lying-abduction-sequence-v1.webp"),
+  sidePlankLift: require("../assets/exercise-side-plank-lift-sequence-v1.webp"),
+  splitStanceHold: require("../assets/exercise-split-stance-hold-sequence-v1.webp"),
+  seatedHinge: require("../assets/exercise-seated-hinge-sequence-v1.webp"),
+  singleLegCalfRaise: require("../assets/exercise-single-leg-calf-raise-sequence-v1.webp"),
+  bandLatPulldown: require("../assets/exercise-band-lat-pulldown-sequence-v1.webp"),
+  suitcaseCarry: require("../assets/exercise-suitcase-carry-sequence-v1.webp"),
+  medicineBallSquatPress: require("../assets/exercise-medicine-ball-squat-press-sequence-v1.webp"),
+  wallBall: require("../assets/exercise-wall-ball-sequence-v1.webp"),
+  skiErg: require("../assets/exercise-ski-erg-sequence-v1.webp"),
+  rowErg: require("../assets/exercise-row-erg-sequence-v1.webp"),
+  burpeeBroadJump: require("../assets/exercise-burpee-broad-jump-sequence-v1.webp"),
+  farmersCarry: require("../assets/exercise-farmers-carry-sequence-v1.webp"),
+  sledPush: require("../assets/exercise-sled-push-sequence-v1.webp"),
+  sledPull: require("../assets/exercise-sled-pull-sequence-v1.webp"),
+  sandbagLunge: require("../assets/exercise-sandbag-lunge-sequence-v1.webp"),
 } as const;
 
 export type ExerciseMediaKey = keyof typeof EXERCISE_MEDIA;
@@ -91,6 +123,22 @@ const BY_ID: Record<string, ExerciseMediaKey> = {
   "ex-box-breathing": "boxBreathing",
   "ex-legs-up-wall": "legsUpTheWall",
   "ex-body-scan": "bodyScan",
+  "ex-incline-march": "inclineMarch",
+  "ex-bodyweight-lunge": "bodyweightLunge",
+  "ex-step-back-burpee": "stepBackBurpee",
+  "ex-side-lying-abduction": "sideLyingAbduction",
+  "ex-side-plank-lift": "sidePlankLift",
+  "ex-split-stance-hold": "splitStanceHold",
+  "ex-suitcase-carry": "suitcaseCarry",
+  "ex-medicine-ball-squat-press": "medicineBallSquatPress",
+  "ex-wall-ball": "wallBall",
+  "ex-ski-erg": "skiErg",
+  "ex-row-erg": "rowErg",
+  "ex-burpee-broad-jump": "burpeeBroadJump",
+  "ex-farmers-carry": "farmersCarry",
+  "ex-sled-push": "sledPush",
+  "ex-sled-pull": "sledPull",
+  "ex-sandbag-lunge": "sandbagLunge",
 };
 
 /** For coach-authored actions, which carry a name but no library id. */
@@ -130,6 +178,51 @@ const BY_NAME: Record<string, ExerciseMediaKey> = {
   "box breathing": "boxBreathing",
   "legs up the wall": "legsUpTheWall",
   "body scan": "bodyScan",
+  "incline march": "inclineMarch",
+  "bodyweight lunge": "bodyweightLunge",
+  "step-back burpee": "stepBackBurpee",
+  "side-lying leg raise": "sideLyingAbduction",
+  "side plank with lift": "sidePlankLift",
+  "split stance hold": "splitStanceHold",
+  "suitcase carry": "suitcaseCarry",
+  "ball squat and press": "medicineBallSquatPress",
+  "wall ball": "wallBall",
+  "ski erg": "skiErg",
+  "rowing": "rowErg",
+  "burpee broad jump": "burpeeBroadJump",
+  "farmers carry": "farmersCarry",
+  "sled push": "sledPush",
+  "sled pull": "sledPull",
+  "sandbag lunge": "sandbagLunge",
+};
+
+
+/**
+ * Movements whose photography exists but is not shown.
+ *
+ * This module's own rule is that showing the wrong movement is worse than
+ * showing none, because a member follows the picture rather than the words.
+ * These four sequences were delivered and their frames do not match the
+ * labels printed beneath them, so they are held rather than shipped; the
+ * screen falls back to the written frame labels, which are the real
+ * instructions.
+ *
+ * The asset files stay in the repository. Each of these needs two or three
+ * frames reshot rather than a new sequence, and deleting them would lose the
+ * fifteen usable frames alongside the bad ones.
+ *
+ * Reviewed frame-by-frame against the library's own labels on 2026-08-24.
+ * Emptying this list is what ships them.
+ */
+export const WITHHELD_MEDIA: Record<string, string> = {
+  "ex-single-leg-calf-raise":
+    "Frames 3 and 4 are labelled 'Rise all the way up' and 'Pause at the top'; the heel barely leaves the floor in either. The full range is the entire exercise.",
+  "ex-nordic-hamstring-eased":
+    "Frame 1 reads 'Kneel, ankles held or hooked' and her ankles are free in all five frames — the anchor is visible behind her and unused. Without it this is a kneeling fall-forward, not a hamstring lower. The frames also show gym apparatus for a movement tagged equipment: ['none'].",
+  "ex-seated-hinge":
+    "Five near-identical upright frames. The hinge the movement is named for is not visible in any of them.",
+  "ex-band-lat-pulldown":
+    "Frame order does not progress — finish, start, mid, finish, start — and frame 3, labelled 'Pull down past your hips', shows the arms straight out in front at chest height, which is a different movement.",
 };
 
 /**

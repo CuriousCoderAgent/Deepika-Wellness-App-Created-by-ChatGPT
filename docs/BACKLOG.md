@@ -2,8 +2,9 @@
 
 **Last updated:** 24 August 2026, after the external audit response
 (`docs/AUDIT-RESPONSE-2026-08-24.md`) and a device-testing round.
-**State:** 222 tests passing, mobile and server typecheck clean, `next build`
-clean. All eight audit P0s closed; P1 and P2 closed.
+**State:** 226 tests passing, mobile and server typecheck clean, `next build`
+clean. All eight audit P0s closed; P1 and P2 closed. Every movement in the
+library has photography.
 
 This is the working backlog. It is ordered by what should happen next, not by
 how large each item is. Where something is deliberately *not* being done, it
@@ -129,7 +130,14 @@ says so rather than quietly producing a strength week.
   tested but not cleared by a qualified professional, which is the standard
   the other 34 were held to. Until that happens the event goals should be
   treated as internal.
-- **Photography for 47 movements** — see `EXERCISE-MEDIA-BRIEF.md`.
+- ~~Photography for 47 movements~~ — **done 2026-08-24.** All 55 movements
+  have sequences; 51 are wired and 4 are held pending a reshoot. See
+  `WITHHELD_MEDIA` in `mobile/src/exerciseMedia.ts` for what is wrong with
+  each, and `EXERCISE-MEDIA-BRIEF.md` for the review note.
+- **Reshoot four sequences.** `ex-single-leg-calf-raise` (no heel rise),
+  `ex-nordic-hamstring-eased` (ankles never anchored), `ex-seated-hinge` (no
+  hinge), `ex-band-lat-pulldown` (frame order, and frame 3 is the wrong
+  movement). Two or three frames each rather than new sequences.
 
 ---
 

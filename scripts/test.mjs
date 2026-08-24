@@ -11,6 +11,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync, existsSync } from "node:fs";
 
 import {
   daysBetween,
@@ -3294,5 +3295,85 @@ test("the reported weekly volume is what was actually prescribed", () => {
     );
     const summed = plan.sessions.reduce((sum, item) => sum + (item.km ?? 0), 0);
     assert.equal(plan.totalKm, summed, `${days} days`);
+  }
+});
+
+test("every movement in the library has photography", () => {
+  // A movement with no sequence falls back to its written frame labels, which
+  // is a real answer but a much worse one — a beginner follows the picture.
+  // The twenty event and gym movements shipped tagged and testable but with
+  // no media at all, and nothing anywhere said so.
+  //
+  // Read as text rather than imported: the module requires .webp files, which
+  // only a bundler can resolve.
+  const source = readFileSync(
+    new URL("../mobile/src/exerciseMedia.ts", import.meta.url),
+    "utf8",
+  );
+  const byId = source.slice(
+    source.indexOf("const BY_ID"),
+    source.indexOf("const BY_NAME"),
+  );
+  const withMedia = new Set(
+    [...byId.matchAll(/"(ex-[a-z0-9-]+)":/g)].map((m) => m[1]),
+  );
+  // A movement may also be deliberately held — see WITHHELD_MEDIA, which
+  // exists so that "we have no picture" and "the picture is wrong" are
+  // different states rather than both being silence.
+  const withheld = new Set(
+    [...source
+      .slice(source.indexOf("WITHHELD_MEDIA"))
+      .matchAll(/"(ex-[a-z0-9-]+)":/g)].map((m) => m[1]),
+  );
+  const missing = EXERCISES.filter(
+    (e) => !withMedia.has(e.id) && !withheld.has(e.id),
+  ).map((e) => e.id);
+  assert.deepEqual(missing, [], "no sequence for: " + missing.join(", "));
+});
+
+test("no sequence is claimed for a movement that does not exist", () => {
+  // The other direction: a mapping left behind after a movement is renamed
+  // or removed points at an asset nobody can reach.
+  const source = readFileSync(
+    new URL("../mobile/src/exerciseMedia.ts", import.meta.url),
+    "utf8",
+  );
+  const byId = source.slice(
+    source.indexOf("const BY_ID"),
+    source.indexOf("const BY_NAME"),
+  );
+  const real = new Set(EXERCISES.map((e) => e.id));
+  const orphans = [...byId.matchAll(/"(ex-[a-z0-9-]+)":/g)]
+    .map((m) => m[1])
+    .filter((id) => !real.has(id));
+  assert.deepEqual(orphans, []);
+});
+
+test("every sequence file referenced actually exists", () => {
+  // require() of a missing asset fails at bundle time, which is a slow way to
+  // find out. This finds it in a second.
+  const source = readFileSync(
+    new URL("../mobile/src/exerciseMedia.ts", import.meta.url),
+    "utf8",
+  );
+  for (const match of source.matchAll(/require\("\.\.\/assets\/([^"]+)"\)/g)) {
+    const path = new URL("../mobile/assets/" + match[1], import.meta.url);
+    assert.ok(existsSync(path), "missing asset: " + match[1]);
+  }
+});
+
+test("a withheld sequence says why, and is not silently unreachable", () => {
+  // Holding a sequence back is a decision someone made about a specific
+  // defect. Without a reason recorded, the next person cannot tell a held
+  // asset from a forgotten one, and the reshoot never happens.
+  const source = readFileSync(
+    new URL("../mobile/src/exerciseMedia.ts", import.meta.url),
+    "utf8",
+  );
+  const block = source.slice(source.indexOf("WITHHELD_MEDIA"));
+  const real = new Set(EXERCISES.map((e) => e.id));
+  for (const m of block.matchAll(/"(ex-[a-z0-9-]+)":\s*\n?\s*"([^"]*)"/g)) {
+    assert.ok(real.has(m[1]), m[1] + " is not a movement");
+    assert.ok(m[2].length > 40, m[1] + " is held without a real reason");
   }
 });

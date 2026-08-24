@@ -3,8 +3,54 @@
 **Generated 2026-08-24 from `lib/exercise-library.ts`.**
 Regenerate rather than editing by hand — it will drift.
 
-**47 movements need photography**, of 55 in the
-library. Eight already have it.
+## Status: complete, 2026-08-24
+
+**All 55 movements now have photography.** 51 are wired into
+`mobile/src/exerciseMedia.ts`; **4 are held pending a reshoot** — see
+`WITHHELD_MEDIA` in that file for exactly what is wrong with each. Four tests
+hold this: every movement either resolves or is explicitly held, a held one
+carries a written reason, no mapping points at a movement that no longer
+exists, and every referenced asset file is present.
+
+Delivered in two packs, both commissioned against this brief:
+
+| Pack | Movements | Model |
+|---|---|---|
+| `bharosa-exercise-media-v1` | 35 home and studio movements | Woman, fifties |
+| `bharosa-exercise-media-new-20-younger-model-v1` | 20 event and gym movements | Woman, late twenties to early thirties |
+
+Two models is deliberate rather than an inconsistency. The home set is what
+almost every member is offered and should look like her; a sled push or a
+wall ball demonstrated by someone who would never be offered one teaches a
+beginner that the movement is not for her. Within any single sequence the
+model, wardrobe and setting never change, which is the consistency that
+matters to someone following five frames.
+
+**Review.** The second pack shipped marked as AI-generated drafts requiring
+review by a qualified strength, conditioning or rehabilitation professional
+before member use. Eshan confirmed on 2026-08-24 that the frames had been
+checked and cleared to proceed.
+
+All twenty were then compared frame-by-frame against the library labels during
+integration. Fifteen were correct, several of them very good — the wall ball
+catches the release, the ski erg and the medicine-ball squat press map cleanly
+onto all five cues. **Four did not show the movement their captions describe**
+and are held in `WITHHELD_MEDIA` with the specific defect recorded. This is
+not a form review and does not replace one; it only checked that the picture
+shows what the words under it say.
+
+A fifth, `ex-sled-pull`, is shipped with a note: the rope-to-sled connection
+is hard to read in the last two frames. It is not wrong, only unclear.
+
+Everything below is the original brief, kept for reshoots and for any
+movement added later.
+
+---
+
+### Original scope
+
+**47 movements needed photography**, of 55 in the library. Eight had it when
+this was written.
 
 ## What each movement needs
 
