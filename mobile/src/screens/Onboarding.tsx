@@ -128,48 +128,82 @@ export function Onboarding({
     list.includes(value)
       ? list.filter((item) => item !== value)
       : [...list, value];
-  const finish = () =>
+  /**
+   * Write down what she has answered so far.
+   *
+   * Called on every step, not only at the end. The flow is ten questions
+   * long and used to keep all of them in component state until the last
+   * button, so a member who put the phone down, took a call, or simply let
+   * the screen lock came back to an empty first question. She had answered
+   * everything and the app had kept none of it.
+   *
+   * `completed` stays false until she reaches the end, which is what decides
+   * whether the app shows her the flow or her plan. Everything else is
+   * written as it arrives.
+   *
+   * Three things are deliberately withheld until `done`:
+   *
+   * - **onboardedAt** starts her twelve weeks. Setting it at step two would
+   *   have her in week three of a plan she has not been given yet.
+   * - **readiness** is only written once the answers are complete, because
+   *   the server recomputes the verdict from them and a half-answered screen
+   *   evaluates to "clear" — which is the one outcome that unlocks movement.
+   * - **detailConsent** stays undefined until she has actually been asked.
+   *   Writing "declined" before the gate would record a refusal she never
+   *   made, and About you would stop offering the questions.
+   */
+  const save = (nextStep: number, done: boolean) =>
     update({
       ...doc,
-      member: {
-        ...doc.member,
-        // The one thing lib/day-offset.ts's programWeek() counts her twelve
-        // weeks from. Never previously set anywhere, which is why every
-        // member's program week silently froze at 1 forever — see that
-        // file's rebaseMemberDoc(). Keeps an existing value rather than
-        // overwriting it, in case she is ever routed back through this flow
-        // after already finishing it once.
-        onboardedAt: doc.member.onboardedAt ?? new Date().toISOString(),
-        // Labels, not ids. This list is read by her coach and by the
-        // daily-action rules, both of which work in her language. The ids
-        // live in doc.profile, which is what the generator reads.
-        goals: [
-          ...goals.map(goalLabel),
-          ...doc.member.goals.filter(
-            (item) => !goals.map(goalLabel).includes(item),
-          ),
-        ],
-        constraints: caution.trim()
-          ? [
-              caution.trim(),
-              ...doc.member.constraints.filter(
-                (item) => item !== caution.trim(),
+      member: done
+        ? {
+            ...doc.member,
+            // The one thing lib/day-offset.ts's programWeek() counts her
+            // twelve weeks from. Never previously set anywhere, which is why
+            // every member's program week silently froze at 1 forever — see
+            // that file's rebaseMemberDoc(). Keeps an existing value rather
+            // than overwriting it, in case she is ever routed back through
+            // this flow after already finishing it once.
+            onboardedAt: doc.member.onboardedAt ?? new Date().toISOString(),
+            // Labels, not ids. This list is read by her coach and by the
+            // daily-action rules, both of which work in her language. The
+            // ids live in doc.profile, which is what the generator reads.
+            goals: [
+              ...goals.map(goalLabel),
+              ...doc.member.goals.filter(
+                (item) => !goals.map(goalLabel).includes(item),
               ),
-            ]
-          : doc.member.constraints,
-      },
-      readiness: {
-        answers: readinessAnswers,
-        completedAt: new Date().toISOString(),
-        ...evaluateReadiness(readinessAnswers),
-      },
+            ],
+            constraints: caution.trim()
+              ? [
+                  caution.trim(),
+                  ...doc.member.constraints.filter(
+                    (item) => item !== caution.trim(),
+                  ),
+                ]
+              : doc.member.constraints,
+          }
+        : doc.member,
+      readiness: readinessIsComplete(readinessAnswers)
+        ? {
+            answers: readinessAnswers,
+            completedAt: new Date().toISOString(),
+            ...evaluateReadiness(readinessAnswers),
+          }
+        : doc.readiness,
       profile: {
         ageBand,
         goals,
-        // Recorded either way. "She said no" and "she was never asked" lead
-        // to the same empty profile otherwise, and only one of them should
-        // be asked again.
-        detailConsent: wantsDetail ? "given" : "declined",
+        // Recorded either way once she has answered. "She said no" and "she
+        // was never asked" lead to the same empty profile otherwise, and only
+        // one of them should be asked again — which is also why this stays
+        // undefined until the gate itself.
+        detailConsent:
+          wantsDetail === undefined
+            ? undefined
+            : wantsDetail
+              ? "given"
+              : "declined",
         // Her event sits outside the detail gate: it belongs to the goal,
         // not to the optional questions, and without it the goal cannot be
         // acted on at all.
@@ -185,8 +219,8 @@ export function Onboarding({
           : {}),
       },
       onboarding: {
-        completed: true,
-        currentStep: lastStep + 1,
+        completed: done,
+        currentStep: nextStep,
         goals: goals.map(goalLabel),
         // Kept rather than re-derived: a goal she typed into the old
         // free-text box is still hers, even though nothing offers it now.
@@ -195,8 +229,9 @@ export function Onboarding({
         availableMinutes: minutes,
         movementCaution: caution.trim(),
         // Records that she answered, so an empty caution means "nothing to
-        // declare" rather than "never asked".
-        movementCautionAnswered: true,
+        // declare" rather than "never asked". Only true once she has been
+        // past that question.
+        movementCautionAnswered: step > 4 || done,
         preferredCheckIn: checkIn,
         consent: {
           wellness: wellnessConsent,
@@ -205,6 +240,13 @@ export function Onboarding({
         },
       },
     });
+  /** Move, and keep what she has given us so far. */
+  const goTo = (next: number) => {
+    save(next, false);
+    setStep(next);
+  };
+  const finish = () => save(lastStep + 1, true);
+
   /*
    * The last step, which depends on her answer to the gate.
    *
@@ -711,13 +753,13 @@ export function Onboarding({
         {question}
         <View style={s.onboardingActions}>
           {step > 0 && (
-            <Pressable onPress={() => setStep(step - 1)} style={s.backButton}>
+            <Pressable onPress={() => goTo(step - 1)} style={s.backButton}>
               <Text style={s.backButtonText}>Back</Text>
             </Pressable>
           )}
           <Pressable
             disabled={!canContinue}
-            onPress={() => (step === lastStep ? finish() : setStep(step + 1))}
+            onPress={() => (step === lastStep ? finish() : goTo(step + 1))}
             style={[s.continueButton, !canContinue && s.disabledButton]}
           >
             <Text style={s.continueButtonText}>

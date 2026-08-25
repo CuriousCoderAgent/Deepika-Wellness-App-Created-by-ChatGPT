@@ -3817,3 +3817,25 @@ test("a document with no notes still normalises", () => {
   });
   assert.deepEqual(doc.notes, []);
 });
+
+test("a half-answered readiness screen reads as clear, which is why it is never stored", () => {
+  // Not a bug in evaluateReadiness: a member who has never been through the
+  // screen has no conditions to act on, so "clear" is the right default for
+  // *absent* answers. It is a hazard for *partial* ones — the server
+  // recomputes the verdict from whatever answers it holds, so persisting a
+  // half-filled screen mid-onboarding would unlock movement on the strength
+  // of questions she had not reached yet.
+  //
+  // Onboarding therefore writes readiness only once readinessIsComplete is
+  // true. This test exists so that guard is not removed as redundant.
+  assert.equal(evaluateReadiness({}).outcome, "clear");
+  assert.equal(readinessIsComplete({}), false);
+
+  const partial = { chestPain: "no" };
+  assert.equal(evaluateReadiness(partial).outcome, "clear");
+  assert.equal(
+    readinessIsComplete(partial),
+    false,
+    "if this ever becomes true for a partial screen, the onboarding guard is no longer enough",
+  );
+});
