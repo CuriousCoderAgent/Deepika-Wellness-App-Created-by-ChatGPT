@@ -72,9 +72,9 @@ export function Reports({
     <Card>
       <View style={s.rowBetween}>
         <View style={s.flex}>
-          <Text style={s.cardTitle}>Health reports</Text>
+          <Text style={s.cardTitle}>Your documents</Text>
           <Text style={s.profileCopy}>
-            Share blood work or body-composition reports with your coach.
+            Blood work, scans and letters, kept where you can find them.
           </Text>
         </View>
         <Text style={s.reportCount}>{doc.reports.length}</Text>
@@ -151,9 +151,22 @@ export function Reports({
             </Text>
           </View>
         ))}
+      {/*
+        What this actually is.
+
+        It used to say "stores the report for coach review", which was not
+        true in either direction: nothing in the app or the coach console
+        reads these files, and most members have no coach at all. Someone
+        uploading her blood work was being told a person would look at it.
+
+        It is a private place to keep documents. That is genuinely useful —
+        having your last panel on your phone in a waiting room is worth
+        something — but it is worth exactly what it is.
+      */}
       <Text style={s.reportPrivacy}>
-        Uploading stores the report for coach review; it does not automatically
-        interpret or diagnose the result.
+        These are stored privately for you. Bharosa does not read, interpret
+        or act on them, and nothing here changes your plan. They are here so
+        you have them when you need them — to show a doctor, or your coach.
       </Text>
     </Card>
   );

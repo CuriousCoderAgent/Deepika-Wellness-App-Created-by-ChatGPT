@@ -177,8 +177,12 @@ says so rather than quietly producing a strength week.
 - ~~Message pagination~~ — **done 2026-08-25.** They were all in the document
   and only the last twenty were drawn. There is a "show earlier" control now,
   which says how many are behind it.
-- **Reports lifecycle** — or rename it "private document wallet", since
-  nothing reviews an upload and the current framing implies something does.
+- ~~Reports lifecycle~~ — **done 2026-08-25.** Renamed to "Your documents"
+  and the copy now says what it is: stored privately, not read or interpreted
+  by Bharosa, and not something that changes her plan. It previously said
+  uploads were stored "for coach review", which was untrue in both
+  directions — nothing reads doc.reports anywhere, and most members have no
+  coach. Surfacing them in the console is a separate, real piece of work.
 - **Learning content citations** — author, source, review date, and a visible
   line between general education and Bharosa's own guidance.
 - ~~A stale server comment~~ — **done 2026-08-24.** `lib/types.ts` said the

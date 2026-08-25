@@ -445,10 +445,10 @@ export function YouHub({
     {
       key: "reports",
       Icon: ShieldCheck,
-      label: "Reports",
+      label: "Your documents",
       detail: reportCount
-        ? `${reportCount} uploaded`
-        : "Blood work and scans, stored privately",
+        ? `${reportCount} kept here`
+        : "Blood work and scans, private to you",
     },
     {
       key: "settings",

@@ -188,11 +188,17 @@ export function Today({
           ]
         : doc.pausedExerciseIds,
     });
-    if (pain)
-      Alert.alert(
-        "Movement paused",
-        "Do not repeat this exercise for now. Your pain flag has been added for coach review. Seek urgent medical help for severe or concerning symptoms.",
-      );
+    /*
+     * One source of truth for what happens next.
+     *
+     * This used to be a fixed sentence saying the movement was paused and
+     * her flag was queued for coach review — shown for every report,
+     * including the ones the rules deliberately do not pause, and to the
+     * many members who have no coach. It now says whatever routePain
+     * actually decided, which is the same thing she was shown before she
+     * pressed save.
+     */
+    if (route) Alert.alert(route.title, route.body);
   };
   if (!doc.onboarding?.completed)
     return <Onboarding doc={doc} update={update} />;
