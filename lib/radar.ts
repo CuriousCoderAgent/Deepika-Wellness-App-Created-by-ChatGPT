@@ -35,6 +35,8 @@ type RadarWorkoutLog = Partial<WorkoutLog> & {
   pain?: boolean;
   coachReviewRequired?: boolean;
   completedAt?: string;
+  /** "Knee: sharp pain during, had to stop". See mobile/src/pain.ts. */
+  painNote?: string;
 };
 
 function isRecentPainLog(log: RadarWorkoutLog) {
@@ -249,10 +251,31 @@ export function evaluateRadar(
       const all = Array.from(new Set(flagged.flatMap((f) => f.symptoms)));
       const details = [];
       if (all.length) details.push(`Reported: ${all.join(", ")}.`);
-      if (painLogged)
-        details.push(
-          "Pain was reported during a recent movement; review before it is repeated.",
+      if (painLogged) {
+        /*
+         * What she said, where she said it.
+         *
+         * This used to read "Pain was reported during a recent movement" for
+         * every report, which tells whoever is triaging nothing they can act
+         * on — a stiff shoulder the next morning and a knee that gave way
+         * arrived on the Radar looking identical. The phone now records
+         * where, what it felt like and whether it stopped her, so the line
+         * that asks a person to look can say what they are looking at.
+         */
+        const notes = Array.from(
+          new Set(
+            myWorkoutLogs
+              .filter(isRecentPainLog)
+              .map((log) => log.painNote)
+              .filter((note): note is string => Boolean(note)),
+          ),
         );
+        details.push(
+          notes.length
+            ? `Pain reported — ${notes.join("; ")}. Review before it is repeated.`
+            : "Pain was reported during a recent movement; review before it is repeated.",
+        );
+      }
       push(m.id, "R05", details.join(" "));
     }
 

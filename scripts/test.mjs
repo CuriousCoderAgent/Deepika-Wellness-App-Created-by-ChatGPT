@@ -35,6 +35,7 @@ import { C, SURFACES, TEXT_COLOURS } from "../mobile/src/design/tokens.ts";
 import { AWARDS, awardMetrics } from "../mobile/src/awards.ts";
 import { compactKcal, liveMeals } from "../mobile/src/meals.ts";
 import { normalizeMemberDoc } from "../mobile/src/normalize.ts";
+import { evaluateRadar, radarRules } from "../lib/radar.ts";
 import {
   PAIN_KINDS,
   PAIN_SITES,
@@ -4148,4 +4149,55 @@ test("a pain report reads as a sentence for whoever opens it", () => {
     describePain(report({ site: "back", kind: "tightness", timing: "after" })),
     "Back: tightness after",
   );
+});
+
+test("the Radar tells a coach what the pain actually was", () => {
+  // It used to say "Pain was reported during a recent movement" for every
+  // report, so a stiff shoulder the next morning and a knee that gave way
+  // reached the coach looking identical.
+  const member = {
+    id: "m1",
+    name: "A",
+    week: 3,
+    phase: "Stabilise",
+    weeklyFocus: [],
+    goals: [],
+    constraints: [],
+    activeModuleIds: [],
+  };
+  const log = {
+    id: "w1",
+    memberId: "m1",
+    pain: true,
+    coachReviewRequired: true,
+    completedAt: new Date().toISOString(),
+    painNote: "Knee: sharp pain during, had to stop",
+  };
+  const events = evaluateRadar(
+    [member],
+    [],
+    [],
+    [log],
+    [],
+    [],
+    radarRules,
+    [],
+  );
+  const r05 = events.find((e) => e.ruleId === "R05");
+  assert.ok(r05, "pain did not reach the Radar at all");
+  assert.match(r05.detail, /Knee: sharp pain during, had to stop/);
+
+  // Without a note it still reaches the coach, just less usefully.
+  const bare = evaluateRadar(
+    [member],
+    [],
+    [],
+    [{ ...log, painNote: undefined }],
+    [],
+    [],
+    radarRules,
+    [],
+  ).find((e) => e.ruleId === "R05");
+  assert.ok(bare, "a log with no note stopped reaching the Radar");
+  assert.match(bare.detail, /Pain was reported/);
 });
