@@ -242,7 +242,7 @@ export function Profile({
           <Text style={s.inviteCodeLabel}>ADD ME BY USERNAME</Text>
           <Text style={s.inviteCodeValue}>{doc.member.id}</Text>
         </View>
-        <Pressable style={s.circleButton} onPress={invite}>
+        <Pressable accessibilityRole="button" style={s.circleButton} onPress={invite}>
           <Text style={s.circleButtonText}>Invite someone you trust</Text>
         </Pressable>
       </LinearGradient>

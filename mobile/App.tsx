@@ -584,7 +584,7 @@ function MemberApp({
     return (
       <View style={s.loading}>
         <Text style={s.error}>Your plan could not be loaded.</Text>
-        <Pressable style={s.primaryButton} onPress={() => refresh()}>
+        <Pressable accessibilityRole="button" style={s.primaryButton} onPress={() => refresh()}>
           <Text style={s.primaryButtonText}>Try again</Text>
         </Pressable>
       </View>

@@ -167,6 +167,7 @@ export function Login({
           {!!notice && <Text style={s.notice}>{notice}</Text>}
           <Pressable
             style={({ pressed }) => [s.primaryButton, pressed && s.pressed]}
+            accessibilityRole="button"
             onPress={submit}
             disabled={busy}
           >
@@ -183,7 +184,7 @@ export function Login({
             )}
           </Pressable>
           {mode === "signin" && (
-            <Pressable onPress={() => changeMode("help")}>
+            <Pressable accessibilityRole="button" onPress={() => changeMode("help")}>
               <Text style={s.textButton}>Forgot your password?</Text>
             </Pressable>
           )}
@@ -194,6 +195,7 @@ export function Login({
           </View>
           <Pressable
             style={({ pressed }) => [s.secondaryButton, pressed && s.pressed]}
+            accessibilityRole="button"
             onPress={() => changeMode(mode === "signup" ? "signin" : "signup")}
             disabled={busy}
           >
@@ -206,6 +208,7 @@ export function Login({
           {__DEV__ && (
             <Pressable
               style={({ pressed }) => [s.secondaryButton, pressed && s.pressed]}
+              accessibilityRole="button"
               onPress={onDemo}
               disabled={busy}
             >
@@ -213,7 +216,7 @@ export function Login({
             </Pressable>
           )}
           {mode === "help" && (
-            <Pressable onPress={() => changeMode("signin")}>
+            <Pressable accessibilityRole="button" onPress={() => changeMode("signin")}>
               <Text style={s.textButton}>Back to sign in</Text>
             </Pressable>
           )}

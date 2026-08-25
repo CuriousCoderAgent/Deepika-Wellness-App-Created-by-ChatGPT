@@ -81,6 +81,8 @@ export function Reports({
       </View>
       <View style={s.reportCategories}>
         <Pressable
+          accessibilityRole="radio"
+          accessibilityState={{ checked: category === "blood_work" }}
           onPress={() => setCategory("blood_work")}
           style={[
             s.reportCategory,
@@ -97,6 +99,8 @@ export function Reports({
           </Text>
         </Pressable>
         <Pressable
+          accessibilityRole="radio"
+          accessibilityState={{ checked: category === "body_composition" }}
           onPress={() => setCategory("body_composition")}
           style={[
             s.reportCategory,
@@ -305,6 +309,7 @@ export function HealthConnectionPanel({
         <View style={s.healthButtons}>
           <Pressable
             disabled={syncing}
+            accessibilityRole="button"
             onPress={() => runSync(!connection.syncEnabled)}
             style={[s.circleButton, s.healthPrimary]}
           >
@@ -319,7 +324,7 @@ export function HealthConnectionPanel({
               </>
             )}
           </Pressable>
-          <Pressable onPress={openHealthSettings} style={s.manageHealthButton}>
+          <Pressable accessibilityRole="button" onPress={openHealthSettings} style={s.manageHealthButton}>
             <Text style={s.manageHealthText}>
               {Platform.OS === "ios"
                 ? "Open iPhone settings"

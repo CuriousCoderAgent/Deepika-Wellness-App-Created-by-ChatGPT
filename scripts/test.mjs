@@ -11,7 +11,8 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   daysBetween,
@@ -4200,4 +4201,81 @@ test("the Radar tells a coach what the pain actually was", () => {
   ).find((e) => e.ruleId === "R05");
   assert.ok(bare, "a log with no note stopped reaching the Radar");
   assert.match(bare.detail, /Pain was reported/);
+});
+
+
+/* ------------------------------------------------------------------ *
+ * Accessibility
+ *
+ * Most members are women over forty and many are beginners; some will be
+ * running larger text, and some a screen reader. A control with no name is
+ * announced as "button" and nothing else.
+ * ------------------------------------------------------------------ */
+
+/**
+ * The attributes of every <Pressable> in a file.
+ *
+ * Brace-aware on purpose. Scanning to the first ">" finds the arrow in
+ * `style={({ pressed }) => ...}` and stops there, which reported four
+ * perfectly well-labelled controls as bare when this was first written.
+ */
+function pressableTags(source) {
+  const tags = [];
+  let at = source.indexOf("<Pressable");
+  while (at !== -1) {
+    let depth = 0;
+    let i = at;
+    for (; i < source.length; i += 1) {
+      const c = source[i];
+      if (c === "{") depth += 1;
+      else if (c === "}") depth -= 1;
+      else if (c === ">" && depth === 0) break;
+    }
+    tags.push(source.slice(at, i));
+    at = source.indexOf("<Pressable", i);
+  }
+  return tags;
+}
+
+test("every control can be announced by a screen reader", () => {
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!/node_modules|\.expo/.test(full)) walk(full);
+      } else if (full.endsWith(".tsx")) files.push(full);
+    }
+  };
+  walk(new URL("../mobile", import.meta.url).pathname.replace(/^\//, ""));
+
+  const bare = [];
+  for (const file of files) {
+    const source = readFileSync(file, "utf8");
+    for (const tag of pressableTags(source)) {
+      if (/accessibilityRole|accessibilityLabel/.test(tag)) continue;
+      bare.push(file.split(/[\\/]/).pop() + ": " + tag.slice(0, 70).replace(/\s+/g, " "));
+    }
+  }
+  assert.deepEqual(bare, [], "controls with no accessible name");
+});
+
+test("the accessibility scan would notice a bare control", () => {
+  // A guard that cannot fail is worth nothing, and this one nearly could
+  // not: an earlier version scanned to the first ">" and silently skipped
+  // every multi-line tag it mis-parsed.
+  const sample = `
+    <Pressable style={({ pressed }) => [s.a, pressed && s.b]} onPress={go}>
+      <Text>Go</Text>
+    </Pressable>
+    <Pressable accessibilityRole="button" onPress={go}>
+      <Text>Fine</Text>
+    </Pressable>
+  `;
+  const tags = pressableTags(sample);
+  assert.equal(tags.length, 2);
+  assert.equal(
+    tags.filter((t) => !/accessibilityRole|accessibilityLabel/.test(t)).length,
+    1,
+  );
 });

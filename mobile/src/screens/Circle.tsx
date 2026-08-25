@@ -300,7 +300,7 @@ export function Circle({
       <Card>
         <Text style={s.cardTitle}>Your circle</Text>
         <Text style={s.profileCopy}>This could not be loaded.</Text>
-        <Pressable style={s.secondaryButton} onPress={() => load()}>
+        <Pressable accessibilityRole="button" style={s.secondaryButton} onPress={() => load()}>
           <Text style={s.secondaryButtonText}>Try again</Text>
         </Pressable>
       </Card>

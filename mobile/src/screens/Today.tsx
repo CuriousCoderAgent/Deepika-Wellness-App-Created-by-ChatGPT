@@ -463,6 +463,11 @@ export function ActionCard({
                     (action.completed === level || pendingLevel === level) &&
                       s.effortActive,
                   ]}
+                  accessibilityRole="radio"
+                  accessibilityState={{
+                    checked: action.completed === level || pendingLevel === level,
+                  }}
+                  accessibilityLabel={`${level}: ${action[level].label}`}
                   onPress={() => chooseLevel(level)}
                 >
                   <Text
@@ -558,6 +563,8 @@ export function ActionCard({
               <Text style={s.logLabel}>ANY PAIN DURING THIS MOVEMENT?</Text>
               <View style={s.painRow}>
                 <Pressable
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: !pain }}
                   onPress={() => setPain(false)}
                   style={[s.painChoice, !pain && s.painChoiceActive]}
                 >
@@ -568,6 +575,8 @@ export function ActionCard({
                   </Text>
                 </Pressable>
                 <Pressable
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: pain }}
                   onPress={() => setPain(true)}
                   style={[s.painChoice, pain && s.painChoiceWarning]}
                 >
@@ -701,6 +710,7 @@ export function ActionCard({
               )}
               <Pressable
                 style={({ pressed }) => [s.logButton, pressed && s.pressed]}
+                accessibilityRole="button"
                 onPress={saveWorkout}
               >
                 <Text style={s.logButtonText}>Save workout</Text>
@@ -728,7 +738,7 @@ export function ActionCard({
               ))}
             </View>
           ) : (
-            <Pressable onPress={() => setSkipping(true)}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Not today" onPress={() => setSkipping(true)}>
               <Text style={s.notToday}>Not today</Text>
             </Pressable>
           )}
@@ -1246,7 +1256,7 @@ export function EngagementPanel({ doc }: { doc: MemberDoc }) {
         </View>
       )}
       {achieved > 0 && (
-        <Pressable onPress={shareWin} style={s.shareWin}>
+        <Pressable accessibilityRole="button" onPress={shareWin} style={s.shareWin}>
           <Text style={s.shareWinText}>Share this win privately</Text>
         </Pressable>
       )}

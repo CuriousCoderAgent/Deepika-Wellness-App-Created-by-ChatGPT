@@ -1521,6 +1521,15 @@ export const s = StyleSheet.create({
   },
   sessionTitle: { color: C.ink, fontSize: 18, fontWeight: "700", marginTop: 7 },
   sessionMeta: { color: C.soft, fontSize: 13, marginTop: 3 },
+  /* Reaching back through the conversation. */
+  showEarlier: {
+    alignSelf: "center",
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  showEarlierText: { color: C.green, fontSize: 13, fontWeight: "700" },
   messageBubble: {
     maxWidth: "88%",
     borderRadius: 18,

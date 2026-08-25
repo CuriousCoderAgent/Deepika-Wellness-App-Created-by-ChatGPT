@@ -410,6 +410,9 @@ export function Onboarding({
           {[15, 30, 45, 60].map((value) => (
             <Pressable
               key={value}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: minutes === value }}
+              accessibilityLabel={`${value} minutes`}
               onPress={() => setMinutes(value)}
               style={[
                 s.minuteChoice,
@@ -517,6 +520,8 @@ export function Onboarding({
           {(["morning", "evening"] as const).map((value) => (
             <Pressable
               key={value}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: checkIn === value }}
               onPress={() => setCheckIn(value)}
               style={[s.option, checkIn === value && s.optionActive]}
             >
@@ -753,12 +758,14 @@ export function Onboarding({
         {question}
         <View style={s.onboardingActions}>
           {step > 0 && (
-            <Pressable onPress={() => goTo(step - 1)} style={s.backButton}>
+            <Pressable accessibilityRole="button" onPress={() => goTo(step - 1)} style={s.backButton}>
               <Text style={s.backButtonText}>Back</Text>
             </Pressable>
           )}
           <Pressable
             disabled={!canContinue}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canContinue }}
             onPress={() => (step === lastStep ? finish() : goTo(step + 1))}
             style={[s.continueButton, !canContinue && s.disabledButton]}
           >

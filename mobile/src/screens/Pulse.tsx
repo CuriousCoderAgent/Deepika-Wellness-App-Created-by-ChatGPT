@@ -73,6 +73,9 @@ export function Pulse({
             <Pressable
               key={mood.label}
               style={s.mood}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: active }}
+              accessibilityLabel={mood.label}
               onPress={() => choose(mood)}
             >
               <View style={[s.moodCircle, active && s.moodCircleActive]}>

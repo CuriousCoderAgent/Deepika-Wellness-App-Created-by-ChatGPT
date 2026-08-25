@@ -41,6 +41,20 @@ export function Coach({
 }) {
   const [draft, setDraft] = useState("");
   const [thinking, setThinking] = useState(false);
+  /*
+   * How much of the conversation is on screen.
+   *
+   * The last twenty were rendered and the rest were simply not drawn — they
+   * were in the document the whole time, reachable by nothing. A member who
+   * asked something useful a month ago could not find it, and neither could
+   * the coach reading over her shoulder.
+   *
+   * Grows on demand rather than paging: these are short messages, she is
+   * looking for one thing she half-remembers, and "show me more" is a much
+   * easier idea than page numbers.
+   */
+  const PAGE = 20;
+  const [shown, setShown] = useState(PAGE);
   const scrollToTop = useScrollToTop();
   const messages = [...doc.messages].sort((a, b) => a.dayOffset - b.dayOffset);
   const hasHumanCoach = doc.coaching?.mode === "coached";
@@ -159,7 +173,19 @@ export function Coach({
         </Card>
       )}
 
-      {messages.slice(-20).map((m) => {
+      {messages.length > shown && (
+        <Pressable
+          accessibilityRole="button"
+          style={s.showEarlier}
+          onPress={() => setShown(shown + PAGE)}
+        >
+          <Text style={s.showEarlierText}>
+            Show earlier messages ({messages.length - shown} more)
+          </Text>
+        </Pressable>
+      )}
+
+      {messages.slice(-shown).map((m) => {
         const mine = m.from === "member";
         const who =
           m.from === "member"

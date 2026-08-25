@@ -868,6 +868,8 @@ export function Food({
           {(["Breakfast", "Lunch", "Snack", "Dinner"] as const).map((value) => (
             <Pressable
               key={value}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: meal === value }}
               onPress={() => setMeal(value)}
               style={[s.mealChoice, meal === value && s.mealChoiceActive]}
             >
@@ -897,6 +899,7 @@ export function Food({
         <View style={s.captureRow}>
           <Pressable
             style={s.photoButton}
+            accessibilityRole="button"
             onPress={addPhoto}
             disabled={uploadingPhoto}
           >
@@ -906,6 +909,7 @@ export function Food({
           </Pressable>
           <Pressable
             style={[s.primaryButton, s.estimateButton]}
+            accessibilityRole="button"
             onPress={add}
             // A second estimate while one is still waiting on her would
             // silently replace the first, including any portion she had
@@ -1135,6 +1139,7 @@ export function Food({
                   </View>
                   <Pressable
                     style={s.saveCorrectionButton}
+                    accessibilityRole="button"
                     onPress={saveCorrection}
                   >
                     <Text style={s.saveCorrectionText}>Save my correction</Text>

@@ -224,7 +224,7 @@ export function LearningLibrary({ weekFocus }: { weekFocus?: string[] }) {
   if (article)
     return (
       <View style={s.learningDetail}>
-        <Pressable onPress={() => openArticle(null)}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Back to all articles" onPress={() => openArticle(null)}>
           <Text style={s.learningBack}>‹ All articles</Text>
         </Pressable>
         <Text style={s.learningCategory}>
