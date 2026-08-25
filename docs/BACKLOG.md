@@ -2,7 +2,7 @@
 
 **Last updated:** 24 August 2026, after the external audit response
 (`docs/AUDIT-RESPONSE-2026-08-24.md`) and a device-testing round.
-**State:** 269 tests passing, mobile and server typecheck clean, `next build`
+**State:** 271 tests passing, mobile and server typecheck clean, `next build`
 clean. All eight audit P0s closed; P1 and P2 closed. Every movement in the
 library has photography.
 
@@ -168,9 +168,15 @@ says so rather than quietly producing a strength week.
   a condition. The coach message and review recommendation are now written
   only when a coach exists to read them — every report used to promise one.
   The Radar carries the sentence rather than "pain was reported".
-- **Vera's rate limit is in memory**, per instance, and resets on deploy.
-  Adequate for a pilot; not an abuse boundary.
-- **Message pagination.** The last 20 are loaded with no way back.
+- ~~Vera's rate limit is in memory~~ — **done 2026-08-25.** It counts in the
+  database now, through the same durable limiter the auth and upload routes
+  already used. On a serverless runtime the Map was not a weak boundary but no
+  boundary: every cold start began empty and concurrent instances each kept
+  their own, so the real ceiling was forty per instance per lifetime. Every
+  question costs a model call, so this guards a bill as much as a service.
+- ~~Message pagination~~ — **done 2026-08-25.** They were all in the document
+  and only the last twenty were drawn. There is a "show earlier" control now,
+  which says how many are behind it.
 - **Reports lifecycle** — or rename it "private document wallet", since
   nothing reviews an upload and the current framing implies something does.
 - **Learning content citations** — author, source, review date, and a visible
@@ -194,11 +200,19 @@ None of this is needed to keep building; all of it is needed to ship.
   health, AI evals. The 142 tests cover pure logic well and nothing else.
 - Store declarations — App Privacy, Data Safety, Health Connect
   justifications — from one data inventory.
-- Accessibility pass with VoiceOver and TalkBack, 200% text, tap targets.
+- Accessibility: **names done 2026-08-25** — 28 of 118 controls had neither
+  a role nor a label, so a screen reader announced them as "button" and
+  nothing else. Selections carry their checked state too, and a test holds it.
+  Still to do: an actual pass with VoiceOver and TalkBack on a device, 200%
+  text, and tap-target sizes.
 - React Navigation, replacing manual tab state (no back stack, no deep links,
   no restoration).
-- Continue the `App.tsx` decomposition. 8,274 → 5,853 so far; components
-  themselves are untouched.
+- ~~Continue the `App.tsx` decomposition~~ — **done 2026-08-25.** 8,274 →
+  900, with eleven screen modules under `mobile/src/screens/` and the shared
+  furniture in `mobile/src/ui.tsx`. App.tsx is now the shell: auth, sync, the
+  tab bar and the offline banner. The screens themselves are still large —
+  Today and Log are over a thousand lines each — and splitting those further
+  is worth doing when one of them is next opened for its own sake.
 
 ---
 

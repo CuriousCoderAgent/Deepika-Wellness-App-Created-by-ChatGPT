@@ -30,9 +30,9 @@ import {
   sessionCookieName,
   verifyCredentials,
 } from "@/lib/auth";
-import { authRateLimitKey, verifyAccount } from "@/lib/accounts";
+import { rateLimitKey, verifyAccount } from "@/lib/accounts";
 import {
-  consumeAuthRateLimit,
+  consumeRateLimit,
   deleteAccountData,
   isConfigured,
   readOwnedPrivateFilePaths,
@@ -99,9 +99,9 @@ export async function DELETE(req: Request) {
     );
 
   try {
-    const allowed = await consumeAuthRateLimit({
+    const allowed = await consumeRateLimit({
       scope: "delete-account",
-      keyHash: authRateLimitKey("delete-account", clientAddress(req)),
+      keyHash: rateLimitKey("delete-account", clientAddress(req)),
       limit: 5,
       windowSeconds: 15 * 60,
     });

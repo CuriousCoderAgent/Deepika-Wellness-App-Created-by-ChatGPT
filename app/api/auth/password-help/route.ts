@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import {
-  authRateLimitKey,
+  rateLimitKey,
   beginPasswordReset,
   cancelPasswordReset,
 } from "@/lib/accounts";
-import { consumeAuthRateLimit, isConfigured } from "@/lib/db";
+import { consumeRateLimit, isConfigured } from "@/lib/db";
 import { sendPasswordResetEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
@@ -43,9 +43,9 @@ export async function POST(req: Request) {
 
   try {
     if (isConfigured()) {
-      const addressAllowed = await consumeAuthRateLimit({
+      const addressAllowed = await consumeRateLimit({
         scope: "password-help-address",
-        keyHash: authRateLimitKey("password-help-address", clientAddress(req)),
+        keyHash: rateLimitKey("password-help-address", clientAddress(req)),
         limit: 10,
         windowSeconds: 15 * 60,
       });
@@ -55,9 +55,9 @@ export async function POST(req: Request) {
         return genericResponse();
       }
 
-      const identifierAllowed = await consumeAuthRateLimit({
+      const identifierAllowed = await consumeRateLimit({
         scope: "password-help-identifier",
-        keyHash: authRateLimitKey(
+        keyHash: rateLimitKey(
           "password-help-identifier",
           identifier || "empty",
         ),

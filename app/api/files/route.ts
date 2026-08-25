@@ -1,8 +1,8 @@
 import { del, put } from "@vercel/blob";
 import { NextResponse } from "next/server";
-import { authRateLimitKey } from "@/lib/accounts";
+import { rateLimitKey } from "@/lib/accounts";
 import {
-  consumeAuthRateLimit,
+  consumeRateLimit,
   isConfigured,
   markPrivateFileDeleted,
   registerPrivateFile,
@@ -46,9 +46,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const addressAllowed = await consumeAuthRateLimit({
+    const addressAllowed = await consumeRateLimit({
       scope: "file-upload-address",
-      keyHash: authRateLimitKey("file-upload-address", clientAddress(request)),
+      keyHash: rateLimitKey("file-upload-address", clientAddress(request)),
       limit: 60,
       windowSeconds: 15 * 60,
     });
@@ -58,9 +58,9 @@ export async function POST(request: Request) {
         { status: 429, headers: NO_STORE },
       );
     }
-    const ownerAllowed = await consumeAuthRateLimit({
+    const ownerAllowed = await consumeRateLimit({
       scope: "file-upload-owner",
-      keyHash: authRateLimitKey("file-upload-owner", user.sub),
+      keyHash: rateLimitKey("file-upload-owner", user.sub),
       limit: 30,
       windowSeconds: 15 * 60,
     });

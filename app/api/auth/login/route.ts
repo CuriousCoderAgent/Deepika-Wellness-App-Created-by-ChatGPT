@@ -6,8 +6,8 @@ import {
   sessionMaxAge,
   verifyCredentials,
 } from "@/lib/auth";
-import { authRateLimitKey, verifyAccount } from "@/lib/accounts";
-import { consumeAuthRateLimit, isConfigured } from "@/lib/db";
+import { rateLimitKey, verifyAccount } from "@/lib/accounts";
+import { consumeRateLimit, isConfigured } from "@/lib/db";
 import { encodeUserCookie, USER_COOKIE } from "@/lib/session-client";
 
 export const runtime = "nodejs";
@@ -62,9 +62,9 @@ export async function POST(req: Request) {
 
   if (isConfigured()) {
     try {
-      const addressAllowed = await consumeAuthRateLimit({
+      const addressAllowed = await consumeRateLimit({
         scope: "login-address",
-        keyHash: authRateLimitKey("login-address", clientAddress(req)),
+        keyHash: rateLimitKey("login-address", clientAddress(req)),
         limit: 20,
         windowSeconds: 15 * 60,
       });
@@ -74,9 +74,9 @@ export async function POST(req: Request) {
           { status: 429 },
         );
       }
-      const accountAllowed = await consumeAuthRateLimit({
+      const accountAllowed = await consumeRateLimit({
         scope: "login-account",
-        keyHash: authRateLimitKey("login-account", username.slice(0, 254)),
+        keyHash: rateLimitKey("login-account", username.slice(0, 254)),
         limit: 10,
         windowSeconds: 15 * 60,
       });

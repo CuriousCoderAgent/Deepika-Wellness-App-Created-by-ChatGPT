@@ -13,10 +13,10 @@
 import { NextResponse } from "next/server";
 import { cookies, headers } from "next/headers";
 import { readSessionToken, sessionCookieName } from "@/lib/auth";
-import { authRateLimitKey } from "@/lib/accounts";
+import { rateLimitKey } from "@/lib/accounts";
 import {
   blockConnection,
-  consumeAuthRateLimit,
+  consumeRateLimit,
   createConnectionRequest,
   isConfigured,
   readCircleProfile,
@@ -93,9 +93,9 @@ export async function POST(req: Request) {
   try {
     // Without this, the anti-enumeration response above is worthless: someone
     // could simply try every plausible username and read the timing.
-    const allowed = await consumeAuthRateLimit({
+    const allowed = await consumeRateLimit({
       scope: "circle-request",
-      keyHash: authRateLimitKey("circle-request", user!.sub),
+      keyHash: rateLimitKey("circle-request", user!.sub),
       limit: 20,
       windowSeconds: 60 * 60,
     });

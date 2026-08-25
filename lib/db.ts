@@ -535,7 +535,18 @@ export async function consumePasswordResetToken(
 }
 
 /** Atomic fixed-window limiter; only privacy-preserving hashes reach the DB. */
-export async function consumeAuthRateLimit(input: {
+/**
+ * One attempt against a rolling window, counted in the database.
+ *
+ * Keyed by an opaque (scope, key) pair and used well beyond signing in —
+ * file uploads, circle requests, and the coach. The table is still called
+ * `auth_rate_limit` because renaming it is a migration and the name is only
+ * visible to whoever reads the schema; nothing about the mechanism is
+ * specific to auth.
+ *
+ * Returns true while she is **within** the limit.
+ */
+export async function consumeRateLimit(input: {
   scope: string;
   keyHash: string;
   limit: number;

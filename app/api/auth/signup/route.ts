@@ -16,7 +16,7 @@
 
 import { NextResponse } from "next/server";
 import {
-  authRateLimitKey,
+  rateLimitKey,
   createAccount,
   emailProblem,
   normaliseUsername,
@@ -30,7 +30,7 @@ import {
   sessionMaxAge,
 } from "@/lib/auth";
 import {
-  consumeAuthRateLimit,
+  consumeRateLimit,
   isConfigured,
   readAccount,
   readAccountByEmail,
@@ -95,9 +95,9 @@ export async function POST(req: Request) {
   const client = typeof body.client === "string" ? body.client : "";
 
   try {
-    const allowed = await consumeAuthRateLimit({
+    const allowed = await consumeRateLimit({
       scope: "signup-address",
-      keyHash: authRateLimitKey("signup-address", clientAddress(req)),
+      keyHash: rateLimitKey("signup-address", clientAddress(req)),
       limit: 5,
       windowSeconds: 60 * 60,
     });

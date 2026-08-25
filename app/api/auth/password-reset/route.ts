@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import {
-  authRateLimitKey,
+  rateLimitKey,
   passwordProblem,
   resetPassword,
 } from "@/lib/accounts";
 import { sessionCookieName } from "@/lib/auth";
-import { consumeAuthRateLimit, isConfigured } from "@/lib/db";
+import { consumeRateLimit, isConfigured } from "@/lib/db";
 import { USER_COOKIE } from "@/lib/session-client";
 
 export const runtime = "nodejs";
@@ -51,16 +51,16 @@ export async function POST(req: Request) {
   if (!token || !isConfigured()) return invalidLink();
 
   try {
-    const addressAllowed = await consumeAuthRateLimit({
+    const addressAllowed = await consumeRateLimit({
       scope: "password-reset-address",
-      keyHash: authRateLimitKey("password-reset-address", clientAddress(req)),
+      keyHash: rateLimitKey("password-reset-address", clientAddress(req)),
       limit: 10,
       windowSeconds: 15 * 60,
     });
     if (!addressAllowed) return invalidLink();
-    const tokenAllowed = await consumeAuthRateLimit({
+    const tokenAllowed = await consumeRateLimit({
       scope: "password-reset-token",
-      keyHash: authRateLimitKey("password-reset-token", token),
+      keyHash: rateLimitKey("password-reset-token", token),
       limit: 5,
       windowSeconds: 15 * 60,
     });

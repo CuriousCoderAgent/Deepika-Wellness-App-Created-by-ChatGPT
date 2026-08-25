@@ -212,7 +212,7 @@ function resetTokenHash(token: string): string {
  * Stable, non-reversible database keys for anonymous rate limits. AUTH_SECRET
  * is already required in production and keeps emails/IPs out of the limiter.
  */
-export function authRateLimitKey(scope: string, value: string): string {
+export function rateLimitKey(scope: string, value: string): string {
   const configured = process.env.AUTH_SECRET?.trim();
   const secret =
     configured && Buffer.byteLength(configured, "utf8") >= 32

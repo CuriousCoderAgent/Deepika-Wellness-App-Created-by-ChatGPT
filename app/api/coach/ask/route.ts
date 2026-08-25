@@ -28,7 +28,13 @@ import { cookies, headers } from "next/headers";
 import OpenAI from "openai";
 import { readSessionToken, sessionCookieName } from "@/lib/auth";
 import { randomUUID } from "node:crypto";
-import { isConfigured, readMemberDoc, writeMemberDoc } from "@/lib/db";
+import {
+  consumeRateLimit,
+  isConfigured,
+  readMemberDoc,
+  writeMemberDoc,
+} from "@/lib/db";
+import { rateLimitKey } from "@/lib/accounts";
 import {
   buildCoachContext,
   COACH_INSTRUCTIONS,
@@ -47,22 +53,38 @@ const MAX_HISTORY = 12;
 const MAX_MESSAGE = 1000;
 
 /**
- * A rough ceiling per member per hour.
+ * A ceiling per member per hour, in the database.
  *
- * In memory, so it resets on deploy and is per-instance — which is fine for
- * what it is guarding, which is a stuck client or a bored member, not an
- * adversary. Anything stronger belongs in the platform, not here.
+ * This used to be a Map in module scope, described as adequate for "a stuck
+ * client or a bored member, not an adversary". On a serverless runtime it was
+ * not adequate for either: every cold start began with an empty Map, and
+ * concurrent instances each kept their own, so the real ceiling was forty per
+ * instance per lifetime — which is to say, no ceiling at all.
+ *
+ * Every question here costs a model call, so the thing being protected is a
+ * bill as much as it is the service.
+ *
+ * It reuses the same durable limiter the auth routes use. That table is
+ * called `auth_rate_limit` for historical reasons and is keyed by an opaque
+ * (scope, key) pair; nothing about it is specific to signing in.
  */
-const RATE = new Map<string, number[]>();
 const MAX_PER_HOUR = 40;
 
-function overRate(userId: string): boolean {
-  const now = Date.now();
-  const hourAgo = now - 3_600_000;
-  const recent = (RATE.get(userId) ?? []).filter((at) => at > hourAgo);
-  recent.push(now);
-  RATE.set(userId, recent);
-  return recent.length > MAX_PER_HOUR;
+async function overRate(userId: string): Promise<boolean> {
+  /*
+   * With no database — local development and the demo account — there is
+   * nothing to count in. Failing open is right here: the alternative is an
+   * app whose coach stops answering the moment the database is unreachable,
+   * and the model key is not exposed to those environments anyway.
+   */
+  if (!isConfigured()) return false;
+  const allowed = await consumeRateLimit({
+    scope: "coach-ask",
+    keyHash: rateLimitKey("coach-ask", userId),
+    limit: MAX_PER_HOUR,
+    windowSeconds: 3600,
+  });
+  return !allowed;
 }
 
 async function session() {
@@ -192,7 +214,7 @@ export async function POST(req: Request) {
   }
 
   /* 3. Slow down a client that has got stuck. -------------------------- */
-  if (overRate(user.sub))
+  if (await overRate(user.sub))
     return NextResponse.json({
       reply:
         "Let's pick this up in a little while — I have answered a lot in the last hour and I would rather give you a considered reply than a fast one.",
