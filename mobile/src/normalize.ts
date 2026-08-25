@@ -77,7 +77,11 @@ function normalizeAction(
     ...action,
     dayOffset: action.dayOffset ?? 0,
     domain,
-    why: action.why ?? "This supports the focus agreed with your coach.",
+    // Nothing was agreed with anybody for most members — see the note on
+    // actionTemplate below.
+    why:
+      action.why ??
+      "Part of today's plan. The reason will appear once your plan is built.",
     minimum: domain === "nutrition" ? { ...minimum, minutes: 0 } : minimum,
     target: domain === "nutrition" ? { ...target, minutes: 0 } : target,
     stretch: domain === "nutrition" ? { ...stretch, minutes: 0 } : stretch,
@@ -86,6 +90,19 @@ function normalizeAction(
   };
 }
 
+/**
+ * What a domain shows when nothing has been published for it today.
+ *
+ * Reachable more often than it looks: before the first plan is generated,
+ * offline, and any time the server has not filled a domain. It used to talk
+ * about what she and her coach had agreed and what to ask her coach — and
+ * most members have no coach, so a first-run screen opened on a promise
+ * about a person who did not exist.
+ *
+ * These now say only what is true of a member on her own. Vera is still
+ * reachable and is still called a coach in the app, so pointing at the Coach
+ * tab is honest; asserting that a human agreed a target is not.
+ */
 function actionTemplate(memberId: string, domain: ActionDomain): DailyAction {
   const common = { memberId, dayOffset: 0, completed: null as null };
   const id = `legacy-${memberId}-${domain}-today`;
@@ -98,7 +115,7 @@ function actionTemplate(memberId: string, domain: ActionDomain): DailyAction {
       why: "No movement session has been published for today. This check-in keeps the domain visible without inventing an exercise.",
       minimum: { label: "Review today’s guidance", minutes: 0 },
       target: { label: "Note what feels manageable", minutes: 0 },
-      stretch: { label: "Ask your coach a question", minutes: 0 },
+      stretch: { label: "Ask a question in the Coach tab", minutes: 0 },
       measurement: { kind: "check_in", value: 1, unit: "plan check-in" },
     });
   if (domain === "walking")
@@ -107,10 +124,10 @@ function actionTemplate(memberId: string, domain: ActionDomain): DailyAction {
       id,
       title: "Walking plan check-in",
       domain,
-      why: "No walking target has been published for today. Review your context before you and your coach agree a suitable target.",
+      why: "No walking target has been published for today. Set your own from how the last few days have actually felt.",
       minimum: { label: "Review recent activity", minutes: 0 },
       target: { label: "Note what felt comfortable", minutes: 0 },
-      stretch: { label: "Share context with your coach", minutes: 0 },
+      stretch: { label: "Note anything worth remembering", minutes: 0 },
       measurement: { kind: "check_in", value: 1, unit: "activity check-in" },
     });
   if (domain === "nutrition")
@@ -119,7 +136,7 @@ function actionTemplate(memberId: string, domain: ActionDomain): DailyAction {
       id,
       title: "Record one main meal",
       domain,
-      why: "A simple meal record gives you and your coach useful context without judging the day.",
+      why: "A simple meal record gives useful context without judging the day.",
       minimum: { label: "Record one meal", minutes: 0 },
       target: { label: "Add a fullness or energy note", minutes: 0 },
       stretch: { label: "Prepare one easy option for tomorrow", minutes: 0 },

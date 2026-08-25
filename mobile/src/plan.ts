@@ -62,8 +62,8 @@ const OUTLINE: { phase: JourneyPhase; focus: string[]; modules: string[] }[] = [
   },
   {
     phase: "Build",
-    focus: ["Consolidate training volume", "Review progress with your coach"],
-    modules: ["Strength progression", "Coach review"],
+    focus: ["Consolidate training volume", "Review what has actually held"],
+    modules: ["Strength progression", "Review"],
   },
   {
     phase: "Consolidate",
