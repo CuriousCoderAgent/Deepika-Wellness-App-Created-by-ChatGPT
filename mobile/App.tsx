@@ -155,16 +155,42 @@ import {
 import { canonicalCity, suggestCities } from "./src/cities";
 import { AWARDS, awardMetrics, type AwardIcon } from "./src/awards";
 import { Card, ScrollTopContext, useScrollToTop } from "./src/ui";
-import { Today, ActionCard, DomainRow, MovementSession, PlanNotices, DailySnapshot, DailyInsight, CircleToday, EngagementPanel, CoachConnectionCard, DOMAIN_ICONS, isToday, freshness } from "./src/screens/Today";
+import { ToastProvider } from "./src/Toast";
+import {
+  Today,
+  ActionCard,
+  DomainRow,
+  MovementSession,
+  PlanNotices,
+  DailySnapshot,
+  DailyInsight,
+  CircleToday,
+  EngagementPanel,
+  CoachConnectionCard,
+  DOMAIN_ICONS,
+  isToday,
+  freshness,
+} from "./src/screens/Today";
 import { Profile, YouHub, YouSection } from "./src/screens/You";
 import { Pulse } from "./src/screens/Pulse";
 import { Log, NoteCapture, Food } from "./src/screens/Log";
 import { AboutYou } from "./src/screens/AboutYou";
-import { Onboarding, DetailQuestions, EventQuestions, GOAL_GROUP_LABELS } from "./src/screens/Onboarding";
+import {
+  Onboarding,
+  DetailQuestions,
+  EventQuestions,
+  GOAL_GROUP_LABELS,
+} from "./src/screens/Onboarding";
 import { Coach } from "./src/screens/Coach";
 import { Reports, HealthConnectionPanel } from "./src/screens/HealthAndReports";
 import { Circle, ConsistencyGrid } from "./src/screens/Circle";
-import { Journey, LearningLibrary, History, Progress, Awards } from "./src/screens/PlanSections";
+import {
+  Journey,
+  LearningLibrary,
+  History,
+  Progress,
+  Awards,
+} from "./src/screens/PlanSections";
 import { Login, AuthMode } from "./src/screens/Login";
 import {
   buildLogFeed,
@@ -584,7 +610,11 @@ function MemberApp({
     return (
       <View style={s.loading}>
         <Text style={s.error}>Your plan could not be loaded.</Text>
-        <Pressable accessibilityRole="button" style={s.primaryButton} onPress={() => refresh()}>
+        <Pressable
+          accessibilityRole="button"
+          style={s.primaryButton}
+          onPress={() => refresh()}
+        >
           <Text style={s.primaryButtonText}>Try again</Text>
         </Pressable>
       </View>
@@ -680,9 +710,7 @@ function MemberApp({
               <ChevronLeft size={18} color={C.green} />
               <Text style={s.backRowText}>You</Text>
             </Pressable>
-            {youSection === "about" && (
-              <AboutYou doc={doc} update={update} />
-            )}
+            {youSection === "about" && <AboutYou doc={doc} update={update} />}
             {youSection === "circle" && (
               <Circle token={token} onUnreadChange={setCircleRequests} />
             )}
@@ -713,116 +741,122 @@ function MemberApp({
     .slice(0, 2);
   return (
     <SafeAreaView style={s.app} edges={["top", "left", "right"]}>
-      <StatusBar style="dark" />
-      <View style={s.topBar}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Go to Today"
-          style={s.wordmark}
-          onPress={() => setTab("today")}
-        >
-          <Image source={require("./assets/icon-v2.png")} style={s.topLogo} />
-          <View>
-            <Text style={s.topBrand}>Bharosa Wellness</Text>
-            <Text style={s.topBrandSub}>PRIVATE MEMBER SPACE</Text>
-          </View>
-        </Pressable>
-        <View style={s.topActions}>
-          {saving ? (
-            <Text style={s.saving}>Saving…</Text>
-          ) : queued ? (
-            <Text style={s.savingQueued}>Saved on this phone</Text>
-          ) : null}
+      {/* Above the scroll view and the tab bar, so a message that follows a
+          tap is not scrolled away with the list the tap happened in. */}
+      <ToastProvider>
+        <StatusBar style="dark" />
+        <View style={s.topBar}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Open profile"
-            onPress={() => setTab("profile")}
-            style={[s.topAvatar, tab === "profile" && s.topAvatarActive]}
+            accessibilityLabel="Go to Today"
+            style={s.wordmark}
+            onPress={() => setTab("today")}
           >
-            <Text style={s.topAvatarText}>{initials}</Text>
+            <Image source={require("./assets/icon-v2.png")} style={s.topLogo} />
+            <View>
+              <Text style={s.topBrand}>Bharosa Wellness</Text>
+              <Text style={s.topBrandSub}>PRIVATE MEMBER SPACE</Text>
+            </View>
           </Pressable>
+          <View style={s.topActions}>
+            {saving ? (
+              <Text style={s.saving}>Saving…</Text>
+            ) : queued ? (
+              <Text style={s.savingQueued}>Saved on this phone</Text>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open profile"
+              onPress={() => setTab("profile")}
+              style={[s.topAvatar, tab === "profile" && s.topAvatarActive]}
+            >
+              <Text style={s.topAvatarText}>{initials}</Text>
+            </Pressable>
+          </View>
         </View>
-      </View>
-      {(!online || queued) && (
-        <View style={s.offlineBar}>
-          <CloudOff size={14} color={C.calm} />
-          <Text style={s.offlineText}>
-            {queued
-              ? "Saved on this phone. It will reach your coach when you are back online."
-              : lastSyncedAt
-                ? `Offline. Showing your plan as of ${new Date(lastSyncedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}.`
-                : "Offline. Showing the last plan saved on this phone."}
-          </Text>
+        {(!online || queued) && (
+          <View style={s.offlineBar}>
+            <CloudOff size={14} color={C.calm} />
+            <Text style={s.offlineText}>
+              {queued
+                ? "Saved on this phone. It will reach your coach when you are back online."
+                : lastSyncedAt
+                  ? `Offline. Showing your plan as of ${new Date(lastSyncedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}.`
+                  : "Offline. Showing the last plan saved on this phone."}
+            </Text>
+          </View>
+        )}
+        <ScrollView
+          ref={scrollRef}
+          style={s.scroll}
+          contentContainerStyle={s.content}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              tintColor={C.green}
+              onRefresh={() => {
+                setRefreshing(true);
+                refresh();
+              }}
+            />
+          }
+        >
+          <ScrollTopContext.Provider value={scrollToTop}>
+            {content}
+          </ScrollTopContext.Provider>
+          <View style={{ height: 30 + insets.bottom }} />
+        </ScrollView>
+        <View
+          style={[s.tabShell, { paddingBottom: Math.max(7, insets.bottom) }]}
+        >
+          <View accessibilityRole="tablist" style={s.tabBar}>
+            {tabs.map((item) => {
+              const active = tab === item.key;
+              return (
+                <Pressable
+                  key={item.key}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={
+                    item.key === "coach" && unreadFromCoach > 0
+                      ? `${item.label} tab, ${unreadFromCoach} unread`
+                      : item.key === "profile" && circleRequests > 0
+                        ? `${item.label} tab, ${circleRequests} connection request${circleRequests === 1 ? "" : "s"}`
+                        : `${item.label} tab`
+                  }
+                  style={({ pressed }) => [s.tab, pressed && s.tabPressed]}
+                  onPress={() => setTab(item.key)}
+                >
+                  <View style={[s.tabIcon, active && s.tabIconActive]}>
+                    <item.Icon
+                      size={20}
+                      strokeWidth={active ? 2.35 : 1.9}
+                      color={active ? C.greenDeep : C.faint}
+                    />
+                    {item.key === "coach" && unreadFromCoach > 0 && (
+                      <View style={s.tabBadge}>
+                        <Text style={s.tabBadgeText}>
+                          {unreadFromCoach > 9 ? "9+" : unreadFromCoach}
+                        </Text>
+                      </View>
+                    )}
+                    {item.key === "profile" && circleRequests > 0 && (
+                      <View style={s.tabBadge}>
+                        <Text style={s.tabBadgeText}>
+                          {circleRequests > 9 ? "9+" : circleRequests}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[s.tabLabel, active && s.tabLabelActive]}>
+                    {item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
-      )}
-      <ScrollView
-        ref={scrollRef}
-        style={s.scroll}
-        contentContainerStyle={s.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            tintColor={C.green}
-            onRefresh={() => {
-              setRefreshing(true);
-              refresh();
-            }}
-          />
-        }
-      >
-        <ScrollTopContext.Provider value={scrollToTop}>
-          {content}
-        </ScrollTopContext.Provider>
-        <View style={{ height: 30 + insets.bottom }} />
-      </ScrollView>
-      <View style={[s.tabShell, { paddingBottom: Math.max(7, insets.bottom) }]}>
-        <View accessibilityRole="tablist" style={s.tabBar}>
-          {tabs.map((item) => {
-            const active = tab === item.key;
-            return (
-              <Pressable
-                key={item.key}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                accessibilityLabel={
-                  item.key === "coach" && unreadFromCoach > 0
-                    ? `${item.label} tab, ${unreadFromCoach} unread`
-                    : item.key === "profile" && circleRequests > 0
-                      ? `${item.label} tab, ${circleRequests} connection request${circleRequests === 1 ? "" : "s"}`
-                      : `${item.label} tab`
-                }
-                style={({ pressed }) => [s.tab, pressed && s.tabPressed]}
-                onPress={() => setTab(item.key)}
-              >
-                <View style={[s.tabIcon, active && s.tabIconActive]}>
-                  <item.Icon
-                    size={20}
-                    strokeWidth={active ? 2.35 : 1.9}
-                    color={active ? C.greenDeep : C.faint}
-                  />
-                  {item.key === "coach" && unreadFromCoach > 0 && (
-                    <View style={s.tabBadge}>
-                      <Text style={s.tabBadgeText}>
-                        {unreadFromCoach > 9 ? "9+" : unreadFromCoach}
-                      </Text>
-                    </View>
-                  )}
-                  {item.key === "profile" && circleRequests > 0 && (
-                    <View style={s.tabBadge}>
-                      <Text style={s.tabBadgeText}>
-                        {circleRequests > 9 ? "9+" : circleRequests}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={[s.tabLabel, active && s.tabLabelActive]}>
-                  {item.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
+      </ToastProvider>
     </SafeAreaView>
   );
 }

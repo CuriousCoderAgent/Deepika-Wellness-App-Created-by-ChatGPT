@@ -3,6 +3,7 @@ import { Pressable, Text, View } from "react-native";
 import { s } from "../design/styles";
 import { type DietPattern, AGE_BANDS, GOAL_OPTIONS, goalIdsFrom, goalLabel, isoWeeksFromToday, needsEventDetail, weeksUntil, type AgeBand, type Equipment, type EventKind, type LifeStage, type SleepBaseline, type Weekday } from "../profile";
 import { type MemberDoc } from "../types";
+import { useToast } from "../Toast";
 import { Card } from "../ui";
 import { DetailQuestions, EventQuestions, GOAL_GROUP_LABELS } from "./Onboarding";
 
@@ -71,14 +72,29 @@ export function AboutYou({
       ? list.filter((item) => item !== value)
       : [...list, value];
 
-  const toggleGoal = (id: string) =>
-    setGoals((current) =>
-      current.includes(id)
-        ? current.filter((item) => item !== id)
-        : current.length < 3
-          ? [...current, id]
-          : current,
-    );
+  const toast = useToast();
+  /**
+   * Three goals, and the fourth tap says so.
+   *
+   * It used to return the list unchanged: the tap was swallowed, the option
+   * stayed unselected, and nothing anywhere explained it. The counter above
+   * the list is off screen by the time she reaches the last group, and
+   * reading a counter is not what anyone does while tapping.
+   *
+   * The message says how to change her mind rather than only refusing, since
+   * "you cannot" is not useful when what she wants is a different three.
+   */
+  const toggleGoal = (id: string) => {
+    if (goals.includes(id)) {
+      setGoals(goals.filter((item) => item !== id));
+      return;
+    }
+    if (goals.length >= 3) {
+      toast("Three goals is the most. Tap one you have chosen to swap it.");
+      return;
+    }
+    setGoals([...goals, id]);
+  };
 
   const save = () => {
     const labels = goals.map(goalLabel);
@@ -168,7 +184,11 @@ export function AboutYou({
                     key={option.id}
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: selected }}
-                    style={[s.option, selected && s.optionActive]}
+                    style={[
+                      s.option,
+                      selected && s.optionActive,
+                      !selected && goals.length >= 3 && s.optionUnavailable,
+                    ]}
                     onPress={() => {
                       toggleGoal(option.id);
                       edited();

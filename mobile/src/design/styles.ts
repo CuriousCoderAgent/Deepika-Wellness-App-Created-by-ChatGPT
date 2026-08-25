@@ -1705,6 +1705,28 @@ export const s = StyleSheet.create({
     textAlign: "center",
     marginTop: 20,
   },
+  /* Floats above the tab bar, clear of the thumb and of the list. */
+  toast: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 96,
+    alignItems: "center",
+  },
+  toastPill: {
+    maxWidth: "88%",
+    borderRadius: 22,
+    paddingVertical: 11,
+    paddingHorizontal: 18,
+    backgroundColor: C.ink,
+  },
+  toastText: {
+    color: "white",
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18,
+    textAlign: "center",
+  },
   tabShell: {
     backgroundColor: C.card,
     paddingHorizontal: 8,
@@ -1866,6 +1888,13 @@ export const s = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
+  /*
+   * Still tappable, and still readable.
+   *
+   * Not disabled: tapping is how she finds out why, and a control that does
+   * nothing and looks like nothing is the state this replaced.
+   */
+  optionUnavailable: { opacity: 0.45 },
   optionActive: { backgroundColor: C.greenTint, borderColor: C.green },
   optionText: { color: C.soft, fontSize: 14, fontWeight: "600" },
   optionTextActive: { color: C.greenDeep, fontWeight: "800" },

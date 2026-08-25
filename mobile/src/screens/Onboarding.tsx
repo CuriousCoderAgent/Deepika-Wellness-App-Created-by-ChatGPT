@@ -8,6 +8,7 @@ import { preferred } from "../meal-estimate";
 import { AGE_BANDS, DIET_PATTERNS, EQUIPMENT_OPTIONS, EVENT_KINDS, GOAL_OPTIONS, LIFE_STAGES, SLEEP_BASELINES, WEEKDAYS, WEEKLY_KM_OPTIONS, WEEKS_AWAY_OPTIONS, goalIdsFrom, goalLabel, isoWeeksFromToday, needsEventDetail, weeksUntil, type AgeBand, type DietPattern, type Equipment, type EventKind, type GoalGroup, type LifeStage, type SleepBaseline, type Weekday } from "../profile";
 import { READINESS_QUESTIONS, evaluateReadiness, readinessIsComplete, readinessMessage, type ReadinessAnswer } from "../readiness";
 import { type MemberDoc } from "../types";
+import { useToast } from "../Toast";
 import { Card } from "../ui";
 
 export function Onboarding({
@@ -119,14 +120,33 @@ export function Onboarding({
   const [aiConsent, setAiConsent] = useState(
     saved?.consent.aiPersonalisation ?? false,
   );
-  const toggleGoal = (value: string) =>
-    setGoals((current) =>
-      current.includes(value)
-        ? current.filter((item) => item !== value)
-        : current.length < 3
-          ? [...current, value]
-          : current,
-    );
+  const toast = useToast();
+  /**
+   * Three goals, and the fourth tap says so.
+   *
+   * It used to return the list unchanged: the tap was swallowed, the option
+   * stayed unselected, and nothing anywhere explained it. The counter above
+   * the list is off screen by the time she reaches the last group, and
+   * reading a counter is not what anyone does while tapping.
+   *
+   * The message says how to change her mind rather than only refusing, since
+   * "you cannot" is not useful when what she wants is a different three.
+   *
+   * Reads `goals` directly rather than using the updater form, because
+   * showing the toast is a side effect and React is free to run an updater
+   * more than once — which would say it twice.
+   */
+  const toggleGoal = (value: string) => {
+    if (goals.includes(value)) {
+      setGoals(goals.filter((item) => item !== value));
+      return;
+    }
+    if (goals.length >= 3) {
+      toast("Three goals is the most. Tap one you have chosen to swap it.");
+      return;
+    }
+    setGoals([...goals, value]);
+  };
   /** Add or remove a value in a multi-select answer. */
   const toggleIn = <T,>(list: T[], value: T): T[] =>
     list.includes(value)
@@ -319,9 +339,13 @@ export function Onboarding({
           order.
         </Text>
         <View style={s.selectionCount}>
-          <Text style={s.selectionCountText}>{goals.length}/3 selected</Text>
+          <Text style={s.selectionCountText}>
+            {goals.length} of 3 chosen
+          </Text>
           {goals.length === 3 && (
-            <Text style={s.selectionLimit}>Maximum reached</Text>
+            <Text style={s.selectionLimit}>
+              Tap a chosen goal to swap it
+            </Text>
           )}
         </View>
         {GOAL_GROUP_LABELS.map((group) => (
@@ -337,7 +361,11 @@ export function Onboarding({
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: selected }}
                     key={option.id}
-                    style={[s.option, selected && s.optionActive]}
+                    style={[
+                      s.option,
+                      selected && s.optionActive,
+                      !selected && goals.length >= 3 && s.optionUnavailable,
+                    ]}
                     onPress={() => toggleGoal(option.id)}
                   >
                     <View style={s.goalOptionText}>
