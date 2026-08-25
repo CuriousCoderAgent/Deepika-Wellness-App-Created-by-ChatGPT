@@ -2,7 +2,7 @@
 
 **Last updated:** 24 August 2026, after the external audit response
 (`docs/AUDIT-RESPONSE-2026-08-24.md`) and a device-testing round.
-**State:** 241 tests passing, mobile and server typecheck clean, `next build`
+**State:** 269 tests passing, mobile and server typecheck clean, `next build`
 clean. All eight audit P0s closed; P1 and P2 closed. Every movement in the
 library has photography.
 
@@ -119,9 +119,12 @@ says so rather than quietly producing a strength week.
 
 ### Still open from this section
 
-- **Onboarding does not resume.** Nothing is saved until `finish()`, so
-  closing the app mid-flow loses every answer. The audit flags this
-  separately and it is now the largest remaining gap in this area.
+- ~~Onboarding does not resume~~ — **done 2026-08-25.** Every step writes.
+  `completed` stays false until the end, and three things stay withheld
+  because writing them early would be wrong: `onboardedAt` (starts her
+  twelve weeks), `readiness` (a half-answered screen evaluates to
+  "clear", the outcome that unlocks movement), and `detailConsent`
+  (would record a refusal she never made).
 - **Nutrition inputs** — pattern, preferences, allergies — are still not
   collected, so food prompts and the estimator have no personal context.
 - **Available time by weekday.** She picks which days, not how long on each.
@@ -159,8 +162,12 @@ says so rather than quietly producing a strength week.
 - **Movement session model.** Session-level RPE captured once rather than per
   exercise; rest timer; set checkboxes; "stop workout" without completing
   every card; swap within coach-approved alternatives.
-- **Pain capture detail.** Location, severity, sudden or gradual, during or
-  after. Used to *route*, never to prescribe.
+- ~~Pain capture detail~~ — **done 2026-08-25.** Where, what it felt like,
+  when, and whether it stopped her. `mobile/src/pain.ts` routes on the
+  answers in three bands, and a test asserts no route can name a treatment or
+  a condition. The coach message and review recommendation are now written
+  only when a coach exists to read them — every report used to promise one.
+  The Radar carries the sentence rather than "pain was reported".
 - **Vera's rate limit is in memory**, per instance, and resets on deploy.
   Adequate for a pilot; not an abuse boundary.
 - **Message pagination.** The last 20 are loaded with no way back.
@@ -215,11 +222,23 @@ These cannot be closed by writing anything.
 
 ## The largest untested risk
 
-**No end-to-end member journey has ever been run.** Sign up → onboarding →
-readiness → first plan → complete a session → log a meal → check in → return
-the next day and find the app remembered correctly.
+**No end-to-end member journey has ever been run on a device.** Sign up →
+onboarding → readiness → first plan → complete a session → log a meal →
+check in → return the next day and find the app remembered correctly.
 
 Every bug found on the device this week — Vera's vanishing replies, the
 permanently stuck review banner, the dose escalating on refresh — would have
-been caught by one careful two-day run. This is worth more than any single
-item above.
+been caught by one careful two-day run. **This is still worth more than any
+single item above**, and it still needs a person with a phone.
+
+What now exists is the logic half of it. Eight tests in `scripts/test.mjs`
+carry one document forward day by day through the real generator and the real
+adaptation rules: a fortnight of steady training, the same fortnight re-read
+eight times, pain and what must never un-pause it, a week of bad check-ins, a
+member who logs nothing, a member who answered nothing at sign-up, the program
+week against the calendar, and `consult_first` holding movement on all
+five days rather than lapsing after the first. Two were verified to fail when
+the rule they guard is removed.
+
+They exercise the seams between rules, which is where every bug this month
+actually lived. They cannot see a screen, so they replace none of the above.
