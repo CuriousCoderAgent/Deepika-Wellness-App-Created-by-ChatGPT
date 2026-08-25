@@ -73,7 +73,7 @@ export function Login({
         keyboardShouldPersistTaps="handled"
       >
         <LinearGradient colors={[C.greenDeep, "#0A6264"]} style={s.authHero}>
-          <Image source={require("./assets/icon-v2.png")} style={s.brandIcon} />
+          <Image source={require("../../assets/icon-v2.png")} style={s.brandIcon} />
           <Text style={s.brand}>BHAROSA WELLNESS</Text>
           <Text style={s.loginTitle}>
             {mode === "signup"

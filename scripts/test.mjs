@@ -12,7 +12,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   daysBetween,
@@ -4449,4 +4449,35 @@ test("every option list offers only values the rules accept", () => {
     for (const value of options)
       assert.ok(accepted.has(value), `${name} does not accept "${value}"`);
   }
+});
+
+test("every asset a screen requires actually exists", () => {
+  // TypeScript does not check the string inside require(), so moving a file
+  // silently breaks its asset paths. Extracting the sign-in screen from
+  // App.tsx into src/screens/ left require("./assets/icon-v2.png") pointing
+  // at a directory that does not exist there — typecheck passed, tests
+  // passed, next build passed, and the EAS build failed in the Bundle
+  // JavaScript phase eight minutes later.
+  const mobile = new URL("../mobile/", import.meta.url).pathname.replace(
+    /^\//,
+    "",
+  );
+  const broken = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!/node_modules|\.expo|assets|android|ios/.test(full)) walk(full);
+      } else if (/\.(tsx?|jsx?)$/.test(entry.name)) {
+        const source = readFileSync(full, "utf8");
+        for (const m of source.matchAll(/require\("(\.[^"]+)"\)/g)) {
+          const target = join(dirname(full), m[1]);
+          if (!existsSync(target))
+            broken.push(`${full.split(/[\/]/).pop()} -> ${m[1]}`);
+        }
+      }
+    }
+  };
+  walk(mobile);
+  assert.deepEqual(broken, [], "require() paths that resolve to nothing");
 });
