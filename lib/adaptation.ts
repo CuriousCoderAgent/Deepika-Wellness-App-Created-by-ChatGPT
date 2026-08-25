@@ -23,6 +23,8 @@
 import type { EffortLevel } from "./types";
 
 /** One completed exercise, flattened from whatever the client recorded. */
+import { EXERCISE_BY_ID } from "./exercise-library";
+
 export interface SessionRecord {
   exerciseId: string;
   /** 1 very easy – 5 very hard. Her word, not a measurement. */
@@ -263,4 +265,82 @@ export function nextDose(
   if (step >= MAX_DOSE_STEP)
     return { step: Math.floor(MAX_DOSE_STEP / 2), changeExercise: "progress" };
   return { step: step + 1, changeExercise: null };
+}
+
+/**
+ * Fold new evidence into the dose ladder — new evidence, once only.
+ *
+ * A verdict is a *reading* of the last two sessions, not an event. This used
+ * to advance `steps[exerciseId]` from its stored value on every call, so
+ * re-running the generator against unchanged history walked the ladder up a
+ * rung each time: two "easy" sessions and six refreshes put a member six
+ * rungs higher, from 1×6 to 3×10, having done nothing at all in between.
+ *
+ * It was reachable in normal use, not theoretically. The client's
+ * once-a-day guard reads `planGeneratedOn`, which the mobile normaliser was
+ * dropping, so the guard never fired — and the Coach tab polls a full
+ * refresh every sixty seconds. Reading messages made her exercises harder.
+ *
+ * `doseAdaptedThrough` records the session date already folded in per
+ * exercise, so the same evidence cannot move the dose twice. Genuinely new
+ * evidence has a newer date and still applies immediately.
+ *
+ * Pain is exempt and deliberately re-applied every time: adding to a paused
+ * set is idempotent, and a movement that hurt must stay paused even if this
+ * record is somehow lost.
+ *
+ * Takes the pieces it reads rather than a whole member document. It lived in
+ * the generate route, which meant the rule that decides whether a member's
+ * exercises get harder could not be tested without standing up an HTTP
+ * handler — and it is the rule most worth testing in the whole file.
+ */
+export function applyAdaptation(input: {
+  /** Completed exercises, flattened from her workout logs. */
+  records: SessionRecord[];
+  /** Her recent check-ins, which decide the week's posture. */
+  signals: DailySignal[];
+  doseSteps?: Record<string, number>;
+  doseAdaptedThrough?: Record<string, string>;
+  pausedExerciseIds?: string[];
+}) {
+  const { records } = input;
+  const posture = weekPostureFor(input.signals).posture;
+  const steps: Record<string, number> = {
+    ...(input.doseSteps ?? {}),
+  };
+  const adaptedThrough: Record<string, string> = {
+    ...(input.doseAdaptedThrough ?? {}),
+  };
+  const paused = new Set(input.pausedExerciseIds ?? []);
+  const notes: string[] = [];
+
+  for (const exerciseId of new Set(records.map((r) => r.exerciseId))) {
+    const verdict = verdictFor(exerciseId, records);
+    if (verdict.adjustment === "stop_and_review") {
+      paused.add(exerciseId);
+      notes.push(verdict.reason);
+      continue;
+    }
+    // Already acted on this session. Re-reading it is not a new reason to move.
+    if (
+      verdict.latestSession &&
+      adaptedThrough[exerciseId] === verdict.latestSession
+    )
+      continue;
+
+    const current = steps[exerciseId] ?? 0;
+    const next = nextDose(current, verdict.adjustment, posture);
+    steps[exerciseId] = next.step;
+    if (verdict.latestSession)
+      adaptedThrough[exerciseId] = verdict.latestSession;
+    if (next.changeExercise === "progress") {
+      const harder = EXERCISE_BY_ID.get(exerciseId)?.progressesTo;
+      if (harder) {
+        steps[harder] = 0;
+        notes.push(verdict.reason);
+      }
+    }
+    if (verdict.adjustment !== "hold") notes.push(verdict.reason);
+  }
+  return { steps, adaptedThrough, paused: [...paused], posture, notes };
 }

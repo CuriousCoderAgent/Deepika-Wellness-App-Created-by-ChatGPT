@@ -637,6 +637,7 @@ import {
   doseAt,
   nextDose,
   MAX_DOSE_STEP,
+  applyAdaptation,
 } from "../lib/adaptation.ts";
 import {
   generatePlan,
@@ -3838,4 +3839,212 @@ test("a half-answered readiness screen reads as clear, which is why it is never 
     false,
     "if this ever becomes true for a partial screen, the onboarding guard is no longer enough",
   );
+});
+
+
+/* ================================================================== *
+ * A fortnight in the life of one member
+ *
+ * Every test above this point checks one rule in isolation. Nothing has
+ * ever checked that the rules compose — that what the generator writes on
+ * Monday is what adaptation reads on Tuesday, and that a fortnight of
+ * ordinary use leaves a member somewhere sensible.
+ *
+ * That gap is where every bug found on the device this month lived: the
+ * dose escalating on refresh, the plan that never advanced a week, the
+ * profile dropped on sync. Each was a seam between two correct pieces.
+ *
+ * This runs the real generator and the real adaptation rules against a
+ * document that carries state forward day by day. It is not a substitute
+ * for using the app — it cannot see a screen — but it is the only thing
+ * that exercises the seams.
+ * ================================================================== */
+
+/** A day of training, as the app would record it. */
+const trainDay = (doc, date, { effort = 3, pain = false, skip = false } = {}) => {
+  const plan = generatePlan({
+    memberId: "m1",
+    week: doc.member.week,
+    goals: doc.onboarding?.goals ?? [],
+    availableMinutes: doc.onboarding?.availableMinutes ?? 30,
+    activityLevel: doc.onboarding?.activityLevel,
+    movementCaution: doc.onboarding?.movementCaution,
+    profile: doc.profile,
+    todayIso: date,
+    doseSteps: doc.doseSteps,
+    pausedExerciseIds: doc.pausedExerciseIds,
+    signals: doc.signals ?? [],
+    readiness: doc.readinessOutcome,
+  });
+
+  const records = skip
+    ? []
+    : plan.session.map((item) => ({
+        exerciseId: item.exerciseId,
+        perceivedEffort: effort,
+        level: "target",
+        pain,
+        date,
+      }));
+
+  const history = [...(doc.records ?? []), ...records];
+  const adapted = applyAdaptation({
+    records: history,
+    signals: doc.signals ?? [],
+    doseSteps: doc.doseSteps,
+    doseAdaptedThrough: doc.doseAdaptedThrough,
+    pausedExerciseIds: doc.pausedExerciseIds,
+  });
+
+  return {
+    ...doc,
+    records: history,
+    doseSteps: adapted.steps,
+    doseAdaptedThrough: adapted.adaptedThrough,
+    pausedExerciseIds: adapted.paused,
+    lastPlan: plan,
+  };
+};
+
+/** What onboarding would have written, for a member who answered everything. */
+const onboardedMember = (over = {}) => ({
+  member: { id: "m1", name: "A", week: 1, phase: "Stabilise" },
+  onboarding: {
+    completed: true,
+    goals: ["Get stronger"],
+    activityLevel: "Some movement",
+    availableMinutes: 30,
+    movementCaution: "",
+    movementCautionAnswered: true,
+  },
+  profile: { ageBand: "40-49", goals: ["stronger"] },
+  ...over,
+});
+
+test("a fortnight of steady training moves her forward and does not run away", () => {
+  let doc = onboardedMember();
+  const days = [];
+  for (let i = 0; i < 14; i++) {
+    const date = `2026-03-${String(i + 1).padStart(2, "0")}`;
+    // Two sessions a week, which is what an ordinary member actually does.
+    if (i % 3 === 0) doc = trainDay(doc, date, { effort: 2 });
+    days.push(Object.values(doc.doseSteps ?? {}).reduce((a, b) => a + b, 0));
+  }
+  const total = days.at(-1);
+  assert.ok(total > 0, "a fortnight of easy sessions moved nothing");
+  // The ladder is bounded. Five sessions cannot put her at the top of it.
+  assert.ok(
+    total <= 5 * MAX_DOSE_STEP,
+    `the dose ran away: ${total} across five sessions`,
+  );
+});
+
+test("re-reading the same fortnight changes nothing", () => {
+  // The bug that made reading her messages harder than doing the exercises:
+  // the Coach tab polls, each poll regenerated, and each regeneration walked
+  // the ladder up another rung against history that had not changed.
+  let doc = onboardedMember();
+  doc = trainDay(doc, "2026-03-01", { effort: 2 });
+  doc = trainDay(doc, "2026-03-04", { effort: 2 });
+  const settled = JSON.stringify(doc.doseSteps);
+
+  for (let i = 0; i < 8; i++) {
+    const again = applyAdaptation({
+      records: doc.records,
+      signals: [],
+      doseSteps: doc.doseSteps,
+      doseAdaptedThrough: doc.doseAdaptedThrough,
+      pausedExerciseIds: doc.pausedExerciseIds,
+    });
+    doc = { ...doc, doseSteps: again.steps, doseAdaptedThrough: again.adaptedThrough };
+  }
+  assert.equal(JSON.stringify(doc.doseSteps), settled);
+});
+
+test("pain stops a movement and nothing later un-stops it", () => {
+  let doc = onboardedMember();
+  doc = trainDay(doc, "2026-03-01", { effort: 2 });
+  const hurt = doc.lastPlan.session[0].exerciseId;
+  doc = trainDay(doc, "2026-03-04", { effort: 2, pain: true });
+  assert.ok(doc.pausedExerciseIds.includes(hurt), "pain did not pause anything");
+
+  // Weeks of good sessions afterwards must not bring it back on their own.
+  for (let i = 5; i < 14; i++)
+    doc = trainDay(doc, `2026-03-${String(i + 5).padStart(2, "0")}`, { effort: 1 });
+  assert.ok(
+    doc.pausedExerciseIds.includes(hurt),
+    "a paused movement came back without a person deciding",
+  );
+  for (const item of doc.lastPlan.session)
+    assert.notEqual(item.exerciseId, hurt, "a paused movement was offered again");
+});
+
+test("a week of bad check-ins lightens the week rather than pushing through", () => {
+  const tired = Array.from({ length: 7 }, (_, i) => ({
+    date: `2026-03-${String(i + 1).padStart(2, "0")}`,
+    energy: 1,
+    sleep: 1,
+    stress: 1,
+  }));
+  let doc = { ...onboardedMember(), signals: tired };
+  doc = trainDay(doc, "2026-03-08", { effort: 2 });
+  assert.equal(doc.lastPlan.posture, "recovery");
+  // Fewer things to do, not the same list with a gentler sentence attached.
+  const normal = trainDay(onboardedMember(), "2026-03-08", { effort: 2 });
+  assert.ok(
+    doc.lastPlan.session.length < normal.lastPlan.session.length,
+    "a recovery week offered as much as a normal one",
+  );
+});
+
+test("a member who never logs anything still gets a plan every day", () => {
+  // The commonest real path, and the one most likely to divide by zero
+  // somewhere: she opens the app, reads it, and does nothing.
+  let doc = onboardedMember();
+  for (let i = 0; i < 14; i++) {
+    doc = trainDay(doc, `2026-03-${String(i + 1).padStart(2, "0")}`, { skip: true });
+    assert.ok(doc.lastPlan.session.length > 0, `empty plan on day ${i + 1}`);
+  }
+  assert.deepEqual(doc.doseSteps, {}, "nothing was done, so nothing should move");
+});
+
+test("a member who answered nothing is still handled, carefully", () => {
+  // Everyone who signed up before the profile existed.
+  let doc = {
+    member: { id: "m1", name: "A", week: 1, phase: "Stabilise" },
+    onboarding: { completed: true, goals: [] },
+  };
+  doc = trainDay(doc, "2026-03-01", { effort: 3 });
+  assert.ok(doc.lastPlan.session.length > 0);
+  for (const item of doc.lastPlan.session) {
+    const exercise = EXERCISE_BY_ID.get(item.exerciseId);
+    assert.ok(exercise.tier <= 2, "an unknown member was started on tier 3");
+    for (const kit of exercise.equipment)
+      assert.ok(["none", "chair", "wall"].includes(kit));
+  }
+});
+
+test("her program week advances with the calendar, not with her logins", () => {
+  // programWeek() counts from onboardedAt. It froze at 1 for every member
+  // because nothing ever set that field.
+  const onboardedAt = "2026-01-01T00:00:00.000Z";
+  assert.equal(programWeek(onboardedAt, "2026-01-01"), 1);
+  assert.equal(programWeek(onboardedAt, "2026-01-08"), 2);
+  assert.equal(programWeek(onboardedAt, "2026-03-19"), 12);
+  // It stops at the end of the programme rather than counting to infinity.
+  assert.ok(programWeek(onboardedAt, "2027-01-01") <= 12);
+});
+
+test("consult_first holds movement and says why, every day it applies", () => {
+  // The safety branch. It must not quietly lapse after the first day.
+  let doc = {
+    ...onboardedMember(),
+    readinessOutcome: { outcome: "consult_first", conditions: [], avoidLoads: [] },
+  };
+  for (let i = 0; i < 5; i++) {
+    doc = trainDay(doc, `2026-03-0${i + 1}`, { skip: true });
+    assert.deepEqual(doc.lastPlan.session, [], `movement offered on day ${i + 1}`);
+    assert.ok(doc.lastPlan.movementHeld, "held with no explanation");
+    assert.match(doc.lastPlan.movementHeld.body, /doctor/i);
+  }
 });

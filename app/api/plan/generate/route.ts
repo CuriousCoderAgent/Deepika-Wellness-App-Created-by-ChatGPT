@@ -36,6 +36,7 @@ import {
   type DomainSignals,
 } from "@/lib/daily-actions-library";
 import {
+  applyAdaptation,
   nextDose,
   verdictFor,
   weekPostureFor,
@@ -134,69 +135,6 @@ function dailySignals(doc: MemberDoc): DailySignal[] {
   });
 }
 
-/**
- * Fold new evidence into the dose ladder — new evidence, once only.
- *
- * A verdict is a *reading* of the last two sessions, not an event. This used
- * to advance `steps[exerciseId]` from its stored value on every call, so
- * re-running the generator against unchanged history walked the ladder up a
- * rung each time: two "easy" sessions and six refreshes put a member six
- * rungs higher, from 1×6 to 3×10, having done nothing at all in between.
- *
- * It was reachable in normal use, not theoretically. The client's
- * once-a-day guard reads `planGeneratedOn`, which the mobile normaliser was
- * dropping, so the guard never fired — and the Coach tab polls a full
- * refresh every sixty seconds. Reading messages made her exercises harder.
- *
- * `doseAdaptedThrough` records the session date already folded in per
- * exercise, so the same evidence cannot move the dose twice. Genuinely new
- * evidence has a newer date and still applies immediately.
- *
- * Pain is exempt and deliberately re-applied every time: adding to a paused
- * set is idempotent, and a movement that hurt must stay paused even if this
- * record is somehow lost.
- */
-function applyAdaptation(doc: MemberDoc, records: SessionRecord[]) {
-  const posture = weekPostureFor(dailySignals(doc)).posture;
-  const steps: Record<string, number> = {
-    ...((doc.doseSteps as Record<string, number> | undefined) ?? {}),
-  };
-  const adaptedThrough: Record<string, string> = {
-    ...((doc.doseAdaptedThrough as Record<string, string> | undefined) ?? {}),
-  };
-  const paused = new Set(doc.pausedExerciseIds ?? []);
-  const notes: string[] = [];
-
-  for (const exerciseId of new Set(records.map((r) => r.exerciseId))) {
-    const verdict = verdictFor(exerciseId, records);
-    if (verdict.adjustment === "stop_and_review") {
-      paused.add(exerciseId);
-      notes.push(verdict.reason);
-      continue;
-    }
-    // Already acted on this session. Re-reading it is not a new reason to move.
-    if (
-      verdict.latestSession &&
-      adaptedThrough[exerciseId] === verdict.latestSession
-    )
-      continue;
-
-    const current = steps[exerciseId] ?? 0;
-    const next = nextDose(current, verdict.adjustment, posture);
-    steps[exerciseId] = next.step;
-    if (verdict.latestSession)
-      adaptedThrough[exerciseId] = verdict.latestSession;
-    if (next.changeExercise === "progress") {
-      const harder = EXERCISE_BY_ID.get(exerciseId)?.progressesTo;
-      if (harder) {
-        steps[harder] = 0;
-        notes.push(verdict.reason);
-      }
-    }
-    if (verdict.adjustment !== "hold") notes.push(verdict.reason);
-  }
-  return { steps, adaptedThrough, paused: [...paused], posture, notes };
-}
 
 /**
  * What the other four domains should look like today.
@@ -430,10 +368,13 @@ export async function POST() {
       return NextResponse.json({ error: "No record found." }, { status: 404 });
 
     const records = sessionRecords(doc);
-    const { steps, adaptedThrough, paused, notes } = applyAdaptation(
-      doc,
+    const { steps, adaptedThrough, paused, notes } = applyAdaptation({
       records,
-    );
+      signals: dailySignals(doc),
+      doseSteps: doc.doseSteps,
+      doseAdaptedThrough: doc.doseAdaptedThrough,
+      pausedExerciseIds: doc.pausedExerciseIds,
+    });
 
     const readiness = doc.readiness
       ? {
