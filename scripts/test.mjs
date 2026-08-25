@@ -37,7 +37,12 @@ import { AWARDS, awardMetrics } from "../mobile/src/awards.ts";
 import { compactKcal, liveMeals } from "../mobile/src/meals.ts";
 import { normalizeMemberDoc } from "../mobile/src/normalize.ts";
 import { LEARNING_ARTICLES } from "../mobile/src/learning.ts";
-import { DIET_PATTERNS } from "../mobile/src/profile.ts";
+import {
+  AGE_BANDS,
+  DIET_PATTERNS,
+  SLEEP_BASELINES,
+  WEEKDAYS,
+} from "../mobile/src/profile.ts";
 import { proteinExamples } from "../lib/member-profile.ts";
 import { evaluateRadar, radarRules } from "../lib/radar.ts";
 import {
@@ -4377,4 +4382,71 @@ test("no template names a food directly any more", () => {
         named,
         `${template.id} names a food instead of using {protein}`,
       );
+});
+
+test("every profile vocabulary matches between the app and the rules", () => {
+  // mobile/src/profile.ts owns the labels; lib/member-profile.ts owns the
+  // rules. They are separate files on purpose — the app should be free to
+  // reword a question without changing anyone's dose — so nothing but a test
+  // stops one drifting out from under the other. Goals, equipment and diet
+  // were each guarded separately; the rest were not guarded at all.
+  const app = readFileSync(
+    new URL("../mobile/src/profile.ts", import.meta.url),
+    "utf8",
+  );
+  const rules = readFileSync(
+    new URL("../lib/member-profile.ts", import.meta.url),
+    "utf8",
+  );
+
+  /** The members of a string-literal union, as written. */
+  const union = (source, name) => {
+    const at = source.indexOf(`export type ${name} =`);
+    if (at === -1) return null;
+    const body = source.slice(at, source.indexOf(";", at));
+    return [...body.matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort();
+  };
+
+  for (const name of [
+    "AgeBand",
+    "Equipment",
+    "LifeStage",
+    "SleepBaseline",
+    "Weekday",
+    "DietPattern",
+    "GoalGroup",
+  ]) {
+    const a = union(app, name);
+    const b = union(rules, name);
+    assert.ok(a, `${name} is missing from mobile/src/profile.ts`);
+    assert.ok(b, `${name} is missing from lib/member-profile.ts`);
+    assert.deepEqual(a, b, `${name} has drifted between the two files`);
+  }
+});
+
+test("every option list offers only values the rules accept", () => {
+  // A label list can gain an entry the union never did, and TypeScript will
+  // not mind if the list is typed loosely enough.
+  const rules = readFileSync(
+    new URL("../lib/member-profile.ts", import.meta.url),
+    "utf8",
+  );
+  const union = (name) => {
+    const at = rules.indexOf(`export type ${name} =`);
+    const body = rules.slice(at, rules.indexOf(";", at));
+    return new Set([...body.matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+  };
+
+  for (const [options, name] of [
+    [AGE_BANDS.map((x) => x.band), "AgeBand"],
+    [EQUIPMENT_OPTIONS.map((x) => x.id), "Equipment"],
+    [LIFE_STAGES.map((x) => x.id), "LifeStage"],
+    [SLEEP_BASELINES.map((x) => x.id), "SleepBaseline"],
+    [WEEKDAYS.map((x) => x.id), "Weekday"],
+    [DIET_PATTERNS.map((x) => x.id), "DietPattern"],
+  ]) {
+    const accepted = union(name);
+    for (const value of options)
+      assert.ok(accepted.has(value), `${name} does not accept "${value}"`);
+  }
 });
