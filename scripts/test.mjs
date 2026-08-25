@@ -36,6 +36,7 @@ import { C, SURFACES, TEXT_COLOURS } from "../mobile/src/design/tokens.ts";
 import { AWARDS, awardMetrics } from "../mobile/src/awards.ts";
 import { compactKcal, liveMeals } from "../mobile/src/meals.ts";
 import { normalizeMemberDoc } from "../mobile/src/normalize.ts";
+import { LEARNING_ARTICLES } from "../mobile/src/learning.ts";
 import { evaluateRadar, radarRules } from "../lib/radar.ts";
 import {
   PAIN_KINDS,
@@ -4278,4 +4279,49 @@ test("the accessibility scan would notice a bare control", () => {
     tags.filter((t) => !/accessibilityRole|accessibilityLabel/.test(t)).length,
     1,
   );
+});
+
+test("every article says who wrote it and whether anyone checked it", () => {
+  // The articles shipped with no author, no source and no review date, under
+  // one line reading "Education only—not diagnosis". True, and insufficient:
+  // it says what the writing is not, and nothing about who stands behind it.
+  for (const article of LEARNING_ARTICLES) {
+    assert.ok(article.provenance, `${article.id} has no provenance`);
+    assert.ok(article.provenance.author, `${article.id} has no author`);
+    assert.ok(
+      ["bharosa_guidance", "general_education"].includes(
+        article.provenance.kind,
+      ),
+      `${article.id} does not say what kind of writing it is`,
+    );
+  }
+});
+
+test("a review is claimed only when one happened", () => {
+  // Both fields or neither. A reviewer with no date is unfalsifiable, and a
+  // date with no reviewer names nobody — either would let the app imply a
+  // clinical check that never took place.
+  for (const article of LEARNING_ARTICLES) {
+    const { reviewedBy, reviewedOn } = article.provenance;
+    assert.equal(
+      Boolean(reviewedBy),
+      Boolean(reviewedOn),
+      `${article.id} claims half a review`,
+    );
+    if (reviewedOn)
+      assert.match(
+        reviewedOn,
+        /^\d{4}-\d{2}-\d{2}$/,
+        `${article.id} has an unreadable review date`,
+      );
+  }
+});
+
+test("nothing cites a source it does not have", () => {
+  for (const article of LEARNING_ARTICLES)
+    for (const source of article.provenance.sources ?? [])
+      assert.ok(
+        source.title && source.title.length > 3,
+        `${article.id} lists an empty source`,
+      );
 });

@@ -389,6 +389,16 @@ export const s = StyleSheet.create({
     marginBottom: 4,
   },
   backRowText: { color: C.green, fontSize: 15, fontWeight: "700" },
+  /* Quiet on purpose: finishing early is a valid choice, not a failure. */
+  endSession: {
+    alignSelf: "center",
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 18,
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  endSessionText: { color: C.soft, fontSize: 13, fontWeight: "700" },
   sessionProgress: { flexDirection: "row", gap: 5, marginTop: 16 },
   sessionPip: {
     flex: 1,

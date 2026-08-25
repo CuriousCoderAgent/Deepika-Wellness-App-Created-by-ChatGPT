@@ -135,6 +135,41 @@ export interface HealthReport {
   status: "uploaded" | "coach_reviewed";
 }
 
+/**
+ * Where a piece of education came from, and whether anyone qualified read it.
+ *
+ * Every article shipped with no author, no source and no review date, under a
+ * single line reading "Education only—not diagnosis". That line is true and
+ * insufficient: it says what the writing is not, and nothing about what it
+ * is or who stands behind it.
+ *
+ * The honest answer today is that this is Bharosa's own guidance, written
+ * in-house, and that no clinician has reviewed it. Recording that is worth
+ * more than leaving the question open, and it gives a real review somewhere
+ * to land when one happens. An invented citation would be worse than none.
+ */
+export interface ArticleProvenance {
+  /**
+   * Bharosa's own words, or an account of established practice.
+   *
+   * The line the audit asked to be visible. A member reading about wind-down
+   * routines should be able to tell the difference between "this is what we
+   * think" and "this is what the field broadly agrees".
+   */
+  kind: "bharosa_guidance" | "general_education";
+  /** Who wrote it. */
+  author: string;
+  /**
+   * Who checked it, and when. Both or neither.
+   *
+   * Absent means unreviewed, and the app says so rather than staying quiet.
+   */
+  reviewedBy?: string;
+  reviewedOn?: string;
+  /** Where a specific claim rests on something external. */
+  sources?: { title: string; url?: string }[];
+}
+
 export interface LearningArticle {
   id: string;
   title: string;
@@ -142,6 +177,7 @@ export interface LearningArticle {
   readMinutes: number;
   category: "Movement" | "Nutrition" | "Recovery" | "Mindset" | "Body signals";
   body: string[];
+  provenance: ArticleProvenance;
 }
 
 export interface PulseEntry {

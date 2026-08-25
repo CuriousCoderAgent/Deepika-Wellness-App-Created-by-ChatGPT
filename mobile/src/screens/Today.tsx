@@ -831,11 +831,46 @@ export function MovementSession({
     level: EffortLevel | "rest",
     effort?: 1 | 2 | 3 | 4 | 5,
     report?: PainReport,
+    skipKind?: SkipReason,
   ) => void;
   onBack: () => void;
 }) {
   const done = actions.filter((a) => a.completed).length;
   const minutes = actions.reduce((sum, a) => sum + (a.target?.minutes ?? 0), 0);
+  const remaining = actions.filter((a) => !a.completed);
+
+  /**
+   * Finish here, on purpose.
+   *
+   * Leaving the session simply left the rest of it pending, so Today went on
+   * saying "three of six left" until midnight. There was no way to say "that
+   * is enough for today" that the app would believe — only abandonment, which
+   * looks the same as failure and is recorded as nothing at all.
+   *
+   * The remaining movements are marked as rest with a stated reason, which is
+   * the same path the "Not today" button on a single action already uses.
+   * That distinction matters downstream: `outcomes.ts` counts a stated rest
+   * as a deliberate choice and an unstated skip as neither.
+   */
+  const endSession = () =>
+    Alert.alert(
+      "Finish here for today?",
+      remaining.length === 1
+        ? "The remaining movement will be recorded as rest."
+        : `The remaining ${remaining.length} movements will be recorded as rest.`,
+      [
+        { text: "Keep going", style: "cancel" },
+        {
+          text: "Finish",
+          onPress: () => {
+            for (const action of remaining)
+              onComplete(action.id, "rest", undefined, undefined, "rested");
+            onBack();
+          },
+        },
+      ],
+    );
+
   return (
     <>
       <Pressable
@@ -883,6 +918,19 @@ export function MovementSession({
           }
         />
       ))}
+      {/*
+        Offered only once she has actually started. Before that, "finish
+        here" is just the back button with extra steps.
+      */}
+      {done > 0 && remaining.length > 0 && (
+        <Pressable
+          accessibilityRole="button"
+          style={s.endSession}
+          onPress={endSession}
+        >
+          <Text style={s.endSessionText}>That is enough for today</Text>
+        </Pressable>
+      )}
     </>
   );
 }

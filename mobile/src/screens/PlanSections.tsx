@@ -238,8 +238,21 @@ export function LearningLibrary({ weekFocus }: { weekFocus?: string[] }) {
         ))}
         <View style={s.educationNote}>
           <Text style={s.educationNoteText}>
+            {article.provenance.kind === "bharosa_guidance"
+              ? `${article.provenance.author}'s own guidance`
+              : "General education"}
+            {article.provenance.reviewedBy
+              ? ` · reviewed by ${article.provenance.reviewedBy} on ${article.provenance.reviewedOn}`
+              : " · not reviewed by a clinician"}
+          </Text>
+          <Text style={s.educationNoteText}>
             Education only—not diagnosis or individual medical advice.
           </Text>
+          {article.provenance.sources?.length ? (
+            <Text style={s.educationNoteText}>
+              Sources: {article.provenance.sources.map((x) => x.title).join("; ")}
+            </Text>
+          ) : null}
         </View>
       </View>
     );

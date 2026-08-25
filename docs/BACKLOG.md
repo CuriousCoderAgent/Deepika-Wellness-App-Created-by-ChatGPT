@@ -2,7 +2,7 @@
 
 **Last updated:** 24 August 2026, after the external audit response
 (`docs/AUDIT-RESPONSE-2026-08-24.md`) and a device-testing round.
-**State:** 271 tests passing, mobile and server typecheck clean, `next build`
+**State:** 274 tests passing, mobile and server typecheck clean, `next build`
 clean. All eight audit P0s closed; P1 and P2 closed. Every movement in the
 library has photography.
 
@@ -159,9 +159,12 @@ says so rather than quietly producing a strength week.
 
   Found while doing it: `normalizeFood` was dropping `deletedAt`, so a meal
   she deleted came back — with its calories — on the next server read.
-- **Movement session model.** Session-level RPE captured once rather than per
-  exercise; rest timer; set checkboxes; "stop workout" without completing
-  every card; swap within coach-approved alternatives.
+- **Movement session model**, partly done 2026-08-25. A session can now be
+  **finished on purpose**: the remaining movements are recorded as a stated
+  rest rather than left pending until midnight, which is the distinction
+  `outcomes.ts` already draws between a choice and an abandonment. Still open:
+  session-level RPE captured once rather than per exercise, a rest timer, set
+  checkboxes, and swapping within coach-approved alternatives.
 - ~~Pain capture detail~~ — **done 2026-08-25.** Where, what it felt like,
   when, and whether it stopped her. `mobile/src/pain.ts` routes on the
   answers in three bands, and a test asserts no route can name a treatment or
@@ -183,8 +186,13 @@ says so rather than quietly producing a strength week.
   uploads were stored "for coach review", which was untrue in both
   directions — nothing reads doc.reports anywhere, and most members have no
   coach. Surfacing them in the console is a separate, real piece of work.
-- **Learning content citations** — author, source, review date, and a visible
-  line between general education and Bharosa's own guidance.
+- ~~Learning content citations~~ — **done 2026-08-25.** Every article now
+  carries an author, what kind of writing it is, and a slot for a reviewer
+  and date. All five are recorded honestly as Bharosa's own guidance, written
+  in-house, **not reviewed by a clinician** — and the app says exactly that
+  under each one. An invented citation would have been worse than none; this
+  makes the gap visible and gives a real review somewhere to land. A test
+  rejects half a review, because a reviewer with no date is unfalsifiable.
 - ~~A stale server comment~~ — **done 2026-08-24.** `lib/types.ts` said the
   product was not a calorie tracker and must never become one. The food table
   itself is still protein-only, but the app shows kcal and the estimator
