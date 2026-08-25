@@ -270,6 +270,22 @@ export const LIFE_STAGES: { id: LifeStage; label: string }[] = [
 ];
 
 /** How she has been sleeping, before any check-in data exists. */
+/** Must match `DietPattern` in lib/member-profile.ts. A test compares them. */
+export type DietPattern =
+  | "vegetarian"
+  | "eggetarian"
+  | "non_vegetarian"
+  | "vegan"
+  | "jain";
+
+export const DIET_PATTERNS: { id: DietPattern; label: string }[] = [
+  { id: "vegetarian", label: "Vegetarian" },
+  { id: "eggetarian", label: "Vegetarian, plus eggs" },
+  { id: "non_vegetarian", label: "I eat meat or fish" },
+  { id: "vegan", label: "Vegan" },
+  { id: "jain", label: "Jain" },
+];
+
 export type SleepBaseline = "poor" | "broken" | "adequate" | "good";
 
 export const SLEEP_BASELINES: { id: SleepBaseline; label: string }[] = [
@@ -319,6 +335,9 @@ export interface MemberProfile {
   trainingDays?: Weekday[];
   /** Free text. Excluded outright rather than discouraged. */
   wontDo?: string;
+  dietPattern?: DietPattern;
+  /** Allergies and anything else she does not eat. Free text; never parsed. */
+  avoidFoods?: string;
   /** Set only when one of her goals is an event. See EventTarget. */
   event?: EventTarget;
 

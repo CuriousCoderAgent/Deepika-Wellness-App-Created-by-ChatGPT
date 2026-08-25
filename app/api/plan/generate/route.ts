@@ -35,6 +35,7 @@ import {
   type DailyActionTemplate,
   type DomainSignals,
 } from "@/lib/daily-actions-library";
+import { proteinExamples, type MemberProfile } from "@/lib/member-profile";
 import {
   applyAdaptation,
   nextDose,
@@ -189,10 +190,22 @@ function shiftDate(date: string, days: number): string {
 }
 
 /** A domain template becomes an action the existing Today screen understands. */
+/**
+ * A domain template becomes an action, with the food named for her.
+ *
+ * The only substitution is {protein}, and it exists because one nutrition
+ * prompt used to read "Add dal, curd or eggs to one meal" for everybody —
+ * two thirds wrong for a vegan, and naming a food a Jain member does not
+ * eat. Where she has not told us, the phrase stays general rather than
+ * guessing at her kitchen.
+ */
 function toDomainAction(
   memberId: string,
   template: DailyActionTemplate,
+  profile?: MemberProfile,
 ): DailyAction {
+  const forHer = (text: string) =>
+    text.replace("{protein}", proteinExamples(profile));
   return {
     id: `generated-${memberId}-${template.id}-${todayIso()}`,
     memberId,
@@ -201,9 +214,9 @@ function toDomainAction(
     domain: template.domain,
     title: template.title,
     why: template.why,
-    minimum: { label: template.minimum, minutes: 0 },
-    target: { label: template.target, minutes: 0 },
-    stretch: { label: template.stretch, minutes: 0 },
+    minimum: { label: forHer(template.minimum), minutes: 0 },
+    target: { label: forHer(template.target), minutes: 0 },
+    stretch: { label: forHer(template.stretch), minutes: 0 },
     measurement: template.measurement,
     completed: null,
     provenance: {
@@ -415,7 +428,7 @@ export async function POST() {
     const coachOwned = new Set(coachAuthoredDomains(doc));
     const domains = selectDailyActions(domainSignals(doc, dailySignals(doc)))
       .filter((template) => !coachOwned.has(template.domain))
-      .map((template) => toDomainAction(user.sub, template));
+      .map((template) => toDomainAction(user.sub, template, doc.profile));
 
     const generated = [
       ...plan.session.map((item, index) =>

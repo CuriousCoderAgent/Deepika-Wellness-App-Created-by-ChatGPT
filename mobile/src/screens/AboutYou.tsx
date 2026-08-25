@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { s } from "../design/styles";
-import { AGE_BANDS, GOAL_OPTIONS, goalIdsFrom, goalLabel, isoWeeksFromToday, needsEventDetail, weeksUntil, type AgeBand, type Equipment, type EventKind, type LifeStage, type SleepBaseline, type Weekday } from "../profile";
+import { type DietPattern, AGE_BANDS, GOAL_OPTIONS, goalIdsFrom, goalLabel, isoWeeksFromToday, needsEventDetail, weeksUntil, type AgeBand, type Equipment, type EventKind, type LifeStage, type SleepBaseline, type Weekday } from "../profile";
 import { type MemberDoc } from "../types";
 import { Card } from "../ui";
 import { DetailQuestions, EventQuestions, GOAL_GROUP_LABELS } from "./Onboarding";
@@ -33,6 +33,10 @@ export function AboutYou({
     saved?.trainingDays ?? [],
   );
   const [wontDo, setWontDo] = useState(saved?.wontDo ?? "");
+  const [dietPattern, setDietPattern] = useState<DietPattern | undefined>(
+    saved?.dietPattern,
+  );
+  const [avoidFoods, setAvoidFoods] = useState(saved?.avoidFoods ?? "");
   const [savedJustNow, setSavedJustNow] = useState(false);
   /*
    * Her event, held as three separate answers while she edits.
@@ -99,6 +103,8 @@ export function AboutYou({
         sleepBaseline,
         trainingDays,
         wontDo: wontDo.trim() || undefined,
+        dietPattern,
+        avoidFoods: avoidFoods.trim() || undefined,
       },
     });
     setSavedJustNow(true);
@@ -231,6 +237,16 @@ export function AboutYou({
           wontDo={wontDo}
           setWontDo={(value) => {
             setWontDo(value);
+            edited();
+          }}
+          dietPattern={dietPattern}
+          setDietPattern={(value) => {
+            setDietPattern(value);
+            edited();
+          }}
+          avoidFoods={avoidFoods}
+          setAvoidFoods={(value) => {
+            setAvoidFoods(value);
             edited();
           }}
           toggleIn={toggleIn}

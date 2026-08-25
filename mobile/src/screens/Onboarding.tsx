@@ -5,7 +5,7 @@ import { s } from "../design/styles";
 import { C } from "../design/tokens";
 import { CONNECTED_HEALTH_NAME } from "../health";
 import { preferred } from "../meal-estimate";
-import { AGE_BANDS, EQUIPMENT_OPTIONS, EVENT_KINDS, GOAL_OPTIONS, LIFE_STAGES, SLEEP_BASELINES, WEEKDAYS, WEEKLY_KM_OPTIONS, WEEKS_AWAY_OPTIONS, goalIdsFrom, goalLabel, isoWeeksFromToday, needsEventDetail, weeksUntil, type AgeBand, type Equipment, type EventKind, type GoalGroup, type LifeStage, type SleepBaseline, type Weekday } from "../profile";
+import { AGE_BANDS, DIET_PATTERNS, EQUIPMENT_OPTIONS, EVENT_KINDS, GOAL_OPTIONS, LIFE_STAGES, SLEEP_BASELINES, WEEKDAYS, WEEKLY_KM_OPTIONS, WEEKS_AWAY_OPTIONS, goalIdsFrom, goalLabel, isoWeeksFromToday, needsEventDetail, weeksUntil, type AgeBand, type DietPattern, type Equipment, type EventKind, type GoalGroup, type LifeStage, type SleepBaseline, type Weekday } from "../profile";
 import { READINESS_QUESTIONS, evaluateReadiness, readinessIsComplete, readinessMessage, type ReadinessAnswer } from "../readiness";
 import { type MemberDoc } from "../types";
 import { Card } from "../ui";
@@ -60,6 +60,10 @@ export function Onboarding({
     doc.profile?.trainingDays ?? [],
   );
   const [wontDo, setWontDo] = useState(doc.profile?.wontDo ?? "");
+  const [dietPattern, setDietPattern] = useState<DietPattern | undefined>(
+    doc.profile?.dietPattern,
+  );
+  const [avoidFoods, setAvoidFoods] = useState(doc.profile?.avoidFoods ?? "");
   /*
    * Her event, held as three separate answers while she edits.
    *
@@ -215,6 +219,8 @@ export function Onboarding({
               sleepBaseline,
               trainingDays,
               wontDo: wontDo.trim() || undefined,
+              dietPattern,
+              avoidFoods: avoidFoods.trim() || undefined,
             }
           : {}),
       },
@@ -729,6 +735,10 @@ export function Onboarding({
           setTrainingDays={setTrainingDays}
           wontDo={wontDo}
           setWontDo={setWontDo}
+          dietPattern={dietPattern}
+          setDietPattern={setDietPattern}
+          avoidFoods={avoidFoods}
+          setAvoidFoods={setAvoidFoods}
           toggleIn={toggleIn}
           showGymEquipment={wantsEvent}
         />
@@ -828,6 +838,10 @@ export function DetailQuestions({
   setTrainingDays,
   wontDo,
   setWontDo,
+  dietPattern,
+  setDietPattern,
+  avoidFoods,
+  setAvoidFoods,
   toggleIn,
   showGymEquipment,
 }: {
@@ -841,6 +855,10 @@ export function DetailQuestions({
   setTrainingDays: (value: Weekday[]) => void;
   wontDo: string;
   setWontDo: (value: string) => void;
+  dietPattern: DietPattern | undefined;
+  setDietPattern: (value: DietPattern) => void;
+  avoidFoods: string;
+  setAvoidFoods: (value: string) => void;
   toggleIn: <T,>(list: T[], value: T) => T[];
   /** Gym equipment is only worth asking about when she is training for an event. */
   showGymEquipment: boolean;
@@ -985,6 +1003,48 @@ export function DetailQuestions({
             );
           })}
         </View>
+      </View>
+
+      <View style={s.detailBlock}>
+        <Text style={s.detailLabel}>How do you eat?</Text>
+        <Text style={s.detailHint}>
+          This only decides which foods we name when we suggest one. It is not
+          a diet, and nothing here is judged.
+        </Text>
+        <View style={s.chipWrap}>
+          {DIET_PATTERNS.map((option) => {
+            const selected = dietPattern === option.id;
+            return (
+              <Pressable
+                key={option.id}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected }}
+                style={[s.chip, selected && s.chipActive]}
+                onPress={() => setDietPattern(option.id)}
+              >
+                <Text style={[s.chipText, selected && s.chipTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={s.detailBlock}>
+        <Text style={s.detailLabel}>Anything you cannot eat?</Text>
+        <Text style={s.detailHint}>
+          Allergies, or anything you avoid. We will not suggest it. Bharosa
+          does not act on this beyond that — tell a doctor about an allergy,
+          not an app.
+        </Text>
+        <TextInput
+          value={avoidFoods}
+          onChangeText={setAvoidFoods}
+          style={s.input}
+          placeholder="Optional"
+          placeholderTextColor={C.faint}
+        />
       </View>
 
       <View style={s.detailBlock}>

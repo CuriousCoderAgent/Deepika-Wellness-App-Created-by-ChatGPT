@@ -49,6 +49,64 @@ export type LifeStage =
   | "none_of_these"
   | "prefer_not_to_say";
 export type SleepBaseline = "poor" | "broken" | "adequate" | "good";
+
+/**
+ * What she eats, in the terms this kitchen actually uses.
+ *
+ * Not a diet and not a preference to be optimised — the only thing it decides
+ * is which foods the app is allowed to name when it suggests protein. The
+ * nutrition prompt read "Add dal, curd or eggs to one meal" for everybody,
+ * which is two thirds wrong for a vegan and names a food a Jain member does
+ * not eat.
+ *
+ * "jain" is included because it is common among the people this app is for
+ * and because getting it wrong is the kind of error that ends a member's
+ * trust in one line of copy.
+ */
+export type DietPattern =
+  | "vegetarian"
+  | "eggetarian"
+  | "non_vegetarian"
+  | "vegan"
+  | "jain";
+
+/**
+ * Protein worth naming, for someone who eats this way.
+ *
+ * Three examples, because a list of ten reads as a lecture and a list of one
+ * reads as an instruction. Ordered by how ordinary they are in an Indian
+ * kitchen rather than by protein density.
+ */
+const PROTEIN_BY_DIET: Record<DietPattern, string> = {
+  vegetarian: "dal, curd or paneer",
+  eggetarian: "dal, curd or eggs",
+  non_vegetarian: "dal, eggs or chicken",
+  vegan: "dal, tofu or sprouts",
+  /* No root vegetables, and dairy is commonly avoided too. */
+  jain: "dal, moong or paneer",
+};
+
+/**
+ * The phrase to put in a food prompt.
+ *
+ * Falls back to the broadest safe wording when she has not said, rather than
+ * to the old default of naming curd and eggs at someone who may eat neither.
+ */
+export function proteinExamples(profile: MemberProfile | undefined): string {
+  const pattern = profile?.dietPattern;
+  return pattern ? PROTEIN_BY_DIET[pattern] : "a protein source";
+}
+
+/**
+ * Anything she has said she cannot or will not eat.
+ *
+ * Free text on purpose. An allergy list long enough to be safe is longer than
+ * anyone will read, and the app does not act on this — it is shown to her
+ * coach and it stops the food prompts naming something specific.
+ */
+export function hasFoodRestriction(profile: MemberProfile | undefined): boolean {
+  return Boolean(profile?.avoidFoods?.trim());
+}
 export type Weekday = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 
 /**
@@ -84,6 +142,9 @@ export interface MemberProfile {
   sleepBaseline?: SleepBaseline;
   trainingDays?: Weekday[];
   wontDo?: string;
+  dietPattern?: DietPattern;
+  /** Allergies and anything else she does not eat. Free text; never parsed. */
+  avoidFoods?: string;
   event?: EventTarget;
   detailConsent?: "given" | "declined";
 }

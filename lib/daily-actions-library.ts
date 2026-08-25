@@ -65,7 +65,10 @@ export const DAILY_ACTIONS: DailyActionTemplate[] = [
     domain: "nutrition",
     title: "Anchor one meal with protein",
     why: "Protein at a meal is the single change that most reliably steadies energy through the afternoon.",
-    minimum: "Add dal, curd or eggs to one meal",
+    // {protein} is filled from her diet pattern — see proteinExamples in
+    // lib/member-profile.ts. Naming curd and eggs at everybody was wrong for
+    // anyone vegan, and named a food a Jain member does not eat.
+    minimum: "Add {protein} to one meal",
     target: "A protein source at two meals",
     stretch: "Protein at every meal today",
     measurement: { kind: "meal", value: 1, unit: "meal" },

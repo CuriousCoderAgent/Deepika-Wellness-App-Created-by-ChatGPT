@@ -37,6 +37,8 @@ import { AWARDS, awardMetrics } from "../mobile/src/awards.ts";
 import { compactKcal, liveMeals } from "../mobile/src/meals.ts";
 import { normalizeMemberDoc } from "../mobile/src/normalize.ts";
 import { LEARNING_ARTICLES } from "../mobile/src/learning.ts";
+import { DIET_PATTERNS } from "../mobile/src/profile.ts";
+import { proteinExamples } from "../lib/member-profile.ts";
 import { evaluateRadar, radarRules } from "../lib/radar.ts";
 import {
   PAIN_KINDS,
@@ -4323,5 +4325,56 @@ test("nothing cites a source it does not have", () => {
       assert.ok(
         source.title && source.title.length > 3,
         `${article.id} lists an empty source`,
+      );
+});
+
+/* ------------------------------------------------------------------ *
+ * What the app is allowed to put on her plate
+ * ------------------------------------------------------------------ */
+
+test("the two diet vocabularies stay in step", () => {
+  // Same split as the goals: the app owns the labels, lib owns the rules.
+  const appPatterns = DIET_PATTERNS.map((d) => d.id).sort();
+  assert.deepEqual(appPatterns, [
+    "eggetarian",
+    "jain",
+    "non_vegetarian",
+    "vegan",
+    "vegetarian",
+  ]);
+  // Every one the app can offer must produce a phrase, not undefined.
+  for (const id of appPatterns) {
+    const phrase = proteinExamples({ goals: [], dietPattern: id });
+    assert.ok(phrase.length > 3, `${id} has no protein examples`);
+  }
+});
+
+test("a vegan is never told to eat curd or eggs", () => {
+  // The prompt read "Add dal, curd or eggs to one meal" for everybody.
+  const vegan = proteinExamples({ goals: [], dietPattern: "vegan" });
+  assert.doesNotMatch(vegan, /curd|egg|paneer|chicken|fish|meat/i);
+
+  const vegetarian = proteinExamples({ goals: [], dietPattern: "vegetarian" });
+  assert.doesNotMatch(vegetarian, /egg|chicken|fish|meat/i);
+
+  const eggetarian = proteinExamples({ goals: [], dietPattern: "eggetarian" });
+  assert.doesNotMatch(eggetarian, /chicken|fish|meat/i);
+});
+
+test("saying nothing gets the general wording, not a guess at her kitchen", () => {
+  assert.equal(proteinExamples(undefined), "a protein source");
+  assert.equal(proteinExamples({ goals: [] }), "a protein source");
+});
+
+test("no template names a food directly any more", () => {
+  // The whole point: a template that hard-codes "curd" cannot be adapted,
+  // and nothing will notice until a member reads it.
+  const named = /\b(curd|paneer|eggs?|chicken|fish|tofu|meat|dahi)\b/i;
+  for (const template of DAILY_ACTIONS)
+    for (const field of [template.minimum, template.target, template.stretch])
+      assert.doesNotMatch(
+        field,
+        named,
+        `${template.id} names a food instead of using {protein}`,
       );
 });

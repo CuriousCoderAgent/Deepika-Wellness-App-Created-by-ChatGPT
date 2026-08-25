@@ -2,7 +2,7 @@
 
 **Last updated:** 24 August 2026, after the external audit response
 (`docs/AUDIT-RESPONSE-2026-08-24.md`) and a device-testing round.
-**State:** 274 tests passing, mobile and server typecheck clean, `next build`
+**State:** 278 tests passing, mobile and server typecheck clean, `next build`
 clean. All eight audit P0s closed; P1 and P2 closed. Every movement in the
 library has photography.
 
@@ -125,8 +125,14 @@ says so rather than quietly producing a strength week.
   twelve weeks), `readiness` (a half-answered screen evaluates to
   "clear", the outcome that unlocks movement), and `detailConsent`
   (would record a refusal she never made).
-- **Nutrition inputs** — pattern, preferences, allergies — are still not
-  collected, so food prompts and the estimator have no personal context.
+- ~~Nutrition inputs~~ — **mostly done 2026-08-25.** She is asked how she
+  eats and whether there is anything she cannot eat, and the one prompt that
+  named foods now adapts. It read "Add dal, curd or eggs to one meal" for
+  everybody — two thirds wrong for a vegan, and naming a food a Jain member
+  does not eat. Where she has not said, the wording stays general rather than
+  guessing at her kitchen. A test rejects any template that hard-codes a food.
+  Still open: the meal estimator has no personal context, so a photo of a
+  vegetarian plate is read the same way for everyone.
 - **Available time by weekday.** She picks which days, not how long on each.
 - **Coaching preference** (AI-only, waitlist, assigned) is not asked.
 - **Professional review of the 21 event movements.** They are tagged and
