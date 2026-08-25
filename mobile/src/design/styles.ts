@@ -874,6 +874,17 @@ export const s = StyleSheet.create({
     minHeight: 52,
     paddingHorizontal: 15,
   },
+  /* The field and its reveal button share one bordered box. */
+  passwordRow: { position: "relative", justifyContent: "center" },
+  passwordInput: { paddingRight: 52 },
+  passwordReveal: {
+    position: "absolute",
+    right: 4,
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   fieldHint: { color: C.faint, fontSize: 11, marginTop: 5 },
   error: { color: "#A34336", fontSize: 13, lineHeight: 19, marginTop: 12 },
   notice: { color: C.green, fontSize: 13, lineHeight: 19, marginTop: 12 },

@@ -158,6 +158,18 @@ export async function createAccount(
   password: string,
   displayName: string,
   email: string,
+  /**
+   * The member whose username was used as the invitation, if one was.
+   *
+   * Recorded on her document and nothing more. Connecting the two here would
+   * create a relationship neither has accepted, and the circle's whole shape
+   * is that both sides say yes first — see app/api/circle/requests.
+   *
+   * It is worth keeping because it is the only record of how anyone found
+   * this app, and because a member who invited five people is a fact her
+   * coach would want to know before it is lost.
+   */
+  referredBy?: string | null,
 ): Promise<SessionUser | null> {
   if (isTaken(username)) return null;
   if (await readAccount(username)) return null;
@@ -172,6 +184,7 @@ export async function createAccount(
   };
   const created = await createAccountWithMemberDoc(account, {
     member: newMember(username, name),
+    ...(referredBy ? { referredBy } : {}),
     actions: [],
     pulses: [],
     workoutLogs: [],

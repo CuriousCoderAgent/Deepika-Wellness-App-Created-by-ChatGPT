@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Bell, ChevronLeft, ChevronRight, Download, HeartPulse, ShieldCheck, Trash2, UserRound, Users } from "lucide-react-native";
 import { activeDays } from "../activity";
 import { deleteAccount, exportAccount } from "../api";
+import { PasswordField } from "../PasswordField";
 import { s } from "../design/styles";
 import { C } from "../design/tokens";
 import { CONNECTED_HEALTH_NAME } from "../health";
@@ -56,7 +57,7 @@ export function Profile({
    */
   const invite = () =>
     Share.share({
-      message: `I’m building steadier wellness habits with Bharosa Wellness. Once you’ve signed up, add me — my username is ${doc.member.id}. We’d each only see how much of our plan we’ve done, and only after we both accept.`,
+      message: `I’m building steadier wellness habits with Bharosa Wellness. Download it, and enter my username ${doc.member.id} as your join code — that is what gets you in. Add me afterwards and we’d each only see how much of our plan we’ve done, and only after we both accept.`,
     });
   const reminderTime = parseReminderTime(engagement.reminders.time);
   const saveReminder = (enabled: boolean, time = reminderTime) =>
@@ -285,14 +286,10 @@ export function Profile({
               and cannot be recovered. Your coach will no longer see your
               record. Enter your password to confirm.
             </Text>
-            <TextInput
-              style={s.input}
+            <PasswordField
               value={deletePassword}
               onChangeText={setDeletePassword}
               placeholder="Your password"
-              placeholderTextColor={C.faint}
-              secureTextEntry
-              autoCapitalize="none"
             />
             <View style={s.deleteActions}>
               <Pressable

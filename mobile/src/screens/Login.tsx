@@ -3,6 +3,7 @@ import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, Sc
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { login, requestPasswordHelp, signup } from "../api";
+import { PasswordField } from "../PasswordField";
 import { s } from "../design/styles";
 import { C } from "../design/tokens";
 
@@ -129,13 +130,11 @@ export function Login({
           {mode !== "help" && (
             <>
               <Text style={s.inputLabel}>Password</Text>
-              <TextInput
-                style={s.input}
-                secureTextEntry
+              <PasswordField
                 value={password}
                 onChangeText={setPassword}
                 onSubmitEditing={submit}
-                textContentType={mode === "signup" ? "newPassword" : "password"}
+                isNew={mode === "signup"}
               />
               {mode === "signup" && (
                 <Text style={s.fieldHint}>Use at least 8 characters.</Text>
@@ -144,7 +143,7 @@ export function Login({
           )}
           {mode === "signup" && (
             <>
-              <Text style={s.inputLabel}>Join code</Text>
+              <Text style={s.inputLabel}>Join code or invite</Text>
               {/* Was autoCapitalize="characters", which force-uppercased every
                   keystroke while the server compares case-sensitively — so any
                   code containing a lowercase letter was impossible to type on a
@@ -159,7 +158,8 @@ export function Login({
                 onChangeText={setJoinCode}
               />
               <Text style={s.fieldHint}>
-                Exactly as it was sent to you, including capitals.
+                The code you were sent, or the username of the member who
+                invited you.
               </Text>
             </>
           )}

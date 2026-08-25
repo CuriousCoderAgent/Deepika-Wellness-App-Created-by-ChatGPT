@@ -58,6 +58,13 @@ export interface MemberDoc {
   healthConnection?: HealthConnection;
   healthSnapshots?: HealthSnapshot[];
   recommendations?: AiRecommendation[];
+  /**
+   * The member whose username was used as the invitation at sign-up.
+   *
+   * Recorded, never acted on: connecting them would create a relationship
+   * neither accepted. It is the only record of how anyone found this app.
+   */
+  referredBy?: string;
   onboarding?: MobileOnboarding;
   /**
    * Who she is, as far as she has chosen to say. See `lib/member-profile.ts`.

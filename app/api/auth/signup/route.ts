@@ -119,11 +119,43 @@ export async function POST(req: Request) {
   // sensitivity caught no attackers and locked out invited members. It costs
   // some guess space (62^n down to 36^n for an alphanumeric code); the rate
   // limiter above is what actually makes guessing impractical.
-  if (required && code.trim().toLowerCase() !== required.toLowerCase()) {
-    return NextResponse.json(
-      { error: "That join code isn't right." },
-      { status: 403 },
-    );
+  /*
+   * Two things open the door: the deployment's own code, or the username of
+   * a member who is already inside.
+   *
+   * Only the first existed, and it made every invitation a dead end. A member
+   * shares "add me, my username is X"; whoever receives it opens the app,
+   * finds one field marked Join code, types the only code they were given,
+   * and is told it is wrong. There was no way for an invited person to get in
+   * at all unless somebody separately sent them the deployment code — which
+   * is not a thing the app ever tells anyone to do.
+   *
+   * The cost is real and worth stating: a known username now opens the
+   * sign-up form, so the gate is only as private as the member list. That is
+   * the trade a referral is — the point of the gate is to keep strangers off
+   * the form, and someone holding a member's name is not quite a stranger.
+   * The rate limiter above is what makes guessing impractical either way, and
+   * sign-up already confirms whether a username is taken.
+   *
+   * Set SIGNUP_REFERRALS=off to require the deployment code and nothing else.
+   */
+  const typed = code.trim().toLowerCase();
+  const matchesCode = Boolean(required) && typed === required!.toLowerCase();
+  const referralsOn = process.env.SIGNUP_REFERRALS?.trim() !== "off";
+  let referrer: string | null = null;
+  if (required && !matchesCode) {
+    if (referralsOn && typed) {
+      const inviter = await readAccount(normaliseUsername(typed));
+      if (inviter) referrer = inviter.userId;
+    }
+    if (!referrer)
+      return NextResponse.json(
+        {
+          error:
+            "That join code isn't right. Use the code you were sent, or the username of the member who invited you.",
+        },
+        { status: 403 },
+      );
   }
 
   if (!name.trim()) {
@@ -147,7 +179,10 @@ export async function POST(req: Request) {
 
   let user;
   try {
-    user = await createAccount(username, password, name, email);
+    // The referrer is recorded, not acted on. Connecting them here would
+    // create a relationship neither has accepted, and the circle's whole
+    // shape is that both sides say yes first.
+    user = await createAccount(username, password, name, email, referrer);
   } catch (err) {
     console.error("[signup] failed", err);
     return NextResponse.json(
