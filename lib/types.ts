@@ -273,7 +273,27 @@ export interface WorkoutLog {
   painFlag: boolean;
   feltLike?: string;
   provenance: Provenance;
+  /**
+   * What she said about the pain, when there was any.
+   *
+   * See mobile/src/pain.ts. Opaque here — the console renders `painNote`
+   * and never re-derives a verdict from these fields, because the routing
+   * decision was already made and recorded on the phone.
+   */
+  painReport?: Record<string, unknown>;
+  /** A sentence describing the above, for whoever opens the record. */
+  painNote?: string;
 }
+
+/*
+ * A note on the two shapes above.
+ *
+ * The phone writes `perceivedEffort`, `pain` and `level`; this type says
+ * `rpe`, `painFlag` and `completedLevel`. Both shapes exist in stored
+ * documents, and `sessionRecords()` in the plan route reads either. Nothing
+ * is broken by it, but nothing is served by it either — worth reconciling
+ * the next time this record is touched for its own sake.
+ */
 
 export interface CoachModule {
   id: string;

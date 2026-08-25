@@ -1789,6 +1789,16 @@ export const s = StyleSheet.create({
   painChoiceText: { color: C.soft, fontSize: 12, fontWeight: "700" },
   painChoiceTextActive: { color: C.greenDeep },
   painChoiceWarningText: { color: "#943D32" },
+  /* The three questions, shown only once she has said there was pain. */
+  painDetail: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: C.line,
+  },
+  painDetailGap: { marginTop: 16 },
+  /* Full width, because it is a statement rather than one of a set. */
+  painStopped: { alignSelf: "flex-start", marginTop: 14 },
   painWarning: { color: "#943D32", fontSize: 11, lineHeight: 16, marginTop: 9 },
   logButton: {
     minHeight: 44,

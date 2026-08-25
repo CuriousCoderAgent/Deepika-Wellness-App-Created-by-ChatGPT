@@ -36,6 +36,13 @@ import { AWARDS, awardMetrics } from "../mobile/src/awards.ts";
 import { compactKcal, liveMeals } from "../mobile/src/meals.ts";
 import { normalizeMemberDoc } from "../mobile/src/normalize.ts";
 import {
+  PAIN_KINDS,
+  PAIN_SITES,
+  PAIN_TIMINGS,
+  describePain,
+  routePain,
+} from "../mobile/src/pain.ts";
+import {
   buildLogFeed,
   loggedToday,
   whenLabel,
@@ -4047,4 +4054,98 @@ test("consult_first holds movement and says why, every day it applies", () => {
     assert.ok(doc.lastPlan.movementHeld, "held with no explanation");
     assert.match(doc.lastPlan.movementHeld.body, /doctor/i);
   }
+});
+
+/* ------------------------------------------------------------------ *
+ * Pain: routing, never prescribing
+ *
+ * Pain used to be a checkbox that always did the same two things — pause
+ * the movement, and promise a coach review that for an uncoached member
+ * nobody was going to perform.
+ * ------------------------------------------------------------------ */
+
+const report = (over = {}) => ({
+  site: "knee",
+  kind: "ache",
+  timing: "during",
+  stopped: false,
+  ...over,
+});
+const ctx = (coached = false) => ({ coached, movement: "Chair squat" });
+
+test("sharp pain, or pain that stopped her, sends her to a person", () => {
+  for (const r of [report({ kind: "sharp" }), report({ stopped: true })]) {
+    const route = routePain(r, ctx());
+    assert.equal(route.pause, true);
+    assert.equal(route.seekCare, true);
+    assert.match(route.body, /doctor|physiotherapist/i);
+  }
+});
+
+test("an ache while moving pauses the movement without sending her to a clinic", () => {
+  const route = routePain(report({ kind: "ache", timing: "during" }), ctx());
+  assert.equal(route.pause, true);
+  assert.equal(route.seekCare, false);
+});
+
+test("stiffness afterwards does not remove a movement she is simply new to", () => {
+  for (const r of [
+    report({ kind: "tightness", timing: "after" }),
+    report({ kind: "ache", timing: "after" }),
+  ]) {
+    const route = routePain(r, ctx());
+    assert.equal(route.pause, false);
+    assert.equal(route.coachReview, false);
+  }
+});
+
+test("a review is only promised when a coach exists to perform it", () => {
+  // The old copy told every member her coach would review it. Uncoached is
+  // the default, so that promise was usually false.
+  const alone = routePain(report({ kind: "sharp" }), ctx(false));
+  assert.equal(alone.coachReview, false);
+  assert.doesNotMatch(alone.body, /your coach/i);
+
+  const coached = routePain(report({ kind: "sharp" }), ctx(true));
+  assert.equal(coached.coachReview, true);
+  assert.match(coached.body, /your coach/i);
+});
+
+test("nothing in a pain route prescribes anything", () => {
+  // It routes. A wellness app naming a treatment is exactly the confident
+  // wrongness this architecture exists to prevent.
+  const forbidden =
+    /\bice\b|\bheat\b|\bstretch(es|ing)?\b|\brest it\b|\bmassage\b|\banti-inflammator|\bpainkiller|\bstrain\b|\bsprain\b|\btendinitis\b|\btear\b/i;
+  for (const kind of ["sharp", "ache", "tightness"])
+    for (const timing of ["during", "after"])
+      for (const stopped of [true, false])
+        for (const coached of [true, false]) {
+          const route = routePain(report({ kind, timing, stopped }), ctx(coached));
+          assert.doesNotMatch(
+            route.body + " " + route.title,
+            forbidden,
+            `${kind}/${timing}/${stopped} prescribed something`,
+          );
+        }
+});
+
+test("every combination produces a real answer", () => {
+  for (const site of PAIN_SITES.map((x) => x.id))
+    for (const kind of PAIN_KINDS.map((x) => x.id))
+      for (const timing of PAIN_TIMINGS.map((x) => x.id)) {
+        const route = routePain(report({ site, kind, timing }), ctx());
+        assert.ok(route.title.length > 0);
+        assert.ok(route.body.length > 30);
+      }
+});
+
+test("a pain report reads as a sentence for whoever opens it", () => {
+  assert.equal(
+    describePain(report({ site: "knee", kind: "sharp", timing: "during", stopped: true })),
+    "Knee: sharp pain during, had to stop",
+  );
+  assert.equal(
+    describePain(report({ site: "back", kind: "tightness", timing: "after" })),
+    "Back: tightness after",
+  );
 });

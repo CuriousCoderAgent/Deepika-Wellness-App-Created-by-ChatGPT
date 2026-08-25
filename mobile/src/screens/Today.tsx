@@ -6,6 +6,17 @@ import { activeDays } from "../activity";
 import { DEMO_TOKEN, loadCircle } from "../api";
 import { COACH_NAME } from "../coach";
 import { DOMAIN_META, type DomainIcon } from "../content";
+import {
+  PAIN_KINDS,
+  PAIN_SITES,
+  PAIN_TIMINGS,
+  describePain,
+  routePain,
+  type PainKind,
+  type PainReport,
+  type PainSite,
+  type PainTiming,
+} from "../pain";
 import { s } from "../design/styles";
 import { C } from "../design/tokens";
 import { exerciseMediaFor } from "../exerciseMedia";
@@ -81,10 +92,24 @@ export function Today({
     id: string,
     level: EffortLevel | "rest",
     effort: 1 | 2 | 3 | 4 | 5 = 3,
-    pain = false,
+    report?: PainReport,
     skipKind?: SkipReason,
   ) => {
     const action = doc.actions.find((item) => item.id === id);
+    const movement = action?.title ?? "That movement";
+    /*
+     * How far to step back, and who should hear about it.
+     *
+     * Pain used to be a boolean, so a twinge the next morning and a sharp
+     * catch that made her stop produced the same response. See src/pain.ts.
+     */
+    const route = report
+      ? routePain(report, {
+          coached: doc.coaching?.mode === "coached",
+          movement,
+        })
+      : null;
+    const pain = Boolean(report);
     const workoutLogs =
       action?.exercise && level !== "rest"
         ? [
@@ -97,34 +122,42 @@ export function Today({
               level,
               perceivedEffort: effort,
               pain,
-              coachReviewRequired: pain,
+              painReport: report,
+              painNote: report ? describePain(report) : undefined,
+              // Only when a coach exists to perform the review.
+              coachReviewRequired: Boolean(route?.coachReview),
             },
           ]
         : doc.workoutLogs;
-    const painMessage = pain
+    /*
+     * Written for a coach, so only written when there is one.
+     *
+     * This used to be created for every member. An uncoached member — the
+     * default — got a message saying her coach would review the movement,
+     * addressed to a person who did not exist.
+     */
+    const painMessage = route?.coachReview
       ? [
           {
             id: newId("pain"),
             memberId: doc.member.id,
             from: "system" as const,
             kind: "plan_update" as const,
-            body: `${doc.member.name} reported pain during ${action?.title ?? "an exercise"}. Review before this movement is repeated.`,
+            body: `${doc.member.name} reported ${describePain(report!).toLowerCase()} during ${movement}. Review before this movement is repeated.`,
             dayOffset: 0,
             time: "just now",
             read: false,
           },
         ]
       : [];
-    const painRecommendation: AiRecommendation[] = pain
+    const painRecommendation: AiRecommendation[] = route?.coachReview
       ? [
           {
             id: newId("recommendation"),
             createdAt: new Date().toISOString(),
             kind: "coach_review",
             actionId: id,
-            evidence: [
-              `Pain was reported during ${action?.title ?? "a movement"}`,
-            ],
+            evidence: [`${describePain(report!)} — during ${movement}`],
             rationale:
               "This movement is paused for coach review. Bharosa has not prescribed a replacement.",
             confidence: 1,
@@ -142,6 +175,18 @@ export function Today({
       workoutLogs,
       messages: [...doc.messages, ...painMessage],
       recommendations: [...doc.recommendations, ...painRecommendation],
+      // Only the bands that warrant it. Stiffness the next day should not
+      // remove a movement she may simply be new to.
+      pausedExerciseIds: route?.pause
+        ? [
+            ...new Set([
+              ...(doc.pausedExerciseIds ?? []),
+              ...(action?.exercise?.exerciseId
+                ? [action.exercise.exerciseId]
+                : []),
+            ]),
+          ]
+        : doc.pausedExerciseIds,
     });
     if (pain)
       Alert.alert(
@@ -240,6 +285,7 @@ export function Today({
               {expandedDomain === domain &&
                 inDomain.map((a) => (
                   <ActionCard
+                    coached={doc.coaching?.mode === "coached"}
                     key={a.id}
                     action={a}
                     inline
@@ -250,8 +296,8 @@ export function Today({
                           item.actionId === a.id &&
                           ["applied", "approved"].includes(item.status),
                       )}
-                    onComplete={(level, effort, pain) =>
-                      complete(a.id, level, effort, pain)
+                    onComplete={(level, effort, report) =>
+                      complete(a.id, level, effort, report)
                     }
                   />
                 ))}
@@ -305,15 +351,18 @@ export function Today({
 export function ActionCard({
   action,
   recommendation,
+  coached,
   onComplete,
   inline,
 }: {
   action: DailyAction;
   recommendation?: AiRecommendation;
+  /** Whether a coach exists to review a pain report. Decides the copy. */
+  coached?: boolean;
   onComplete: (
     level: EffortLevel | "rest",
     effort?: 1 | 2 | 3 | 4 | 5,
-    pain?: boolean,
+    report?: PainReport,
     skipKind?: SkipReason,
   ) => void;
   /** Rendered inside the day card, so it drops its own background and border. */
@@ -326,13 +375,29 @@ export function ActionCard({
   const [skipping, setSkipping] = useState(false);
   const [effort, setEffort] = useState<1 | 2 | 3 | 4 | 5>(3);
   const [pain, setPain] = useState(false);
+  /* Sensible starting answers, so reporting pain is three taps and not six. */
+  const [painSite, setPainSite] = useState<PainSite>("knee");
+  const [painKind, setPainKind] = useState<PainKind>("ache");
+  const [painTiming, setPainTiming] = useState<PainTiming>("during");
+  const [painStopped, setPainStopped] = useState(false);
   const domain = DOMAIN_META[action.domain];
   const DomainIconComponent = DOMAIN_ICONS[domain.icon];
   const chooseLevel = (level: EffortLevel) =>
     action.exercise ? setPendingLevel(level) : onComplete(level);
   const saveWorkout = () => {
     if (!pendingLevel) return;
-    onComplete(pendingLevel, effort, pain);
+    onComplete(
+      pendingLevel,
+      effort,
+      pain
+        ? {
+            site: painSite,
+            kind: painKind,
+            timing: painTiming,
+            stopped: painStopped,
+          }
+        : undefined,
+    );
     setPendingLevel(null);
   };
   return (
@@ -513,11 +578,126 @@ export function ActionCard({
                   </Text>
                 </Pressable>
               </View>
+              {/*
+                Three short questions rather than a box to type in. A
+                checkbox could not tell soreness from injury, so both got
+                the same response — and typing while your knee hurts is not
+                something people do. See src/pain.ts for what each answer
+                changes.
+              */}
               {pain && (
-                <Text style={s.painWarning}>
-                  Stop this movement. Your coach will be asked to review it
-                  before you repeat it.
-                </Text>
+                <View style={s.painDetail}>
+                  <Text style={s.detailLabel}>Where?</Text>
+                  <View style={s.chipWrap}>
+                    {PAIN_SITES.map((option) => (
+                      <Pressable
+                        key={option.id}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: painSite === option.id }}
+                        style={[
+                          s.chip,
+                          painSite === option.id && s.chipActive,
+                        ]}
+                        onPress={() => setPainSite(option.id)}
+                      >
+                        <Text
+                          style={[
+                            s.chipText,
+                            painSite === option.id && s.chipTextActive,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <Text style={[s.detailLabel, s.painDetailGap]}>
+                    What did it feel like?
+                  </Text>
+                  <View style={s.chipWrap}>
+                    {PAIN_KINDS.map((option) => (
+                      <Pressable
+                        key={option.id}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: painKind === option.id }}
+                        accessibilityLabel={`${option.label}. ${option.detail}`}
+                        style={[
+                          s.chip,
+                          painKind === option.id && s.chipActive,
+                        ]}
+                        onPress={() => setPainKind(option.id)}
+                      >
+                        <Text
+                          style={[
+                            s.chipText,
+                            painKind === option.id && s.chipTextActive,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <Text style={[s.detailLabel, s.painDetailGap]}>When?</Text>
+                  <View style={s.chipWrap}>
+                    {PAIN_TIMINGS.map((option) => (
+                      <Pressable
+                        key={option.id}
+                        accessibilityRole="radio"
+                        accessibilityState={{
+                          checked: painTiming === option.id,
+                        }}
+                        style={[
+                          s.chip,
+                          painTiming === option.id && s.chipActive,
+                        ]}
+                        onPress={() => setPainTiming(option.id)}
+                      >
+                        <Text
+                          style={[
+                            s.chipText,
+                            painTiming === option.id && s.chipTextActive,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: painStopped }}
+                    style={[s.chip, s.painStopped, painStopped && s.chipActive]}
+                    onPress={() => setPainStopped(!painStopped)}
+                  >
+                    <Text
+                      style={[s.chipText, painStopped && s.chipTextActive]}
+                    >
+                      {painStopped ? "✓ " : ""}It made me stop
+                    </Text>
+                  </Pressable>
+
+                  {/* What will happen, said before she commits to saying it. */}
+                  <Text style={s.painWarning}>
+                    {
+                      routePain(
+                        {
+                          site: painSite,
+                          kind: painKind,
+                          timing: painTiming,
+                          stopped: painStopped,
+                        },
+                        {
+                          coached: Boolean(coached),
+                          movement: action.title,
+                        },
+                      ).body
+                    }
+                  </Text>
+                </View>
               )}
               <Pressable
                 style={({ pressed }) => [s.logButton, pressed && s.pressed]}
@@ -540,7 +720,7 @@ export function ActionCard({
                   style={({ pressed }) => [s.skipOption, pressed && s.pressed]}
                   onPress={() => {
                     setSkipping(false);
-                    onComplete("rest", undefined, false, option.reason);
+                    onComplete("rest", undefined, undefined, option.reason);
                   }}
                 >
                   <Text style={s.skipOptionText}>{option.label}</Text>
@@ -634,7 +814,7 @@ export function MovementSession({
     id: string,
     level: EffortLevel | "rest",
     effort?: 1 | 2 | 3 | 4 | 5,
-    pain?: boolean,
+    report?: PainReport,
   ) => void;
   onBack: () => void;
 }) {
@@ -672,6 +852,7 @@ export function MovementSession({
       </View>
       {actions.map((a) => (
         <ActionCard
+          coached={doc.coaching?.mode === "coached"}
           key={a.id}
           action={a}
           recommendation={[...doc.recommendations]

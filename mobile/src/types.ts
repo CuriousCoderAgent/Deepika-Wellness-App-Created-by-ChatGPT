@@ -1,5 +1,6 @@
 import type { MemberProfile } from "./profile";
 import type { MemberNote } from "./log-feed";
+import type { PainReport } from "./pain";
 import type { EstimateProvenance } from "./meal-estimate";
 
 export type EffortLevel = "minimum" | "target" | "stretch";
@@ -107,7 +108,16 @@ export interface WorkoutLog {
   level: EffortLevel;
   perceivedEffort: 1 | 2 | 3 | 4 | 5;
   pain: boolean;
+  /** A sentence for whoever opens it. Derived from painReport. */
   painNote?: string;
+  /**
+   * What she actually said about it. See src/pain.ts.
+   *
+   * Absent on logs written before this existed, and on logs with no pain.
+   * The boolean above stays because the adaptation rules read it and a
+   * movement that hurt must stay paused whatever the detail says.
+   */
+  painReport?: PainReport;
   coachReviewRequired: boolean;
 }
 
